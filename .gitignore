@@ -1,0 +1,9 @@
+
+# True First Person build output
+projects/vs2019/Debug/
+projects/vs2019/Release/
+projects/vs2019/.vs/
+*.user
+fpbody/cl_dlls/*.dll
+fpbody/cl_dlls/*.pdb
+fpbody/dlls/*.dll
