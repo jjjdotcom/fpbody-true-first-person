@@ -20,6 +20,8 @@
 #include "shake.h"
 #include "hltv.h"
 #include "Exports.h"
+#include "fpbody.h"
+#include "fpbody_anim.h"
 
 
 #ifndef M_PI
@@ -27,6 +29,7 @@
 #endif
 
 	int CL_IsThirdPerson( void );
+	int CAM_IsRealThirdPerson( void );
 	void CL_CameraOffset( float *ofs );
 
 	void CL_DLLEXPORT V_CalcRefdef( struct ref_params_s *pparams );
@@ -522,6 +525,14 @@ void V_CalcNormalRefdef ( struct ref_params_s *pparams )
 	pparams->vieworg[2] += ( bob );
 	VectorAdd( pparams->vieworg, pparams->viewheight, pparams->vieworg );
 
+	// fpbody: put the camera in the head of the player model. The head's own
+	// animation replaces the artificial view bob.
+	{
+		vec3_t headorg;
+		if ( FPBody_GetViewOrigin( pparams, headorg ) )
+			VectorCopy( headorg, pparams->vieworg );
+	}
+
 	VectorCopy ( pparams->cl_viewangles, pparams->viewangles );
 
 	gEngfuncs.V_CalcShake();
@@ -615,7 +626,7 @@ void V_CalcNormalRefdef ( struct ref_params_s *pparams )
 	}
 	
 	// Treating cam_ofs[2] as the distance
-	if( CL_IsThirdPerson() )
+	if( CAM_IsRealThirdPerson() )
 	{
 		vec3_t ofs;
 
@@ -690,6 +701,13 @@ void V_CalcNormalRefdef ( struct ref_params_s *pparams )
 	VectorAdd ( pparams->viewangles, (float *)&ev_punchangle, pparams->viewangles);
 
 	V_DropPunchAngle ( pparams->frametime, (float *)&ev_punchangle );
+
+	// fpbody: the view tilts and bobs with the body's head
+	{
+		vec3_t headofs;
+		FPAnim_GetViewAngleOffset( headofs );
+		VectorAdd( pparams->viewangles, headofs, pparams->viewangles );
+	}
 
 	// smooth out stair step ups
 #if 1
@@ -788,7 +806,7 @@ void V_CalcNormalRefdef ( struct ref_params_s *pparams )
 	v_angles = pparams->viewangles;
 	v_lastAngles = pparams->viewangles;
 //	v_cl_angles = pparams->cl_viewangles;	// keep old user mouse angles !
-	if ( CL_IsThirdPerson() )
+	if ( CAM_IsRealThirdPerson() )
 	{
 		VectorCopy( camAngles, pparams->viewangles);
 		float pitch = camAngles[ 0 ];
@@ -1639,6 +1657,8 @@ void CL_DLLEXPORT V_CalcRefdef( struct ref_params_s *pparams )
 {
 //	RecClCalcRefdef(pparams);
 
+	FPBody_BeginFrame( pparams );
+
 	// intermission / finale rendering
 	if ( pparams->intermission )
 	{	
@@ -1722,6 +1742,8 @@ void V_Init (void)
 	cl_bobup			= gEngfuncs.pfnRegisterVariable( "cl_bobup","0.5", 0 );
 	cl_waterdist		= gEngfuncs.pfnRegisterVariable( "cl_waterdist","4", 0 );
 	cl_chasedist		= gEngfuncs.pfnRegisterVariable( "cl_chasedist","112", 0 );
+
+	FPBody_Init();
 }
 
 

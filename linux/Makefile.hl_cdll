@@ -63,6 +63,8 @@ HL1_OBJS = \
 	$(HL1_OBJ_DIR)/hud_msg.o \
 	$(HL1_OBJ_DIR)/hud_redraw.o \
 	$(HL1_OBJ_DIR)/hud_update.o \
+	$(HL1_OBJ_DIR)/fpbody.o \
+	$(HL1_OBJ_DIR)/fpbody_anim.o \
 	$(HL1_OBJ_DIR)/in_camera.o \
 	$(HL1_OBJ_DIR)/input.o \
 	$(HL1_OBJ_DIR)/interpolation.o \

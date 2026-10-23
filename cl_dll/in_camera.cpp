@@ -15,6 +15,7 @@
 #include "camera.h"
 #include "in_defs.h"
 #include "Exports.h"
+#include "fpbody.h"
 
 #include "SDL2/SDL_mouse.h"
 #include "port.h"
@@ -616,11 +617,18 @@ void CAM_EndDistance(void)
    iMouseInUse=0;
 }
 
+// True only for the real chase camera ("thirdperson" command / spectating yourself).
+int CAM_IsRealThirdPerson( void )
+{
+	return (cam_thirdperson ? 1 : 0) || (g_iUser1 && (g_iUser2 == gEngfuncs.GetLocalPlayer()->index) );
+}
+
 int CL_DLLEXPORT CL_IsThirdPerson( void )
 {
 //	RecClCL_IsThirdPerson();
 
-	return (cam_thirdperson ? 1 : 0) || (g_iUser1 && (g_iUser2 == gEngfuncs.GetLocalPlayer()->index) );
+	// fpbody: tell the engine to draw our own body while the camera sits in its head
+	return CAM_IsRealThirdPerson() || FPBody_Active();
 }
 
 void CL_DLLEXPORT CL_CameraOffset( float *ofs )

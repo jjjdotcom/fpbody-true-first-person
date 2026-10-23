@@ -21,6 +21,7 @@
 
 #include "StudioModelRenderer.h"
 #include "GameStudioModelRenderer.h"
+#include "fpbody.h"
 
 extern cvar_t *tfc_newmodels;
 
@@ -1747,6 +1748,16 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 
 	m_pPlayerInfo = IEngineStudio.PlayerInfo( m_nPlayerIndex );
 	StudioSetupBones( );
+
+	// fpbody: animate the arms, remember where our head is and collapse it so
+	// it's not in the way. Done before StudioSaveBones so the weapon model in
+	// the hands is merged onto the animated bones.
+	if ( flags & STUDIO_RENDER )
+	{
+		FPBody_ProcessPlayerBones( pplayer->number, m_pCurrentEntity, m_pStudioHeader,
+			*m_pbonetransform, *m_plighttransform, pplayer->weaponmodel );
+	}
+
 	StudioSaveBones( );
 	m_pPlayerInfo->renderframe = m_nFrameCount;
 

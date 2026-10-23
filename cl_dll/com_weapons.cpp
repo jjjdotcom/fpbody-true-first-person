@@ -80,6 +80,9 @@ HUD_SendWeaponAnim
 Change weapon model animation
 =====================
 */
+void FPAnim_OnWeaponAnim( int iAnim, int viewmodelIndex );
+int HUD_GetViewModelIndex( void );
+
 void HUD_SendWeaponAnim( int iAnim, int body, int force )
 {
 	// Don't actually change it.
@@ -87,6 +90,9 @@ void HUD_SendWeaponAnim( int iAnim, int body, int force )
 		return;
 
 	g_currentanim = iAnim;
+
+	// fpbody: body animations follow the weapon's actions
+	FPAnim_OnWeaponAnim( iAnim, HUD_GetViewModelIndex() );
 
 	// Tell animation system new info
 	gEngfuncs.pfnWeaponAnim( iAnim, body );

@@ -46,6 +46,12 @@ static globalvars_t	Globals;
 
 static CBasePlayerWeapon *g_pWpns[ 32 ];
 
+// fpbody: current view model index, used to name weapon animations
+int HUD_GetViewModelIndex( void )
+{
+	return player.pev ? player.pev->viewmodel : 0;
+}
+
 float g_flApplyVel = 0.0;
 int   g_irunninggausspred = 0;
 
