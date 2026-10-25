@@ -28,6 +28,13 @@
 //   cl_fpbody_animscale 1    strength of all procedural animations
 //   cl_fpbody_sway      1    strength of weapon sway / lag
 //   cl_fpbody_headrot   0.6  how much the camera follows the head's rotation
+//   cl_fpbody_actcam    1    show full-body acts from behind (0 = stay in the head)
+//   cl_fpbody_gmod      1    use the GMod animations in the player model when present
+//
+// Console commands (GMod animations, need fpbody/models/player.mdl)
+//   fp_act <name>     play a gesture/taunt, e.g. "fp_act dance", "fp_act wave"
+//   fp_act_stop       stop it
+//   fp_actlist        list every available animation
 
 #include "hud.h"
 #include "cl_util.h"
@@ -54,12 +61,38 @@
 
 extern engine_studio_api_t IEngineStudio;
 extern kbutton_t in_use;
+extern kbutton_t in_attack;
+extern kbutton_t in_attack2;
+extern kbutton_t in_jump;
 extern "C" int g_onladder;	// pm_shared.c, set by client movement prediction
 
 static cvar_t *cl_fpbody_anims;
 static cvar_t *cl_fpbody_animscale;
 static cvar_t *cl_fpbody_sway;
 static cvar_t *cl_fpbody_headrot;
+static cvar_t *cl_fpbody_actcam;
+static cvar_t *cl_fpbody_gmod;
+
+// ---------------------------------------------------------------------------
+// GMod animation overlays (gm_* sequences in the player model)
+// ---------------------------------------------------------------------------
+
+static const studiohdr_t *g_playerHdr;		// the local player's model, seen while drawing
+static bool g_bGmodModel;					// it contains converted GMod animations
+static char g_ovRequest[ 64 ];				// pending fp_act request (resolved when drawing)
+static int g_ovSeq = -1;
+static float g_ovStart;
+static float g_ovDur;
+static float g_ovRate = 1.0f;
+static bool g_ovFull;
+static bool g_ovLoop;
+static bool g_ovUser;						// started by fp_act (vs. automatic reload)
+static float g_speed2D;
+
+static void StopOverlay( void ) { g_ovSeq = -1; g_ovRequest[ 0 ] = 0; }
+static void FP_ActCmd( void );
+static void FP_ActList( void );
+static bool StartOverlay( const char *name, bool user, float wantDur );
 
 // ---------------------------------------------------------------------------
 // Small math helpers
@@ -254,6 +287,12 @@ void FPAnim_Init( void )
 	cl_fpbody_animscale = gEngfuncs.pfnRegisterVariable( "cl_fpbody_animscale", "1", FCVAR_ARCHIVE );
 	cl_fpbody_sway      = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sway", "1", FCVAR_ARCHIVE );
 	cl_fpbody_headrot   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_headrot", "0.6", FCVAR_ARCHIVE );
+	cl_fpbody_actcam    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_actcam", "1", FCVAR_ARCHIVE );
+	cl_fpbody_gmod      = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gmod", "1", FCVAR_ARCHIVE );
+
+	gEngfuncs.pfnAddCommand( "fp_act", FP_ActCmd );
+	gEngfuncs.pfnAddCommand( "fp_act_stop", StopOverlay );
+	gEngfuncs.pfnAddCommand( "fp_actlist", FP_ActList );
 }
 
 static bool AnimsOn( void )
@@ -432,6 +471,27 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 	if ( type == CLIP_BEAM && g_cur.type == CLIP_BEAM )
 		return;
 
+	// switching weapons cancels a GMod reload in progress
+	if ( ( type == CLIP_DRAW || type == CLIP_HOLSTER ) && g_ovSeq >= 0 && !g_ovUser )
+		StopOverlay();
+
+	// Use GMod's reload animation for this weapon when the model has one
+	if ( type == CLIP_RELOAD && g_bGmodModel && cl_fpbody_gmod->value != 0.0f )
+	{
+		const char *gm = NULL;
+		if ( Has( modelName, "v_9mmhandgun" ) )     gm = "gm_reload_pistol";
+		else if ( Has( modelName, "v_357" ) )       gm = "gm_reload_revolver";
+		else if ( Has( modelName, "v_9mmar" ) )     gm = "gm_reload_smg1";
+		else if ( Has( modelName, "v_crossbow" ) )  gm = "gm_reload_ar2";
+		else if ( Has( modelName, "v_rpg" ) )       gm = "gm_reload_smg1_alt";
+
+		if ( gm && StartOverlay( gm, false, seqDur ) )
+		{
+			StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
+			return;
+		}
+	}
+
 	StartClip( type, variant, strength, seqDur );
 }
 
@@ -510,6 +570,16 @@ static void EvalClip( const clip_t &c, float now, float weight, pose_t &p,
 	float t = tau / c.dur;
 	float s = c.strength * weight;
 	float dir[ 3 ];
+
+	// With GMod animations in the model, ref_shoot_* already carries the
+	// swing / throw / placing motion and most of the recoil
+	if ( g_bGmodModel && cl_fpbody_gmod->value != 0.0f )
+	{
+		if ( c.type == CLIP_MELEE || c.type == CLIP_THROW || c.type == CLIP_PLACE )
+			return;
+		if ( c.type == CLIP_RECOIL )
+			s *= 0.35f;
+	}
 
 	switch ( c.type )
 	{
@@ -644,6 +714,15 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 	g_frameTime = Clamp( pparams->frametime, 0.0f, 0.1f );
 
 	PollViewModel();
+
+	g_speed2D = (float)sqrt( pparams->simvel[ 0 ] * pparams->simvel[ 0 ] + pparams->simvel[ 1 ] * pparams->simvel[ 1 ] );
+
+	// full-body acts end when you move, shoot or jump
+	if ( g_ovSeq >= 0 && g_ovFull && g_now - g_ovStart > 0.3f )
+	{
+		if ( g_speed2D > 40.0f || ( in_attack.state & 1 ) || ( in_attack2.state & 1 ) || ( in_jump.state & 1 ) )
+			StopOverlay();
+	}
 
 	// +use
 	bool useDown = ( in_use.state & 1 ) != 0;
@@ -1004,6 +1083,9 @@ void FPAnim_GetViewAngleOffset( float *ofs )
 	if ( !FPBody_Active() || !cl_fpbody_headrot || cl_fpbody_headrot->value == 0.0f )
 		return;
 
+	if ( FPAnim_ActCamActive() )
+		return;
+
 	if ( gEngfuncs.GetClientTime() - g_headOfsTime > 0.25f )
 		return;
 
@@ -1033,7 +1115,9 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 	gEngfuncs.GetViewAngles( (float *)angles );
 	AngleVectors( angles, f, r, u );
 
-	if ( AnimsOn() )
+	bool fullAct = ( g_ovSeq >= 0 && g_ovFull );
+
+	if ( AnimsOn() && !fullAct )
 	{
 		// a new gun in the hands without a draw animation still comes up from low
 		if ( weaponmodel != g_lastWeaponModel )
@@ -1116,4 +1200,147 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 
 	// Camera rotation from the final head pose
 	UpdateHeadRotation( light, headBone, f, r, u, now );
+}
+
+// ---------------------------------------------------------------------------
+// GMod overlays: lookup, fp_act commands, renderer hook
+// ---------------------------------------------------------------------------
+
+static int FindSeq( const studiohdr_t *hdr, const char *name )
+{
+	if ( !hdr )
+		return -1;
+	const mstudioseqdesc_t *seqs = (const mstudioseqdesc_t *)( (const byte *)hdr + hdr->seqindex );
+	for ( int i = 0; i < hdr->numseq; i++ )
+		if ( !stricmp( seqs[ i ].label, name ) )
+			return i;
+	return -1;
+}
+
+static bool IsUpperBodyAct( const char *label )
+{
+	return !strnicmp( label, "gm_gesture_", 11 ) || !strnicmp( label, "gm_reload_", 10 ) ||
+		   !strnicmp( label, "gm_shove_", 9 ) || !strnicmp( label, "gm_zombie_attack_", 17 );
+}
+
+// Start a gm_ sequence now. wantDur > 0 stretches it to that many seconds.
+static bool StartOverlay( const char *name, bool user, float wantDur )
+{
+	if ( !g_playerHdr )
+		return false;
+
+	static const char *prefixes[] = { "", "gm_", "gm_taunt_", "gm_gesture_", "gm_pose_", "gm_idle_all_", "gm_seq_" };
+	int seq = -1;
+	char full[ 96 ];
+	for ( int i = 0; i < (int)( sizeof( prefixes ) / sizeof( prefixes[ 0 ] ) ) && seq < 0; i++ )
+	{
+		snprintf( full, sizeof( full ), "%s%s", prefixes[ i ], name );
+		seq = FindSeq( g_playerHdr, full );
+	}
+	if ( seq < 0 )
+		return false;
+
+	const mstudioseqdesc_t *sd = (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) + seq;
+	float dur = ( sd->fps > 0.0f && sd->numframes > 1 ) ? ( sd->numframes - 1 ) / sd->fps : 0.1f;
+
+	g_ovSeq = seq;
+	g_ovStart = gEngfuncs.GetClientTime();
+	g_ovRate = ( wantDur > 0.05f ) ? Clamp( dur / wantDur, 0.5f, 2.0f ) : 1.0f;
+	g_ovDur = dur / g_ovRate;
+	g_ovLoop = ( sd->flags & STUDIO_LOOPING ) != 0;
+	g_ovFull = !IsUpperBodyAct( sd->label );
+	g_ovUser = user;
+	return true;
+}
+
+static void FP_ActCmd( void )
+{
+	if ( gEngfuncs.Cmd_Argc() < 2 )
+	{
+		gEngfuncs.Con_Printf( "usage: fp_act <name>   (fp_actlist shows them all, fp_act_stop stops)\n" );
+		return;
+	}
+	if ( !FPBody_Active() )
+	{
+		gEngfuncs.Con_Printf( "fp_act: only works in first-person body mode (cl_fpbody 1, alive)\n" );
+		return;
+	}
+	// resolved on the next frame, when the player model is known
+	strncpy( g_ovRequest, gEngfuncs.Cmd_Argv( 1 ), sizeof( g_ovRequest ) - 1 );
+	g_ovRequest[ sizeof( g_ovRequest ) - 1 ] = 0;
+}
+
+static void FP_ActList( void )
+{
+	if ( !g_playerHdr )
+	{
+		gEngfuncs.Con_Printf( "fp_actlist: start a map first\n" );
+		return;
+	}
+	const mstudioseqdesc_t *seqs = (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex );
+	int n = 0;
+	for ( int i = 0; i < g_playerHdr->numseq; i++ )
+	{
+		if ( strnicmp( seqs[ i ].label, "gm_", 3 ) )
+			continue;
+		gEngfuncs.Con_Printf( "  %-28s %s%s\n", seqs[ i ].label + 3,
+			IsUpperBodyAct( seqs[ i ].label ) ? "upper body" : "full body",
+			( seqs[ i ].flags & STUDIO_LOOPING ) ? ", loops" : "" );
+		n++;
+	}
+	if ( !n )
+		gEngfuncs.Con_Printf( "No GMod animations in this player model (fpbody/models/player.mdl missing?)\n" );
+	else
+		gEngfuncs.Con_Printf( "%d animations. Example: fp_act dance  /  bind g \"fp_act wave\"\n", n );
+}
+
+int FPAnim_GetOverlay( int playerNumber, void *studiohdr, int *seq, float *animtime,
+	float *framerate, int *fullbody )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( !local || playerNumber != local->index )
+		return 0;
+
+	const studiohdr_t *hdr = (const studiohdr_t *)studiohdr;
+	if ( hdr != g_playerHdr )
+	{
+		g_playerHdr = hdr;
+		g_bGmodModel = FindSeq( hdr, "gm_taunt_dance" ) >= 0;
+		g_ovSeq = -1;
+	}
+
+	if ( !FPBody_Active() || cl_fpbody_gmod->value == 0.0f )
+	{
+		g_ovSeq = -1;
+		g_ovRequest[ 0 ] = 0;
+		return 0;
+	}
+
+	if ( g_ovRequest[ 0 ] )
+	{
+		if ( !StartOverlay( g_ovRequest, true, 0.0f ) )
+			gEngfuncs.Con_Printf( "fp_act: no animation called \"%s\" (type fp_actlist)\n", g_ovRequest );
+		g_ovRequest[ 0 ] = 0;
+	}
+
+	if ( g_ovSeq < 0 || g_ovSeq >= hdr->numseq )
+		return 0;
+
+	float now = gEngfuncs.GetClientTime();
+	if ( now < g_ovStart || ( !g_ovLoop && now > g_ovStart + g_ovDur ) )
+	{
+		g_ovSeq = -1;
+		return 0;
+	}
+
+	*seq = g_ovSeq;
+	*animtime = g_ovStart;
+	*framerate = g_ovRate;
+	*fullbody = g_ovFull ? 1 : 0;
+	return 1;
+}
+
+int FPAnim_ActCamActive( void )
+{
+	return g_ovSeq >= 0 && g_ovFull && cl_fpbody_actcam && cl_fpbody_actcam->value != 0.0f;
 }

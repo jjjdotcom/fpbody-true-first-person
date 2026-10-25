@@ -256,6 +256,10 @@ void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void 
 	// first, so the camera and the weapon in the hands follow them.
 	FPAnim_ApplyBones( studiohdr, bonetransform, lighttransform, g_iHeadBone, weaponmodel );
 
+	// Full-body acts are watched from behind, so keep the head
+	if ( FPAnim_ActCamActive() )
+		return;
+
 	if ( g_iHeadBone < 0 )
 		return;
 
@@ -307,10 +311,44 @@ void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void 
 	}
 }
 
+// Camera behind the player while a full-body act plays (mouse orbits it)
+static int ActCamOrigin( struct ref_params_s *pparams, float *outOrigin )
+{
+	vec3_t forward, right, up, eye, target;
+	AngleVectors( pparams->cl_viewangles, forward, right, up );
+	VectorAdd( pparams->simorg, pparams->viewheight, eye );
+	for ( int i = 0; i < 3; i++ )
+		target[ i ] = eye[ i ] - forward[ i ] * 90.0f + up[ i ] * 6.0f;
+
+	pmtrace_t tr;
+	gEngfuncs.pEventAPI->EV_SetUpPlayerPrediction( false, true );
+	gEngfuncs.pEventAPI->EV_PushPMStates();
+	gEngfuncs.pEventAPI->EV_SetSolidPlayers( -1 );
+	gEngfuncs.pEventAPI->EV_SetTraceHull( 2 );
+	gEngfuncs.pEventAPI->EV_PlayerTrace( eye, target, PM_WORLD_ONLY, -1, &tr );
+	gEngfuncs.pEventAPI->EV_PopPMStates();
+
+	if ( tr.fraction < 1.0f )
+	{
+		vec3_t dir;
+		VectorSubtract( target, eye, dir );
+		float len = VectorNormalize( dir );
+		float dist = len * tr.fraction - 4.0f;
+		if ( dist < 0.0f )
+			dist = 0.0f;
+		VectorMA( eye, dist, dir, target );
+	}
+	VectorCopy( target, outOrigin );
+	return 1;
+}
+
 int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 {
 	if ( !FPBody_Active() )
 		return 0;
+
+	if ( FPAnim_ActCamActive() )
+		return ActCamOrigin( pparams, outOrigin );
 
 	if ( g_flHeadTime < 0.0f )
 		return 0;

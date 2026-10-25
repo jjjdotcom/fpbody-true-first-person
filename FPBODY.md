@@ -56,6 +56,22 @@ You can also open `projects/vs2019/projects.sln`, retarget if asked, and build
 | `cl_fpbody_animscale` | `1` | Strength of the procedural animations |
 | `cl_fpbody_sway` | `1` | Weapon sway / lag strength |
 | `cl_fpbody_headrot` | `0.6` | How much the camera follows the head's tilt |
+| `cl_fpbody_actcam` | `1` | Watch full-body acts from behind (`0` = stay in the head) |
+| `cl_fpbody_gmod` | `1` | Use converted GMod animations (reloads, acts) when present |
+
+## GMod animations (optional)
+
+`tools/gmod_anims` converts Garry's Mod's player animations onto Half-Life's
+player model (you need both games; the result is for personal use and is not
+included here). With `fpbody/models/player.mdl` in place:
+
+- movement, jumping, swimming, deaths and every weapon pose use GMod's
+  animations (Half-Life picks them by name, no code needed);
+- reloads play GMod's reload animation for the pistol, .357, MP5, crossbow
+  and RPG (other procedural animations still run on top);
+- `fp_act <name>` plays a gesture or taunt (`fp_act dance`, `fp_act wave`,
+  `fp_act salute`, ...), `fp_act_stop` stops it, `fp_actlist` lists all 75.
+  Full-body acts end when you move, shoot or jump.
 
 ## Limitations
 

@@ -22,6 +22,37 @@
 #include "StudioModelRenderer.h"
 #include "GameStudioModelRenderer.h"
 #include "fpbody.h"
+#include "fpbody_anim.h"
+
+// fpbody: restores the entity fields an overlay animation changed, on any
+// return path out of StudioDrawPlayer
+struct FPOverlayRestore
+{
+	cl_entity_t *ent;
+	bool saved;
+	int sequence;
+	float frame, animtime, framerate, pitch;
+
+	FPOverlayRestore() : ent( NULL ), saved( false ) {}
+	void Save( cl_entity_t *e )
+	{
+		ent = e; saved = true;
+		sequence = e->curstate.sequence;
+		frame = e->curstate.frame;
+		animtime = e->curstate.animtime;
+		framerate = e->curstate.framerate;
+		pitch = e->curstate.angles[ 0 ];
+	}
+	~FPOverlayRestore()
+	{
+		if ( !saved ) return;
+		ent->curstate.sequence = sequence;
+		ent->curstate.frame = frame;
+		ent->curstate.animtime = animtime;
+		ent->curstate.framerate = framerate;
+		ent->curstate.angles[ 0 ] = pitch;
+	}
+};
 
 extern cvar_t *tfc_newmodels;
 
@@ -1700,6 +1731,30 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 	m_pStudioHeader = (studiohdr_t *)IEngineStudio.Mod_Extradata (m_pRenderModel);
 	IEngineStudio.StudioSetHeader( m_pStudioHeader );
 	IEngineStudio.SetRenderModel( m_pRenderModel );
+
+	// fpbody: GMod gestures / taunts / reloads on the local player
+	entity_state_t fpState;
+	FPOverlayRestore fpRestore;
+	{
+		int ovSeq, ovFull;
+		float ovTime, ovRate;
+		if ( FPAnim_GetOverlay( pplayer->number, m_pStudioHeader, &ovSeq, &ovTime, &ovRate, &ovFull ) )
+		{
+			fpRestore.Save( m_pCurrentEntity );
+			fpState = *pplayer;
+			fpState.sequence = ovSeq;
+			if ( ovFull )
+			{
+				fpState.gaitsequence = 0;					// whole body plays the act
+				m_pCurrentEntity->curstate.angles[ 0 ] = 0;	// don't tilt it with the view
+			}
+			m_pCurrentEntity->curstate.sequence = ovSeq;
+			m_pCurrentEntity->curstate.frame = 0;
+			m_pCurrentEntity->curstate.animtime = ovTime;
+			m_pCurrentEntity->curstate.framerate = ovRate;
+			pplayer = &fpState;
+		}
+	}
 
 	if (pplayer->gaitsequence)
 	{

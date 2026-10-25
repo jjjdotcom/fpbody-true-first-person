@@ -7,3 +7,10 @@ projects/vs2019/.vs/
 fpbody/cl_dlls/*.dll
 fpbody/cl_dlls/*.pdb
 fpbody/dlls/*.dll
+
+# Converted GMod animations are personal-use only; never commit them
+fpbody/models/*.mdl
+fpbody/models/*.json
+tools/gmod_anims/src/
+tools/gmod_anims/out/
+__pycache__/

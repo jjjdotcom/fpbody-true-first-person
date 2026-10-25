@@ -31,4 +31,14 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bonetransform )[ 3 ][ 4 ],
 // Extra view angles (pitch, yaw, roll) from the head bone's motion.
 void FPAnim_GetViewAngleOffset( float *ofs );
 
+// GMod animations baked into fpbody/models/player.mdl (gm_* sequences):
+// gestures, taunts and reloads played on the local player. Called by the
+// studio renderer before the skeleton is built; returns 1 and fills in the
+// sequence to play when one is active. fullbody = 0 keeps the walking legs.
+int FPAnim_GetOverlay( int playerNumber, void *studiohdr, int *seq, float *animtime,
+	float *framerate, int *fullbody );
+
+// True while a full-body act (taunt, pose, sit...) is shown with the chase camera
+int FPAnim_ActCamActive( void );
+
 #endif // FPBODY_ANIM_H
