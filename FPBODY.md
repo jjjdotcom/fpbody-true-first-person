@@ -58,6 +58,10 @@ You can also open `projects/vs2019/projects.sln`, retarget if asked, and build
 | `cl_fpbody_headrot` | `0.6` | How much the camera follows the head's tilt |
 | `cl_fpbody_actcam` | `1` | Watch full-body acts from behind (`0` = stay in the head) |
 | `cl_fpbody_gmod` | `1` | Use converted GMod animations (reloads, acts) when present |
+| `cl_fpbody_aimfire` | `1` | Turn the gun straight down the view while firing |
+| `cl_fpbody_offhand` | `1` | Keep the off hand on two-handed guns (arm IK) |
+| `cl_fpbody_grip_fwd` | `0` | Slide the off-hand grip along the gun (units, + = forward) |
+| `cl_fpbody_grip_down` | `0` | Move the off-hand grip down (+) or up (−) |
 
 ## GMod animations (optional)
 
