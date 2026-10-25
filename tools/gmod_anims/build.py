@@ -115,7 +115,7 @@ for label, src in [('die_simple', 'death_01'), ('die_backwards1', 'death_02'), (
 HOLD = {
     'crowbar':   ('melee',    'range_melee',    'aimlayer_melee',    'aimlayer_melee'),
     'trip':      ('slam',     'range_slam',     'aimlayer_slam',     'aimlayer_slam_crouch'),
-    'onehanded': ('pistol',   'range_pistol',   'aimlayer_pistol',   'aimlayer_pistol_crouch'),
+    'onehanded': ('revolver', 'range_pistol',   'aimlayer_revolver', 'aimlayer_revolver'),     # two-handed grip
     'python':    ('revolver', 'range_revolver', 'aimlayer_revolver', 'aimlayer_revolver'),
     'shotgun':   ('ar2',      'range_shotgun',  'aimlayer_ar2',      'aimlayer_ar2'),       # GMod's shotgun stance is hip-level
     'gauss':     ('ar2',      'range_ar2',      'aimlayer_ar2',      'aimlayer_ar2'),

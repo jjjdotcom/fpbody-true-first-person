@@ -73,3 +73,27 @@ def gun_points(m_path, P):
                     pts.append(R[hi].T@(w-T[hi]))
     rh=P.m.bone_by_name['Bip01 R Hand']
     return np.array([P.R[rh]@p+P.T[rh] for p in pts])
+
+def reach_side(P, side, target):
+    b=P.m.bone_by_name
+    up,fo,ha=b['Bip01 %s Arm1'%side],b['Bip01 %s Arm2'%side],b['Bip01 %s Hand'%side]
+    S,E,H=P.T[up].copy(),P.T[fo].copy(),P.T[ha].copy()
+    a=np.linalg.norm(E-S); bb=np.linalg.norm(H-E); d=np.clip(np.linalg.norm(target-S),abs(a-bb)+.1,a+bb-.1)
+    cur=angle_at(S,E,H); des=math.acos(np.clip((a*a+bb*bb-d*d)/(2*a*bb),-1,1))
+    n=np.cross(E-S,H-E); n/=np.linalg.norm(n)
+    W=axis_angle(n,des-cur); h1=W@(H-E)+E
+    if abs(angle_at(S,E,h1)-des)>abs(cur-des): W=axis_angle(n,-(des-cur))
+    P.rot(P.sub(fo),W,E)
+    P.turn(P.sub(up),S,P.T[ha]-S,target-S)
+
+def pistol_pose(P, gun, f, fwd_dist=15.0, drop=4.0, right=1.5):
+    b=P.m.bone_by_name; rh=b['Bip01 R Hand']
+    mid=(P.T[b['Bip01 R Arm1']]+P.T[b['Bip01 L Arm1']])/2
+    r=np.cross(f,[0,0,1.0]); r/=np.linalg.norm(r)       # right
+    u=np.cross(r,f)
+    reach_side(P,'R',mid+f*fwd_dist-u*drop+r*right)
+    axis,grip,down=GUNS[gun]
+    P.turn(P.sub(rh),P.T[rh].copy(),P.R[rh]@axis,f)       # wrist points the gun
+    target=P.T[rh]+P.R[rh]@grip; target[2]-=down
+    reach_side(P,'L',target)
+    return target
