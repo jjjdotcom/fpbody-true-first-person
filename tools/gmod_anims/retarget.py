@@ -152,7 +152,10 @@ def _eq(e):
 
 # ---------------------------------------------------------------- source pose helpers
 
-def apply_delta(base, delta, w=1.0):
+def apply_delta(base, delta, w=1.0, post=True):
+    """Add a delta layer like Source's SlerpBones: STUDIO_POST layers
+    (aim layers, attack gestures) post-multiply, base * delta (QuaternionMA);
+    other delta layers pre-multiply, delta * base (QuaternionSM)."""
     bpos, bq = base
     dpos, dq = delta
     pos = bpos + dpos * w
@@ -160,7 +163,7 @@ def apply_delta(base, delta, w=1.0):
     ident = np.array([0, 0, 0, 1.0])
     for i in range(len(bq)):
         d = quat_slerp(ident, dq[i], w) if w != 1.0 else dq[i]
-        r = quat_mul(d, bq[i])
+        r = quat_mul(bq[i], d) if post else quat_mul(d, bq[i])
         q[i] = r / np.linalg.norm(r)
     return pos, q
 

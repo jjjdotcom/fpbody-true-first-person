@@ -117,14 +117,14 @@ HOLD = {
     'trip':      ('slam',     'range_slam',     'aimlayer_slam',     'aimlayer_slam_crouch'),
     'onehanded': ('pistol',   'range_pistol',   'aimlayer_pistol',   'aimlayer_pistol_crouch'),
     'python':    ('revolver', 'range_revolver', 'aimlayer_revolver', 'aimlayer_revolver'),
-    'shotgun':   ('shotgun',  'range_shotgun',  'aimlayer_shotgun',  'aimlayer_shotgun'),
-    'gauss':     ('physgun',  'range_gravgun',  'aimlayer_physgun',  'aimlayer_physgun_crouch'),
+    'shotgun':   ('ar2',      'range_shotgun',  'aimlayer_ar2',      'aimlayer_ar2'),       # GMod's shotgun stance is hip-level
+    'gauss':     ('ar2',      'range_ar2',      'aimlayer_ar2',      'aimlayer_ar2'),
     'mp5':       ('smg1',     'range_smg1',     'aimlayer_smg',      'aimlayer_smg'),
     'rpg':       ('rpg',      'range_rpg',      'aimlayer_rpg',      'aimlayer_rpg_crouch'),
-    'egon':      ('physgun',  'range_gravgun',  'aimlayer_physgun',  'aimlayer_physgun_crouch'),
+    'egon':      ('ar2',      'range_ar2',      'aimlayer_ar2',      'aimlayer_ar2'),
     'squeak':    ('grenade',  'range_grenade',  'aimlayer_melee',    'aimlayer_melee'),
     'hive':      ('ar2',      'range_ar2',      'aimlayer_ar2',      'aimlayer_ar2'),
-    'bow':       ('crossbow', 'range_crossbow', 'aimlayer_crossbow', 'aimlayer_crossbow'),
+    'bow':       ('ar2',      'range_crossbow', 'aimlayer_ar2',      'aimlayer_ar2'),       # GMod's crossbow stance is hip-level
 }
 
 for ext, (hold, rng, aim, aimc) in HOLD.items():
@@ -142,11 +142,14 @@ for ext, (hold, rng, aim, aimc) in HOLD.items():
             blends = []
             for v in (s['blendstart'][0], s['blendend'][0]):
                 delta = aim_delta(aimseq, -v)
+                aim_post = bool(g.seq_by_name[aimseq]['flags'] & 0x10)
+                rng_post = bool(g.seq_by_name[rng]['flags'] & 0x10)
                 if kind == 'aim':
-                    poses = [apply_delta(p, delta) for p in idle_fr]
+                    poses = [apply_delta(p, delta, post=aim_post) for p in idle_fr]
                 else:
                     base = idle_fr[0]
-                    poses = [apply_delta(apply_delta(base, rd), delta) for rd in range_fr]
+                    poses = [apply_delta(apply_delta(base, rd, post=rng_post), delta, post=aim_post)
+                             for rd in range_fr]
                 blends.append(retarget_frames(poses))
             fps = idle_a['fps'] if kind == 'aim' else range_a['fps']
             replace(label, blends, fps)
