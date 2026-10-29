@@ -1467,7 +1467,9 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 		}
 
 		// 3b. gun straight down the view while firing, off hand on the gun
-		ApplyGunPose( bone, light, weaponmodel, f, r, u, now );
+		// (classic mode keeps Half-Life's own holds, like the original game)
+		if ( !FPBody_Classic() )
+			ApplyGunPose( bone, light, weaponmodel, f, r, u, now );
 
 		// 4. left arm alone (reloading, use, flashlight, ladders, pump)
 		if ( g_skel.lUpper >= 0 )

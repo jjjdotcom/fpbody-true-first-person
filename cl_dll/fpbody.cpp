@@ -27,7 +27,7 @@
 //   cl_fpbody_bodypitch 0.5 how much of the view pitch bends the body (aim poses)
 //   cl_fpbody_stabilize 0.85 how much of the head's fast sway the camera ignores (0 = none)
 //   cl_fpbody_runarms   1   unarmed: the arms swing with the walk / run animation
-//   cl_fpbody_classic   0   1 = Half-Life's original player animations (models/fpbody_classic*.mdl)
+//   cl_fpbody_classic   1   Half-Life's original player animations (models/fpbody_classic*.mdl), 0 = GMod
 
 #include "hud.h"
 #include "cl_util.h"
@@ -105,7 +105,7 @@ void FPBody_Init( void )
 	cl_fpbody_bodypitch = gEngfuncs.pfnRegisterVariable( "cl_fpbody_bodypitch", "0.5", FCVAR_ARCHIVE );
 	cl_fpbody_stabilize = gEngfuncs.pfnRegisterVariable( "cl_fpbody_stabilize", "0.85", FCVAR_ARCHIVE );
 	cl_fpbody_runarms   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_runarms", "1", FCVAR_ARCHIVE );
-	cl_fpbody_classic   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_classic", "0", FCVAR_ARCHIVE );
+	cl_fpbody_classic   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_classic", "1", FCVAR_ARCHIVE );
 
 	gEngfuncs.pfnAddCommand( "fp_debug", FPBody_Debug_f );
 
@@ -491,6 +491,11 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 	return 1;
 }
 
+int FPBody_Classic( void )
+{
+	return ( cl_fpbody_classic && cl_fpbody_classic->value != 0.0f ) ? 1 : 0;
+}
+
 // Unarmed in first person, the walk / run animation drives the whole body
 // (arms swinging); with a weapon the arms keep holding it. Set by the studio
 // renderer around the local player's bone setup.
@@ -503,7 +508,7 @@ void FPBody_SetWholeBodyGait( int playerNumber, int weaponmodel, int overlay )
 		return;
 	if ( !cl_fpbody_runarms || cl_fpbody_runarms->value == 0.0f )
 		return;
-	if ( cl_fpbody_classic && cl_fpbody_classic->value != 0.0f )
+	if ( FPBody_Classic() )
 		return;		// Half-Life's own gaits weren't made to be seen above the hips
 	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 	if ( local && playerNumber == local->index )
@@ -531,6 +536,8 @@ void FPBody_PrePlayerBlend( int playerNumber, struct cl_entity_s *ent )
 	if ( !local || playerNumber != local->index )
 		return;
 	float k = cl_fpbody_bodypitch ? cl_fpbody_bodypitch->value : 1.0f;
+	if ( FPBody_Classic() )
+		k = 1.0f;		// classic: the aim poses follow the whole view pitch, like the original
 	if ( k < 0.0f ) k = 0.0f;
 	if ( k > 1.0f ) k = 1.0f;
 	ent->angles[ PITCH ] *= k;

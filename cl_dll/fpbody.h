@@ -33,6 +33,9 @@ void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void 
 void FPBody_SetWholeBodyGait( int playerNumber, int weaponmodel, int overlay );
 int FPBody_WholeBodyGait( void );
 
+// cl_fpbody_classic: Half-Life's original player animations, left as they are
+int FPBody_Classic( void );
+
 // cl_fpbody_stabilize (0..1), also damps the head-rotation view wobble
 float FPBody_Stabilize( void );
 
