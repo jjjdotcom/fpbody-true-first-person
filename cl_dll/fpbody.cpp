@@ -22,6 +22,7 @@
 //   cl_fpbody_right    0   eye offset to the right of the head joint (units)
 //   cl_fpbody_hidehead 1   collapse the head so it doesn't block the view
 //   cl_fpbody_smooth   0   0 = raw head motion, higher = smoother (e.g. 15)
+//   cl_fpbody_outfit   1   lab coat (models/fpbody_scientist.mdl) until the HEV suit
 
 #include "hud.h"
 #include "cl_util.h"
@@ -55,6 +56,7 @@ static cvar_t *cl_fpbody_up;
 static cvar_t *cl_fpbody_right;
 static cvar_t *cl_fpbody_hidehead;
 static cvar_t *cl_fpbody_smooth;
+static cvar_t *cl_fpbody_outfit;
 
 // Per-frame state from V_CalcRefdef
 static int g_bFrameAllowed;
@@ -84,6 +86,7 @@ void FPBody_Init( void )
 	cl_fpbody_right    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_right", "0", FCVAR_ARCHIVE );
 	cl_fpbody_hidehead = gEngfuncs.pfnRegisterVariable( "cl_fpbody_hidehead", "1", FCVAR_ARCHIVE );
 	cl_fpbody_smooth   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_smooth", "0", FCVAR_ARCHIVE );
+	cl_fpbody_outfit   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_outfit", "1", FCVAR_ARCHIVE );
 
 	FPAnim_Init();
 }
@@ -425,4 +428,32 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 
 	VectorCopy( target, outOrigin );
 	return 1;
+}
+
+// Gordon wears his lab coat until he has the HEV suit
+struct model_s *FPBody_GetOutfitModel( int playerNumber )
+{
+	if ( !cl_fpbody_outfit || cl_fpbody_outfit->value == 0.0f )
+		return NULL;
+
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( !local || playerNumber != local->index )
+		return NULL;
+
+	if ( gEngfuncs.GetMaxClients() > 1 )		// single player only
+		return NULL;
+
+	if ( gHUD.m_iWeaponBits & ( 1 << WEAPON_SUIT ) )
+		return NULL;
+
+	// the engine keeps loaded models, so this is just a name lookup after the first time
+	static bool warned = false;
+	int index = 0;
+	struct model_s *m = gEngfuncs.CL_LoadModel( "models/fpbody_scientist.mdl", &index );
+	if ( !m && !warned )
+	{
+		gEngfuncs.Con_Printf( "fpbody: models/fpbody_scientist.mdl not found, using the normal player model\n" );
+		warned = true;
+	}
+	return m;
 }

@@ -27,6 +27,11 @@ int FPBody_Active( void );
 void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void *studiohdr,
 	float ( *bonetransform )[ 3 ][ 4 ], float ( *lighttransform )[ 3 ][ 4 ], int weaponmodel );
 
+// Model to draw for the local player instead of the normal one: Gordon's lab
+// coat (models/fpbody_scientist.mdl) until he picks up the HEV suit. NULL =
+// use the normal model.
+struct model_s *FPBody_GetOutfitModel( int playerNumber );
+
 // Computes the camera origin at the body's head. Returns 0 if no recent head
 // position is available, in which case the normal eye position is used.
 int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin );

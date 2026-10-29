@@ -1725,6 +1725,13 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 
 #endif
 
+	// fpbody: lab coat until the HEV suit is picked up
+	{
+		model_t *outfit = FPBody_GetOutfitModel( pplayer->number );
+		if ( outfit )
+			m_pRenderModel = outfit;
+	}
+
 	if (m_pRenderModel == NULL)
 		return 0;
 
