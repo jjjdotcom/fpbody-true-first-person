@@ -50,7 +50,8 @@ def main():
     open(os.path.join(cl, 'fpbody_game.h'), 'w').write(
         '// fpbody_game.h - per-game settings for the True First Person code (%s).\n'
         '#ifndef FPBODY_GAME_H\n#define FPBODY_GAME_H\n\n'
-        '#define FPBODY_SUIT_FROM_ARMOR %d\t// 1 = "suited" while the player has armor\n\n#endif\n'
+        '#define FPBODY_SUIT_FROM_ARMOR %d\t// 1 = "suited" while the player has armor\n\n'
+        '// pm_shared is C++ in the Updated SDKs\n#define FPBODY_DECLARE_ONLADDER extern bool g_onladder;\n\n#endif\n'
         % (g['title'], g['armor']))
 
     patch(os.path.join(cl, 'StudioModelRenderer.cpp'), [

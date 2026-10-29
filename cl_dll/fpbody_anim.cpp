@@ -58,6 +58,7 @@
 
 #include "fpbody.h"
 #include "fpbody_anim.h"
+#include "fpbody_game.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -68,7 +69,7 @@ extern kbutton_t in_use;
 extern kbutton_t in_attack;
 extern kbutton_t in_attack2;
 extern kbutton_t in_jump;
-extern "C" int g_onladder;	// pm_shared.c, set by client movement prediction
+FPBODY_DECLARE_ONLADDER	// pm_shared, set by client movement prediction (fpbody_game.h)
 
 static cvar_t *cl_fpbody_anims;
 static cvar_t *cl_fpbody_animscale;

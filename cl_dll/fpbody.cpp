@@ -49,7 +49,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-extern int cam_thirdperson;
+int CAM_IsRealThirdPerson( void );	// in_camera.cpp
 
 static cvar_t *cl_fpbody;
 static cvar_t *cl_fpbody_forward;
@@ -126,7 +126,7 @@ int FPBody_Active( void )
 		return 0;
 
 	// Real third person (the "thirdperson" command) takes over.
-	if ( cam_thirdperson )
+	if ( CAM_IsRealThirdPerson() )
 		return 0;
 
 	// Spectator / observer modes

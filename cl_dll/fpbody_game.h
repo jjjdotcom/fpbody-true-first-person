@@ -5,4 +5,7 @@
 
 #define FPBODY_SUIT_FROM_ARMOR 0	// 1 = "suited" while the player has armor (Blue Shift)
 
+// pm_shared.c is C in this SDK
+#define FPBODY_DECLARE_ONLADDER extern "C" int g_onladder;
+
 #endif
