@@ -22,7 +22,7 @@
 //   cl_fpbody_right    0   eye offset to the right of the head joint (units)
 //   cl_fpbody_hidehead 1   collapse the head so it doesn't block the view
 //   cl_fpbody_smooth   0   0 = raw head motion, higher = smoother (e.g. 15)
-//   cl_fpbody_outfit   1   lab coat (models/fpbody_scientist.mdl) until the HEV suit
+//   cl_fpbody_outfit   1   outfit before / after the suit (see FPBody_GetOutfitModel)
 
 #include "hud.h"
 #include "cl_util.h"
@@ -43,6 +43,7 @@
 
 #include "fpbody.h"
 #include "fpbody_anim.h"
+#include "fpbody_game.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -282,7 +283,7 @@ void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void 
 	// The upper body is twisted toward the view direction by the gait code,
 	// so storing it relative to the view yaw keeps the head stable when the
 	// view turns between frames.
-	vec3_t viewangles;
+	Vector viewangles;
 	gEngfuncs.GetViewAngles( (float *)viewangles );
 	RotateYaw( rel, -viewangles[ YAW ], g_vHeadLocal );
 	g_flHeadTime = gEngfuncs.GetClientTime();
@@ -317,7 +318,7 @@ void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void 
 // Camera behind the player while a full-body act plays (mouse orbits it)
 static int ActCamOrigin( struct ref_params_s *pparams, float *outOrigin )
 {
-	vec3_t forward, right, up, eye, target;
+	Vector forward, right, up, eye, target;
 	AngleVectors( pparams->cl_viewangles, forward, right, up );
 	VectorAdd( pparams->simorg, pparams->viewheight, eye );
 	for ( int i = 0; i < 3; i++ )
@@ -333,7 +334,7 @@ static int ActCamOrigin( struct ref_params_s *pparams, float *outOrigin )
 
 	if ( tr.fraction < 1.0f )
 	{
-		vec3_t dir;
+		Vector dir;
 		VectorSubtract( target, eye, dir );
 		float len = VectorNormalize( dir );
 		float dist = len * tr.fraction - 4.0f;
@@ -386,10 +387,10 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 	float rel[ 3 ];
 	RotateYaw( local, pparams->cl_viewangles[ YAW ], rel );
 
-	vec3_t forward, right, up;
+	Vector forward, right, up;
 	AngleVectors( pparams->cl_viewangles, forward, right, up );
 
-	vec3_t target;
+	Vector target;
 	for ( int i = 0; i < 3; i++ )
 	{
 		target[ i ] = pparams->simorg[ i ] + rel[ i ]
@@ -400,7 +401,7 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 
 	// Don't let the camera poke through walls: trace from the normal eye
 	// position (which is always inside the player's hull) to the head.
-	vec3_t eye;
+	Vector eye;
 	VectorAdd( pparams->simorg, pparams->viewheight, eye );
 
 	pmtrace_t tr;
@@ -413,7 +414,7 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 
 	if ( tr.fraction < 1.0f && !tr.startsolid )
 	{
-		vec3_t dir;
+		Vector dir;
 		VectorSubtract( target, eye, dir );
 		float len = VectorNormalize( dir );
 		float dist = len * tr.fraction - 2.0f;	// stay 2 units off the wall
@@ -430,9 +431,43 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 	return 1;
 }
 
-// Gordon wears his lab coat until he has the HEV suit
+// The local player's outfit (single player only):
+//   not suited: models/fpbody_presuit.mdl, or Gordon's lab coat
+//               models/fpbody_scientist.mdl (Half-Life)
+//   suited:     models/fpbody_suit.mdl if the game has one (the blue / green
+//               HEV suits of Blue Shift and Opposing Force), else the normal model
+// What "suited" means is set per game in fpbody_game.h.
+static struct model_s *FPBody_TryModel( const char *name, int &state )
+{
+	// state: 0 = not tried, 1 = loaded, -1 = missing
+	if ( state < 0 )
+		return NULL;
+	int index = 0;
+	struct model_s *m = gEngfuncs.CL_LoadModel( name, &index );	// cached by the engine
+	if ( !m )
+	{
+		if ( state == 0 )
+			gEngfuncs.Con_DPrintf( "fpbody: %s not found\n", name );
+		state = -1;
+		return NULL;
+	}
+	state = 1;
+	return m;
+}
+
+int FPBody_IsSuited( void )
+{
+#if FPBODY_SUIT_FROM_ARMOR
+	return gHUD.m_Battery.GetArmor() > 0;
+#else
+	return ( gHUD.m_iWeaponBits & ( 1 << WEAPON_SUIT ) ) ? 1 : 0;
+#endif
+}
+
 struct model_s *FPBody_GetOutfitModel( int playerNumber )
 {
+	static int presuitState, scientistState, suitState;
+
 	if ( !cl_fpbody_outfit || cl_fpbody_outfit->value == 0.0f )
 		return NULL;
 
@@ -443,17 +478,11 @@ struct model_s *FPBody_GetOutfitModel( int playerNumber )
 	if ( gEngfuncs.GetMaxClients() > 1 )		// single player only
 		return NULL;
 
-	if ( gHUD.m_iWeaponBits & ( 1 << WEAPON_SUIT ) )
-		return NULL;
+	if ( FPBody_IsSuited() )
+		return FPBody_TryModel( "models/fpbody_suit.mdl", suitState );
 
-	// the engine keeps loaded models, so this is just a name lookup after the first time
-	static bool warned = false;
-	int index = 0;
-	struct model_s *m = gEngfuncs.CL_LoadModel( "models/fpbody_scientist.mdl", &index );
-	if ( !m && !warned )
-	{
-		gEngfuncs.Con_Printf( "fpbody: models/fpbody_scientist.mdl not found, using the normal player model\n" );
-		warned = true;
-	}
+	struct model_s *m = FPBody_TryModel( "models/fpbody_presuit.mdl", presuitState );
+	if ( !m )
+		m = FPBody_TryModel( "models/fpbody_scientist.mdl", scientistState );
 	return m;
 }

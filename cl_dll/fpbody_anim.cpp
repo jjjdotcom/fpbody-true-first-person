@@ -831,7 +831,7 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 		float yawVel = dyaw / g_frameTime;
 		float pitchVel = dpitch / g_frameTime;
 
-		vec3_t f, r, u;
+		Vector f, r, u;
 		AngleVectors( pparams->cl_viewangles, f, r, u );
 		float side = Dot3( pparams->simvel, r );
 
@@ -1362,7 +1362,7 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 
 	float now = gEngfuncs.GetClientTime();
 
-	vec3_t angles, f, r, u;
+	Vector angles, f, r, u;
 	gEngfuncs.GetViewAngles( (float *)angles );
 	AngleVectors( angles, f, r, u );
 

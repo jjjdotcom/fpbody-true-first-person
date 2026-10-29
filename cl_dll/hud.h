@@ -325,6 +325,7 @@ private:
 class CHudBattery: public CHudBase
 {
 public:
+	int GetArmor( void ) { return m_iBat; }	// fpbody: outfit with armor (Blue Shift)
 	int Init( void );
 	int VidInit( void );
 	int Draw(float flTime);

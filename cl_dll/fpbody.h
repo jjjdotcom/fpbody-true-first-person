@@ -27,9 +27,9 @@ int FPBody_Active( void );
 void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void *studiohdr,
 	float ( *bonetransform )[ 3 ][ 4 ], float ( *lighttransform )[ 3 ][ 4 ], int weaponmodel );
 
-// Model to draw for the local player instead of the normal one: Gordon's lab
-// coat (models/fpbody_scientist.mdl) until he picks up the HEV suit. NULL =
-// use the normal model.
+// Model to draw for the local player instead of the normal one: the outfit
+// before the suit (Gordon's lab coat, Barney's uniform...) and, where the game
+// has one, the suit. NULL = use the normal model.
 struct model_s *FPBody_GetOutfitModel( int playerNumber );
 
 // Computes the camera origin at the body's head. Returns 0 if no recent head
