@@ -460,8 +460,8 @@ static struct model_s *FPBody_TryModel( const char *name, int &state )
 	// state: 0 = not tried, 1 = loaded, -1 = missing
 	if ( state < 0 )
 		return NULL;
-	int index = 0;
-	struct model_s *m = gEngfuncs.CL_LoadModel( name, &index );	// cached by the engine
+	// Mod_ForName loads any model file (CL_LoadModel only finds models the map precached)
+	struct model_s *m = IEngineStudio.Mod_ForName( name, 0 );
 	if ( !m )
 	{
 		if ( state == 0 )
