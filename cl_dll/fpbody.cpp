@@ -25,6 +25,8 @@
 //   cl_fpbody_outfit   1   outfit before / after the suit (see FPBody_GetOutfitModel)
 //   cl_fpbody_lookdown 8   how far the camera moves forward when looking straight down
 //   cl_fpbody_bodypitch 0.5 how much of the view pitch bends the body (aim poses)
+//   cl_fpbody_stabilize 0.85 how much of the head's fast sway the camera ignores (0 = none)
+//   cl_fpbody_runarms   1   unarmed: the arms swing with the walk / run animation
 
 #include "hud.h"
 #include "cl_util.h"
@@ -65,6 +67,8 @@ static cvar_t *cl_fpbody_smooth;
 static cvar_t *cl_fpbody_outfit;
 static cvar_t *cl_fpbody_lookdown;
 static cvar_t *cl_fpbody_bodypitch;
+static cvar_t *cl_fpbody_stabilize;
+static cvar_t *cl_fpbody_runarms;
 
 // Per-frame state from V_CalcRefdef
 static int g_bFrameAllowed;
@@ -97,6 +101,8 @@ void FPBody_Init( void )
 	cl_fpbody_outfit   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_outfit", "1", FCVAR_ARCHIVE );
 	cl_fpbody_lookdown = gEngfuncs.pfnRegisterVariable( "cl_fpbody_lookdown", "8", FCVAR_ARCHIVE );
 	cl_fpbody_bodypitch = gEngfuncs.pfnRegisterVariable( "cl_fpbody_bodypitch", "0.5", FCVAR_ARCHIVE );
+	cl_fpbody_stabilize = gEngfuncs.pfnRegisterVariable( "cl_fpbody_stabilize", "0.85", FCVAR_ARCHIVE );
+	cl_fpbody_runarms   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_runarms", "1", FCVAR_ARCHIVE );
 
 	gEngfuncs.pfnAddCommand( "fp_debug", FPBody_Debug_f );
 
@@ -396,8 +402,34 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 		VectorCopy( g_vHeadLocal, g_vHeadSmoothed );
 		g_bHaveSmoothed = true;
 	}
-	g_flLastSmoothTime = now;
 	VectorCopy( g_vHeadSmoothed, local );
+
+	// Stabilizer: follow a slow average of the head position and keep only part
+	// of the fast motion around it (the side to side sway and forward / back
+	// bob of every step). Vertical bob is damped less, it reads as footsteps.
+	{
+		static float base[ 3 ];
+		static bool haveBase = false;
+		float stab = cl_fpbody_stabilize ? cl_fpbody_stabilize->value : 0.0f;
+		if ( stab < 0.0f ) stab = 0.0f;
+		if ( stab > 1.0f ) stab = 1.0f;
+		float dt = now - g_flLastSmoothTime;
+		if ( !haveBase || dt < 0.0f || dt > 0.3f )
+		{
+			VectorCopy( local, base );
+			haveBase = true;
+		}
+		else
+		{
+			float k = 1.0f - (float)exp( -dt / 0.4f );
+			for ( int i = 0; i < 3; i++ )
+				base[ i ] += ( local[ i ] - base[ i ] ) * k;
+		}
+		const float keep[ 3 ] = { 1.0f - stab, 1.0f - stab, 1.0f - stab * 0.6f };	// forward, left, up
+		for ( int i = 0; i < 3; i++ )
+			local[ i ] = base[ i ] + ( local[ i ] - base[ i ] ) * keep[ i ];
+	}
+	g_flLastSmoothTime = now;
 
 	// Back to world space using the current predicted origin and view yaw
 	float rel[ 3 ];
@@ -454,6 +486,33 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 
 	VectorCopy( target, outOrigin );
 	return 1;
+}
+
+// Unarmed in first person, the walk / run animation drives the whole body
+// (arms swinging); with a weapon the arms keep holding it. Set by the studio
+// renderer around the local player's bone setup.
+static int g_iWholeBodyGait;
+
+void FPBody_SetWholeBodyGait( int playerNumber, int weaponmodel, int overlay )
+{
+	g_iWholeBodyGait = 0;
+	if ( !FPBody_Active() || overlay || weaponmodel != 0 )
+		return;
+	if ( !cl_fpbody_runarms || cl_fpbody_runarms->value == 0.0f )
+		return;
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( local && playerNumber == local->index )
+		g_iWholeBodyGait = 1;
+}
+
+int FPBody_WholeBodyGait( void )
+{
+	return g_iWholeBodyGait;
+}
+
+float FPBody_Stabilize( void )
+{
+	return cl_fpbody_stabilize ? cl_fpbody_stabilize->value : 0.0f;
 }
 
 // In first person the view pitch only partly bends the body (the aim poses

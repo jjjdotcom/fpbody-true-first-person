@@ -975,7 +975,7 @@ void CStudioModelRenderer::StudioSetupBones ( void )
 				copy = 1;
 			}
 				
-			if ( copy )
+			if ( copy || FPBody_WholeBodyGait() )	// fpbody: unarmed, arms swing with the gait
 			{
 				memcpy( pos[i], pos2[i], sizeof( pos[i] ) );
 				memcpy( q[i], q2[i], sizeof( q[i] ) );
@@ -1812,7 +1812,9 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 	}
 
 	m_pPlayerInfo = IEngineStudio.PlayerInfo( m_nPlayerIndex );
+	FPBody_SetWholeBodyGait( pplayer->number, pplayer->weaponmodel, fpRestore.saved );	// fpbody
 	StudioSetupBones( );
+	FPBody_SetWholeBodyGait( -1, 0, 1 );
 
 	// fpbody: animate the arms, remember where our head is and collapse it so
 	// it's not in the way. Done before StudioSaveBones so the weapon model in

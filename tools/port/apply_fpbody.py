@@ -91,7 +91,10 @@ def main():
          '\t\t\tm_pCurrentEntity->curstate.framerate = ovRate;\n\t\t\tpplayer = &fpState;\n\t\t}\n\t}\n\n'
          '\tif (0 != pplayer->gaitsequence)\n', 1),
         ('\tm_pPlayerInfo = IEngineStudio.PlayerInfo(m_nPlayerIndex);\n\tStudioSetupBones();\n\tStudioSaveBones();\n',
-         '\tm_pPlayerInfo = IEngineStudio.PlayerInfo(m_nPlayerIndex);\n\tStudioSetupBones();\n\n'
+         '\tm_pPlayerInfo = IEngineStudio.PlayerInfo(m_nPlayerIndex);\n'
+         '\tFPBody_SetWholeBodyGait(pplayer->number, pplayer->weaponmodel, fpRestore.saved ? 1 : 0); // fpbody\n'
+         '\tStudioSetupBones();\n'
+         '\tFPBody_SetWholeBodyGait(-1, 0, 1);\n\n'
          '\t// fpbody: animate the arms, remember where our head is and collapse it so\n'
          '\t// it\'s not in the way. Done before StudioSaveBones so the weapon model in\n'
          '\t// the hands is merged onto the animated bones.\n'
@@ -99,6 +102,8 @@ def main():
          '\t\tFPBody_ProcessPlayerBones(pplayer->number, m_pCurrentEntity, m_pStudioHeader,\n'
          '\t\t\t*m_pbonetransform, *m_plighttransform, pplayer->weaponmodel);\n\t}\n\n'
          '\tStudioSaveBones();\n', 1),
+        ('\t\t\tif (copy)\n\t\t\t{\n\t\t\t\tmemcpy(pos[i], pos2[i], sizeof(pos[i]));\n',
+         '\t\t\tif (copy || 0 != FPBody_WholeBodyGait()) // fpbody: unarmed, arms swing with the gait\n\t\t\t{\n\t\t\t\tmemcpy(pos[i], pos2[i], sizeof(pos[i]));\n', 1),
         ('\t\tStudioProcessGait(pplayer);\n',
          '\t\tFPBody_PrePlayerBlend(pplayer->number, m_pCurrentEntity); // fpbody: less body pitch\n'
          '\t\tStudioProcessGait(pplayer);\n', 1),

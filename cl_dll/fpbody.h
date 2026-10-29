@@ -27,6 +27,15 @@ int FPBody_Active( void );
 void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void *studiohdr,
 	float ( *bonetransform )[ 3 ][ 4 ], float ( *lighttransform )[ 3 ][ 4 ], int weaponmodel );
 
+// Unarmed: the gait sequence (walk / run) animates the whole body, so the
+// arms swing. Set before the local player's bones are set up, read by the
+// gait merge in StudioSetupBones.
+void FPBody_SetWholeBodyGait( int playerNumber, int weaponmodel, int overlay );
+int FPBody_WholeBodyGait( void );
+
+// cl_fpbody_stabilize (0..1), also damps the head-rotation view wobble
+float FPBody_Stabilize( void );
+
 // Called by the studio renderer before the player's aim blend is worked out
 void FPBody_PrePlayerBlend( int playerNumber, struct cl_entity_s *ent );
 

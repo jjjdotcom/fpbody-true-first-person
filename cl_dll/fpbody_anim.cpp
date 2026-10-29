@@ -28,6 +28,7 @@
 //   cl_fpbody_animscale 1    strength of all procedural animations
 //   cl_fpbody_sway      1    strength of weapon sway / lag
 //   cl_fpbody_headrot   0.6  how much the camera follows the head's rotation
+//   cl_fpbody_runbob    1    arms bob with the steps while moving with a weapon
 //   cl_fpbody_actcam    1    show full-body acts from behind (0 = stay in the head)
 //   cl_fpbody_gmod      1    use the GMod animations in the player model when present
 //   cl_fpbody_aimfire   1    turn the gun straight down the view while firing
@@ -75,6 +76,8 @@ static cvar_t *cl_fpbody_anims;
 static cvar_t *cl_fpbody_animscale;
 static cvar_t *cl_fpbody_sway;
 static cvar_t *cl_fpbody_headrot;
+static cvar_t *cl_fpbody_runbob;
+static float g_runW, g_runPhase;
 static cvar_t *cl_fpbody_actcam;
 static cvar_t *cl_fpbody_gmod;
 static cvar_t *cl_fpbody_aimfire;
@@ -338,6 +341,7 @@ void FPAnim_Init( void )
 	cl_fpbody_animscale = gEngfuncs.pfnRegisterVariable( "cl_fpbody_animscale", "1", FCVAR_ARCHIVE );
 	cl_fpbody_sway      = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sway", "1", FCVAR_ARCHIVE );
 	cl_fpbody_headrot   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_headrot", "0.6", FCVAR_ARCHIVE );
+	cl_fpbody_runbob    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_runbob", "1", FCVAR_ARCHIVE );
 	cl_fpbody_actcam    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_actcam", "1", FCVAR_ARCHIVE );
 	cl_fpbody_gmod      = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gmod", "1", FCVAR_ARCHIVE );
 	cl_fpbody_aimfire   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_aimfire", "1", FCVAR_ARCHIVE );
@@ -852,6 +856,14 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 		g_swayPitch += ( tp - g_swayPitch ) * a;
 		g_swayRoll  += ( tr - g_swayRoll ) * a;
 	}
+	// step rhythm for the arm bob while moving with a weapon
+	{
+		float speed = (float)sqrt( pparams->simvel[ 0 ] * pparams->simvel[ 0 ] + pparams->simvel[ 1 ] * pparams->simvel[ 1 ] );
+		float target = pparams->onground ? Clamp01( speed / 250.0f ) : 0.0f;
+		g_runW += ( target - g_runW ) * Clamp01( g_frameTime * 6.0f );
+		g_runPhase += speed * g_frameTime * (float)( 2.0 * M_PI / 128.0 );	// one cycle = two steps
+		if ( g_runPhase > 2.0 * M_PI * 64 ) g_runPhase -= (float)( 2.0 * M_PI * 64 );
+	}
 	g_attackHeld = ( in_attack.state & 1 ) != 0;
 	g_lastYaw = yaw;
 	g_lastPitch = pitch;
@@ -897,6 +909,15 @@ static void EvalActions( float now, pose_t &p, const float *f, const float *r, c
 		p.rPitch    += 10.0f * g_ladderW * (float)sin( g_ladderPhase + M_PI );
 		MakeDir( f, r, u, 0.55f, 0.0f, 1.0f, dir );
 		AddLeftAim( p, dir, 0.75f * g_ladderW * ( 0.5f + 0.5f * (float)sin( g_ladderPhase ) ) );
+	}
+
+	// arms bob with the steps while moving (the gun bounces a little)
+	if ( g_runW > 0.01f && cl_fpbody_runbob && cl_fpbody_runbob->value != 0.0f )
+	{
+		float amp = cl_fpbody_runbob->value * g_runW;
+		p.armsPitch += 2.5f * amp * (float)sin( 2.0f * g_runPhase );
+		p.armsYaw   += 1.5f * amp * (float)sin( g_runPhase );
+		p.armsRoll  += 1.0f * amp * (float)sin( g_runPhase );
 	}
 
 	// sway
@@ -1328,10 +1349,16 @@ static void UpdateHeadRotation( float ( *light )[ 3 ][ 4 ], int headBone,
 	float wy = ( D[ 0 ][ 2 ] - D[ 2 ][ 0 ] ) * 0.5f * toDeg;	// about left    -> pitch
 	float wz = ( D[ 1 ][ 0 ] - D[ 0 ][ 1 ] ) * 0.5f * toDeg;	// about up      -> yaw
 
+	// the stabilizer mostly removes the side to side (yaw / roll) wobble of steps
 	float s = cl_fpbody_headrot->value;
-	g_headAngOfs[ PITCH ] = Clamp( wy * s * 0.5f, -6.0f, 6.0f );
-	g_headAngOfs[ YAW ]   = Clamp( wz * s, -6.0f, 6.0f );
-	g_headAngOfs[ ROLL ]  = Clamp( wx * s, -6.0f, 6.0f );
+	float stab = FPBody_Stabilize();
+	if ( stab < 0.0f ) stab = 0.0f;
+	if ( stab > 1.0f ) stab = 1.0f;
+	float side = 1.0f - stab * 0.9f;
+	float nod = 1.0f - stab * 0.5f;
+	g_headAngOfs[ PITCH ] = Clamp( wy * s * 0.5f * nod, -6.0f, 6.0f );
+	g_headAngOfs[ YAW ]   = Clamp( wz * s * side, -6.0f, 6.0f );
+	g_headAngOfs[ ROLL ]  = Clamp( wx * s * side, -6.0f, 6.0f );
 	g_headOfsTime = now;
 }
 
