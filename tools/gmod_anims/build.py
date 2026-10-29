@@ -84,11 +84,9 @@ def replace(label, frames_list, fps, linear=None, loop=None):
 # gaits (legs + pelvis) -------------------------------------------------
 def gait(label, anim, distance=None):
     a = g.anim_by_name[anim] if isinstance(anim, str) else anim
+    # whole body: the game also plays some of these as the main sequence
+    # (deep_idle for ACT_IDLE), not only as the legs under another sequence
     fr = retarget_frames(frames_of(a))
-    rest = h.rest_local()
-    for b in range(h.numbones):       # upper body of a gait is never used
-        if b not in LEG_BONES:
-            fr[:, b, :] = rest[b]
     replace(label, [fr], a['fps'], linear=None if distance is None else distance * rt.scale)
 
 
@@ -97,6 +95,12 @@ gait('walk2handed', 'a_WalkN', 80.0)
 gait('run2', 'a_RunN', 125.9)
 gait('crawl', 'a_CwalkN', 60.0)
 gait('crouch_idle', '@cidle_all')
+gait('walk', 'a_WalkN', 80.0)
+gait('run', 'a_RunN', 125.9)
+# upper body with no weapon: "ref_aim_" + "" doesn't exist, so the game falls
+# back to sequence 0 (look_idle); ACT_IDLE picks look_idle / idle / deep_idle
+gait('look_idle', '@idle_all_01')
+gait('idle', '@idle_all_01')
 
 # whole-body movement --------------------------------------------------
 for label, src in [('swim', 'a_SwimN'), ('treadwater', '@swim_idle_all'),

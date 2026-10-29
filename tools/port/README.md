@@ -20,7 +20,7 @@ contain game assets) go in `fpbody_bs/models`:
 | file | shown |
 | --- | --- |
 | `player.mdl` | the converted fpbody player model (skeleton + GMod sequences) |
-| `fpbody_presuit.mdl` | Barney in his guard uniform, while he has no armor |
+| `fpbody_presuit.mdl` | Barney in his guard uniform (original model), while he has no armor |
 | `fpbody_suit.mdl` | a blue HEV suit with Barney's head, while he has armor |
 
 `cl_dll/fpbody_game.h` decides what "suited" means: the HEV suit item in

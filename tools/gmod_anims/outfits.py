@@ -1,9 +1,9 @@
 """Build the fpbody outfit models for the expansions.
 
-  python3 -I outfits.py bshift <player.mdl> <hl player.mdl> <hl playerT.mdl> <barney.mdl> <barneyT.mdl> <outdir>
+  python3 -I outfits.py bshift <player.mdl> <hl player.mdl> <hl playerT.mdl> <bshift/models/barney.mdl> <outdir>
 
 Blue Shift:
-  fpbody_presuit.mdl  Barney in his guard uniform (HD NPC mesh)
+  fpbody_presuit.mdl  Barney in his guard uniform (original Blue Shift model)
   fpbody_suit.mdl     a blue HEV suit with Barney's head
 """
 import os
@@ -20,21 +20,39 @@ def hev_texture_names(src):
     return [t['name'].decode() for t in src.textures if t['name'].decode().lower() not in HEV_FACE]
 
 
-def head_only(names):
-    return all(n in ('Bip01 Head', 'Bip01 Neck') or not n.startswith('Bip01') for n in names) and \
-        any(n == 'Bip01 Head' or not n.startswith('Bip01') for n in names)
+def head_bones(src):
+    """names of the head bone and everything parented under it"""
+    m = src.m
+    out = set()
+    for i, b in enumerate(m.bones):
+        j = i
+        while j >= 0:
+            if m.bones[j]['name'] == 'Bip01 Head':
+                out.add(b['name']); break
+            j = m.bones[j]['parent']
+    return out
+
+
+def head_pred(src):
+    hb = head_bones(src)
+    return lambda names: all(n in hb or n == 'Bip01 Neck' for n in names) and any(n in hb for n in names)
 
 
 if sys.argv[1] == 'bshift':
-    player, hl, hlT, barney, barneyT, outdir = sys.argv[2:8]
-    B = Source(barney, barneyT)
+    # Barney: the original (SD) Blue Shift model, textures inside the .mdl
+    player, hl, hlT, barney, outdir = sys.argv[2:7]
+    B = Source(barney)
+    B.mode = 'local'
     body = B.model(0, 0)
     print('presuit', compose(player, [('body', [[body]])], os.path.join(outdir, 'fpbody_presuit.mdl'),
                              'fpbody_presuit.mdl'))
 
     H = Source(hl, hlT)
+    H.mode = 'local'
     recolour(H, hev_texture_names(H), hue_to=0.60, sat_scale=1.05)       # blue
     suit = H.model(0, 0)
-    head = keep_tris(Source(barney, barneyT).model(0, 0), head_only)
+    B2 = Source(barney)
+    B2.mode = 'local'
+    head = keep_tris(B2.model(0, 0), head_pred(B2))
     print('suit', compose(player, [('body', [[suit]]), ('head', [[head]])],
                           os.path.join(outdir, 'fpbody_suit.mdl'), 'fpbody_suit.mdl'))

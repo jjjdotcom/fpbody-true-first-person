@@ -139,10 +139,12 @@ def compose(player_path, bodyparts, out_path, name='fpbody_outfit.mdl'):
             n = m.bones[i]['name']
             return n.startswith('Bip01') and target_name(n) in P.bone_by_name
         bm = {}
+        src.anc = {}
         for i in range(m.numbones):
             anc = i
             while anc >= 0 and not mapped(anc):
                 anc = m.bones[anc]['parent']
+            src.anc[i] = max(anc, 0)
             bm[i] = P.bone_by_name[target_name(m.bones[max(anc, 0)]['name'])]
         full_spine = 'Bip01 Spine2' in m.bone_by_name and 'Bip01 Spine3' in m.bone_by_name
         src_pts, dsp = [], []
@@ -166,6 +168,11 @@ def compose(player_path, bodyparts, out_path, name='fpbody_outfit.mdl'):
         return bm, warp
 
     def place(bm, warp, src, b, v):
+        if getattr(src, 'mode', 'warp') == 'local':
+            # same Biped bone conventions: keep the vertex in its bone's own frame
+            # (bones with no counterpart: expressed in their mapped ancestor's frame)
+            a = src.anc[b]
+            return bm[b], src.R[a].T @ (src.R[b] @ v + src.T[b] - src.T[a])
         p = warp(src.R[b] @ v + src.T[b])
         pb = bm[b]
         if pb in SPINE:                       # split the torso over the player's spine bones
@@ -198,7 +205,11 @@ def compose(player_path, bodyparts, out_path, name='fpbody_outfit.mdl'):
                                 # normals follow the bone their vertex ended up on
                                 b = pc['nb'][ni]
                                 pb = vbones[vmap[vi]]
-                                nmap[ni] = len(norms); norms.append(Rp[pb].T @ (src.R[b] @ pc['nv'][ni]))
+                                if getattr(src, 'mode', 'warp') == 'local':
+                                    nrm = src.R[src.anc[b]].T @ (src.R[b] @ pc['nv'][ni])
+                                else:
+                                    nrm = Rp[pb].T @ (src.R[b] @ pc['nv'][ni])
+                                nmap[ni] = len(norms); norms.append(nrm)
                                 nbones.append(pb)
                             out.append((vmap[vi], nmap[ni], s, t))
                         tris.append(out)
