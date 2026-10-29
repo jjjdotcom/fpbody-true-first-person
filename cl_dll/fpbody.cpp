@@ -411,8 +411,8 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 	if ( pitch > 180.0f ) pitch -= 360.0f;
 	float down = sin( pitch * ( M_PI / 180.0f ) );
 	if ( down < 0.0f ) down = 0.0f;
-	Vector forward( cos( yaw ), sin( yaw ), 0.0f );
-	Vector right( sin( yaw ), -cos( yaw ), 0.0f );
+	Vector forward( (float)cos( yaw ), (float)sin( yaw ), 0.0f );
+	Vector right( (float)sin( yaw ), (float)-cos( yaw ), 0.0f );
 	float fwd = cl_fpbody_forward->value + cl_fpbody_lookdown->value * down;
 
 	Vector target;
