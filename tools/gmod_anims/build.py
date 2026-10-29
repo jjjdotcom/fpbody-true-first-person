@@ -207,6 +207,17 @@ for i, s in enumerate(h.seqs):
                                motionbone=s['motionbone'], linearmovement=s['linearmovement'],
                                blendtype=s['blendtype'], blendstart=s['blendstart'], blendend=s['blendend']))
 final += out
+# Opposing Force's penguin uses the "penguin" animation extension, which the
+# Half-Life player model doesn't have: hold it like the snark
+import copy as _copy
+for kind in ('ref_aim_', 'ref_shoot_', 'crouch_aim_', 'crouch_shoot_'):
+    src = next(d for d in final if d['label'] == kind + 'squeak')
+    dup = _copy.copy(src)
+    dup['label'] = kind + 'penguin'
+    if dup.get('raw'):
+        raw = bytearray(dup['raw']); lab = dup['label'].encode()
+        raw[0:32] = lab + bytes(32 - len(lab)); dup['raw'] = bytes(raw)
+    final.append(dup)
 size = h.write(out_path, final)
 print('wrote', out_path, size, 'bytes,', len(final), 'sequences; replaced', len(replaced),
       'added', len(out), 'downsampled', h.downsampled, round(time.time() - t0), 's')

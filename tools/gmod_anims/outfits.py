@@ -5,6 +5,12 @@
 Blue Shift:
   fpbody_presuit.mdl  Barney in his guard uniform (original Blue Shift model)
   fpbody_suit.mdl     a blue HEV suit with Barney's head
+
+  python3 -I outfits.py op4 <player.mdl> <hl player.mdl> <hl playerT.mdl> <gearbox/models/player.mdl> <outdir>
+
+Opposing Force:
+  fpbody_presuit.mdl  Shephard without the PCV vest (his player model's 2nd body)
+  fpbody_suit.mdl     a green HEV suit with Shephard's helmet and gas mask
 """
 import os
 import sys
@@ -54,5 +60,23 @@ if sys.argv[1] == 'bshift':
     B2 = Source(barney)
     B2.mode = 'local'
     head = keep_tris(B2.model(0, 0), head_pred(B2))
+    print('suit', compose(player, [('body', [[suit]]), ('head', [[head]])],
+                          os.path.join(outdir, 'fpbody_suit.mdl'), 'fpbody_suit.mdl'))
+
+if sys.argv[1] == 'op4':
+    player, hl, hlT, shephard, outdir = sys.argv[2:7]
+    S = Source(shephard)
+    S.mode = 'local'
+    body = S.model(0, 1)          # body 1: no PCV vest / backpack
+    print('presuit', compose(player, [('body', [[body]])], os.path.join(outdir, 'fpbody_presuit.mdl'),
+                             'fpbody_presuit.mdl'))
+
+    H = Source(hl, hlT)
+    H.mode = 'local'
+    recolour(H, hev_texture_names(H), hue_to=0.33, sat_scale=0.9, val_scale=0.9)   # green
+    suit = H.model(0, 0)
+    S2 = Source(shephard)
+    S2.mode = 'local'
+    head = keep_tris(S2.model(0, 0), head_pred(S2))
     print('suit', compose(player, [('body', [[suit]]), ('head', [[head]])],
                           os.path.join(outdir, 'fpbody_suit.mdl'), 'fpbody_suit.mdl'))

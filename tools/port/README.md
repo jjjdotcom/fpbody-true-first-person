@@ -26,3 +26,16 @@ contain game assets) go in `fpbody_bs/models`:
 `cl_dll/fpbody_game.h` decides what "suited" means: the HEV suit item in
 Half-Life and Opposing Force, armor in Blue Shift (its vest and helmet only
 add armor).
+
+## Opposing Force
+
+    git clone https://github.com/twhl-community/halflife-op4-updated fpbody_op4_sdk
+    python3 tools/port/apply_fpbody.py fpbody_op4_sdk op4
+    copy tools\port\BUILD_FPBODY_OP4.bat fpbody_op4_sdk\
+
+`BUILD_FPBODY_OP4.bat` builds into `..\fpbody_op4` (Opposing Force maps need no
+conversion). Outfits (`outfits.py op4`): `fpbody_presuit.mdl` is Shephard
+without the PCV vest (his player model's second body), `fpbody_suit.mdl` a
+green HEV suit with his helmet and gas mask, shown once he has the PCV
+(the suit item). The player model also gets `*_penguin` sequences (held like
+the snark), which Opposing Force's penguin asks for.
