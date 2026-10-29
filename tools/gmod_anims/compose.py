@@ -215,17 +215,10 @@ def compose(player_path, bodyparts, out_path, name='fpbody_outfit.mdl'):
     def put(b):
         align(); o = len(base); base.extend(b); return o
 
-    # textures: headers, then a skin table, then pixel data
+    # texture headers and skin table here; the pixel data goes last (below),
+    # because the engine keeps the model only up to texturedataindex
     tex_hdr_off = put(bytes(80 * len(textures)))
     skin_off = put(struct.pack('<%dh' % len(textures), *range(len(textures))))
-    for k, t in enumerate(textures):
-        data_off = put(t['pix'] + t['pal'])
-        nm = t['name'][:63]
-        struct.pack_into('<64s4i', base, tex_hdr_off + k * 80, nm + bytes(64 - len(nm)),
-                         t['flags'], t['w'], t['h'], data_off)
-    struct.pack_into('<6i', base, 180, len(textures), tex_hdr_off, tex_hdr_off + 80 * len(textures) + 0,
-                     len(textures), 1, skin_off)
-    # texturedataindex just needs to point inside the file; textures are found by their own index
 
     bp_off = put(bytes(76 * len(built)))
     for bi, (bpname, mlist) in enumerate(built):
@@ -258,6 +251,15 @@ def compose(player_path, bodyparts, out_path, name='fpbody_outfit.mdl'):
         struct.pack_into('<64s3i', base, bp_off + bi * 76, nm + bytes(64 - len(nm)), len(mlist), base_mul,
                          models_off)
     struct.pack_into('<2i', base, 204, len(built), bp_off)
+
+    align()
+    tex_data_off = len(base)
+    for k, t in enumerate(textures):
+        data_off = put(t['pix'] + t['pal'])
+        nm = t['name'][:63]
+        struct.pack_into('<64s4i', base, tex_hdr_off + k * 80, nm + bytes(64 - len(nm)),
+                         t['flags'], t['w'], t['h'], data_off)
+    struct.pack_into('<6i', base, 180, len(textures), tex_hdr_off, tex_data_off, len(textures), 1, skin_off)
     struct.pack_into('<i', base, 72, len(base))
     n = name.encode()[:63]
     base[8:72] = n + bytes(64 - len(n))

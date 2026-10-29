@@ -431,6 +431,19 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 	return 1;
 }
 
+// Keep our own body upright: for sequences without an aim blend range (no
+// weapon, swimming...) the renderer would tilt the whole model with the view
+// pitch, which in first person swings the legs up in front of the camera.
+void FPBody_LevelBody( int playerNumber, struct cl_entity_s *ent )
+{
+	if ( !ent || !FPBody_Active() )
+		return;
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( !local || playerNumber != local->index )
+		return;
+	ent->angles[ PITCH ] = 0;
+}
+
 // The local player's outfit (single player only):
 //   not suited: models/fpbody_presuit.mdl, or Gordon's lab coat
 //               models/fpbody_scientist.mdl (Half-Life)

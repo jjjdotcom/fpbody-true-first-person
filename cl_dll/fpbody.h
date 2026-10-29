@@ -27,6 +27,9 @@ int FPBody_Active( void );
 void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void *studiohdr,
 	float ( *bonetransform )[ 3 ][ 4 ], float ( *lighttransform )[ 3 ][ 4 ], int weaponmodel );
 
+// Called by the studio renderer before the player model's transform is set up
+void FPBody_LevelBody( int playerNumber, struct cl_entity_s *ent );
+
 // Model to draw for the local player instead of the normal one: the outfit
 // before the suit (Gordon's lab coat, Barney's uniform...) and, where the game
 // has one, the suit. NULL = use the normal model.

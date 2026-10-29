@@ -1775,6 +1775,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 		m_pPlayerInfo->gaitsequence = pplayer->gaitsequence;
 		m_pPlayerInfo = NULL;
 
+		FPBody_LevelBody( pplayer->number, m_pCurrentEntity );	// fpbody
 		StudioSetUpTransform( 0 );
 		VectorCopy( orig_angles, m_pCurrentEntity->angles );
 	}
@@ -1792,6 +1793,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 		m_pPlayerInfo = IEngineStudio.PlayerInfo( m_nPlayerIndex );
 		m_pPlayerInfo->gaitsequence = 0;
 
+		FPBody_LevelBody( pplayer->number, m_pCurrentEntity );	// fpbody
 		StudioSetUpTransform( 0 );
 	}
 
