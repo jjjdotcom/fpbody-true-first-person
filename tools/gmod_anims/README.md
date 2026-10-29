@@ -33,3 +33,17 @@ Requires Python 3 with numpy (and matplotlib for `viz.py`).
 
 To add or remap animations, edit the `HOLD` table (weapon poses), the gait /
 death lists, or the extras filter at the bottom of `build.py`.
+
+## Pre-suit outfit (Blue Shift lab coat)
+
+`fpbody/models/fpbody_scientist.mdl` (shown until the HEV suit is picked up)
+is built from Blue Shift's own lab-coat Gordon. Its mesh is moved onto the
+converted player skeleton, so every fpbody/GMod sequence still works:
+
+    python3 -I build_outfit.py fpbody/models/player.mdl \
+        bshift_hd/models/gordon_scientist.mdl bshift_hd/models/gordon_scientistT.mdl \
+        fpbody/models/fpbody_scientist.mdl
+
+(Use `bshift/models/...` and `-` for the T model for the SD version.)
+`render_mdl.py` draws a model in a few poses as a quick check. The generated
+model contains Blue Shift data and is not committed.
