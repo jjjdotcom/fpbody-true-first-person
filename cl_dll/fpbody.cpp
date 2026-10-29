@@ -28,6 +28,7 @@
 //   cl_fpbody_stabilize 0.85 how much of the head's fast sway the camera ignores (0 = none)
 //   cl_fpbody_runarms   1   unarmed: the arms swing with the walk / run animation
 //   cl_fpbody_classic   1   Half-Life's original player animations (models/fpbody_classic*.mdl), 0 = GMod
+//   cl_fpbody_holster   1   weapons we carry are shown on the body (back, hips, thighs)
 
 #include "hud.h"
 #include "cl_util.h"
@@ -50,6 +51,8 @@
 #include "fpbody.h"
 #include "fpbody_anim.h"
 #include "fpbody_game.h"
+#include "fpbody_holsters.h"
+#include "ammohistory.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -71,6 +74,7 @@ static cvar_t *cl_fpbody_bodypitch;
 static cvar_t *cl_fpbody_stabilize;
 static cvar_t *cl_fpbody_runarms;
 static cvar_t *cl_fpbody_classic;
+static cvar_t *cl_fpbody_holster;
 
 // Per-frame state from V_CalcRefdef
 static int g_bFrameAllowed;
@@ -106,6 +110,7 @@ void FPBody_Init( void )
 	cl_fpbody_stabilize = gEngfuncs.pfnRegisterVariable( "cl_fpbody_stabilize", "0.85", FCVAR_ARCHIVE );
 	cl_fpbody_runarms   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_runarms", "1", FCVAR_ARCHIVE );
 	cl_fpbody_classic   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_classic", "1", FCVAR_ARCHIVE );
+	cl_fpbody_holster   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_holster", "1", FCVAR_ARCHIVE );
 
 	gEngfuncs.pfnAddCommand( "fp_debug", FPBody_Debug_f );
 
@@ -662,5 +667,135 @@ static void FPBody_Debug_f( void )
 		if ( h )
 			gEngfuncs.Con_Printf( "fpbody: drawn model %s: %d bones, %d sequences, %d body parts, %d textures\n",
 				h->name, h->numbones, h->numseq, h->numbodyparts, h->numtextures );
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Holsters
+// ---------------------------------------------------------------------------
+
+#define NUM_HOLSTER_DEFS ( (int)( sizeof( g_holsterDefs ) / sizeof( g_holsterDefs[ 0 ] ) ) )
+
+// does a space separated list of class names contain this one
+static bool NameInList( const char *list, const char *name )
+{
+	size_t len = strlen( name );
+	const char *p = list;
+	while ( *p )
+	{
+		while ( *p == ' ' ) p++;
+		const char *e = p;
+		while ( *e && *e != ' ' ) e++;
+		if ( (size_t)( e - p ) == len && !strnicmp( p, name, len ) )
+			return true;
+		p = e;
+	}
+	return false;
+}
+
+static bool OwnsWeaponNamed( const char *list )
+{
+	unsigned long long bits = (unsigned long long)gHUD.m_iWeaponBits;
+	if ( sizeof( gHUD.m_iWeaponBits ) < 8 )
+		bits &= 0xffffffffULL;
+	for ( int id = 1; id < MAX_WEAPONS && id < 64; id++ )
+	{
+		if ( !( ( bits >> id ) & 1ULL ) )
+			continue;
+		WEAPON *w = gWR.GetWeapon( id );
+		if ( w && w->szName[ 0 ] && NameInList( list, w->szName ) )
+			return true;
+	}
+	return false;
+}
+
+int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr, fpholster_t *out, int max )
+{
+	static int modelState[ NUM_HOLSTER_DEFS ];
+	static int anchorOf[ NUM_HOLSTER_DEFS ];
+	static const studiohdr_t *anchorHdr;
+
+	if ( !cl_fpbody_holster || cl_fpbody_holster->value == 0.0f || !FPBody_Active() || !playerStudioHdr )
+		return 0;
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( !local || playerNumber != local->index )
+		return 0;
+
+	const studiohdr_t *hdr = (const studiohdr_t *)playerStudioHdr;
+	if ( hdr != anchorHdr )
+	{
+		anchorHdr = hdr;
+		const mstudiobone_t *pbones = (const mstudiobone_t *)( (const byte *)hdr + hdr->boneindex );
+		for ( int i = 0; i < NUM_HOLSTER_DEFS; i++ )
+		{
+			anchorOf[ i ] = -1;
+			for ( int b = 0; b < hdr->numbones && b < MAXSTUDIOBONES; b++ )
+				if ( !stricmp( pbones[ b ].name, g_holsterDefs[ i ].bone ) )
+				{
+					anchorOf[ i ] = b;
+					break;
+				}
+		}
+	}
+
+	const char *held = NULL;
+	if ( weaponmodel )
+	{
+		struct model_s *wm = IEngineStudio.GetModelByIndex( weaponmodel );
+		if ( wm )
+			held = wm->name;
+	}
+
+	int n = 0;
+	for ( int i = 0; i < NUM_HOLSTER_DEFS && n < max; i++ )
+	{
+		const fpholster_def_t *d = &g_holsterDefs[ i ];
+		if ( anchorOf[ i ] < 0 )
+			continue;
+		if ( held && !stricmp( held, d->model ) )
+			continue;			// it's in our hands
+		if ( !OwnsWeaponNamed( d->weapons ) )
+			continue;
+		struct model_s *m = FPBody_TryModel( d->model, modelState[ i ] );
+		if ( !m )
+			continue;
+		out[ n ].model = m;
+		out[ n ].anchor = anchorOf[ i ];
+		out[ n ].local = d->local;
+		out[ n ].keep = d->keep;
+		n++;
+	}
+	return n;
+}
+
+void FPBody_HolsterMatrix( const fpholster_t *h, const float ( *playerLight )[ 3 ][ 4 ], float ( *out )[ 4 ] )
+{
+	const float ( *A )[ 4 ] = playerLight[ h->anchor ];
+	const float ( *L )[ 4 ] = h->local;
+	for ( int r = 0; r < 3; r++ )
+	{
+		for ( int c = 0; c < 3; c++ )
+			out[ r ][ c ] = A[ r ][ 0 ] * L[ 0 ][ c ] + A[ r ][ 1 ] * L[ 1 ][ c ] + A[ r ][ 2 ] * L[ 2 ][ c ];
+		out[ r ][ 3 ] = A[ r ][ 0 ] * L[ 0 ][ 3 ] + A[ r ][ 1 ] * L[ 1 ][ 3 ] + A[ r ][ 2 ] * L[ 2 ][ 3 ] + A[ r ][ 3 ];
+	}
+}
+
+void FPBody_HolsterHideBones( const fpholster_t *h, void *studiohdr, float ( *bonetransform )[ 3 ][ 4 ],
+	float ( *lighttransform )[ 3 ][ 4 ] )
+{
+	if ( !h->keep || !studiohdr )
+		return;
+	const studiohdr_t *hdr = (const studiohdr_t *)studiohdr;
+	for ( int b = 0; b < hdr->numbones && b < 32; b++ )
+	{
+		if ( h->keep & ( 1u << b ) )
+			continue;
+		float pivot[ 3 ] = { bonetransform[ b ][ 0 ][ 3 ], bonetransform[ b ][ 1 ][ 3 ], bonetransform[ b ][ 2 ][ 3 ] };
+		CollapseBone( bonetransform, b, pivot );
+		if ( lighttransform != bonetransform )
+		{
+			float lp[ 3 ] = { lighttransform[ b ][ 0 ][ 3 ], lighttransform[ b ][ 1 ][ 3 ], lighttransform[ b ][ 2 ][ 3 ] };
+			CollapseBone( lighttransform, b, lp );
+		}
 	}
 }

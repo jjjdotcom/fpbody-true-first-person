@@ -33,6 +33,23 @@ void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void 
 void FPBody_SetWholeBodyGait( int playerNumber, int weaponmodel, int overlay );
 int FPBody_WholeBodyGait( void );
 
+// Weapons carried on the body (holsters): drawn by the studio renderer right
+// after the local player, one entry per weapon we own but aren't holding.
+#define FPBODY_MAX_HOLSTERS 32
+struct fpholster_t
+{
+	struct model_s *model;		// the weapon's p_ model
+	int anchor;					// player bone it hangs on
+	const float ( *local )[ 4 ];	// p_ model space -> anchor bone space (3x4)
+	unsigned int keep;			// bones of the p_ model to draw (0 = all)
+};
+int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr, fpholster_t *out, int max );
+// rotationmatrix for StudioSetupBones = anchor bone (from the player's cached light transforms) * local
+void FPBody_HolsterMatrix( const fpholster_t *h, const float ( *playerLight )[ 3 ][ 4 ], float ( *out )[ 4 ] );
+// squash the bones the holster doesn't draw (the egon's pack and nozzle are drawn apart)
+void FPBody_HolsterHideBones( const fpholster_t *h, void *studiohdr, float ( *bonetransform )[ 3 ][ 4 ],
+	float ( *lighttransform )[ 3 ][ 4 ] );
+
 // cl_fpbody_classic: Half-Life's original player animations, left as they are
 int FPBody_Classic( void );
 

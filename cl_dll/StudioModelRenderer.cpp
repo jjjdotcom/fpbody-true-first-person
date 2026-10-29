@@ -2008,6 +2008,44 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 
 			*m_pCurrentEntity = saveent;
 		}
+
+		// fpbody: the weapons we carry, on the body (holsters)
+		{
+			fpholster_t holsters[ FPBODY_MAX_HOLSTERS ];
+			studiohdr_t *playerHdr = (studiohdr_t *)IEngineStudio.Mod_Extradata( m_pRenderModel );
+			int numHolsters = IEngineStudio.IsHardware() ?
+				FPBody_GetHolsters( pplayer->number, pplayer->weaponmodel, playerHdr, holsters, FPBODY_MAX_HOLSTERS ) : 0;
+			if ( numHolsters > 0 )
+			{
+				cl_entity_t saveent = *m_pCurrentEntity;
+				model_t *saveRender = m_pRenderModel;
+				static float playerLight[ MAXSTUDIOBONES ][ 3 ][ 4 ];
+				memcpy( playerLight, m_rgCachedLightTransform, sizeof( playerLight ) );
+				for ( int h = 0; h < numHolsters; h++ )
+				{
+					studiohdr_t *hhdr = (studiohdr_t *)IEngineStudio.Mod_Extradata( holsters[ h ].model );
+					if ( !hhdr )
+						continue;
+					m_pRenderModel = holsters[ h ].model;
+					m_pStudioHeader = hhdr;
+					IEngineStudio.StudioSetHeader( m_pStudioHeader );
+					m_pCurrentEntity->curstate.sequence = 0;
+					m_pCurrentEntity->curstate.frame = 0;
+					m_pCurrentEntity->curstate.framerate = 0;
+					m_pCurrentEntity->curstate.body = 0;
+					m_pCurrentEntity->curstate.skin = 0;
+					m_pCurrentEntity->latched.sequencetime = 0;
+					m_pPlayerInfo = NULL;
+					FPBody_HolsterMatrix( &holsters[ h ], playerLight, *m_protationmatrix );
+					StudioSetupBones( );
+					FPBody_HolsterHideBones( &holsters[ h ], m_pStudioHeader, *m_pbonetransform, *m_plighttransform );
+					IEngineStudio.StudioSetupLighting( &lighting );
+					StudioRenderModel( );
+				}
+				m_pRenderModel = saveRender;
+				*m_pCurrentEntity = saveent;
+			}
+		}
 	}
 
 	return 1;

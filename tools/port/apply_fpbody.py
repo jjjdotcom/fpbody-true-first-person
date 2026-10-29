@@ -24,6 +24,9 @@ GAMES = {
 }
 
 
+HOLSTER_BLOCK = '\n\t\t// fpbody: the weapons we carry, on the body (holsters)\n\t\t{\n\t\t\tfpholster_t holsters[ FPBODY_MAX_HOLSTERS ];\n\t\t\tstudiohdr_t *playerHdr = (studiohdr_t *)IEngineStudio.Mod_Extradata( m_pRenderModel );\n\t\t\tint numHolsters = IEngineStudio.IsHardware() ?\n\t\t\t\tFPBody_GetHolsters( pplayer->number, pplayer->weaponmodel, playerHdr, holsters, FPBODY_MAX_HOLSTERS ) : 0;\n\t\t\tif ( numHolsters > 0 )\n\t\t\t{\n\t\t\t\tcl_entity_t saveent = *m_pCurrentEntity;\n\t\t\t\tmodel_t *saveRender = m_pRenderModel;\n\t\t\t\tstatic float playerLight[ MAXSTUDIOBONES ][ 3 ][ 4 ];\n\t\t\t\tmemcpy( playerLight, m_rgCachedLightTransform, sizeof( playerLight ) );\n\t\t\t\tfor ( int h = 0; h < numHolsters; h++ )\n\t\t\t\t{\n\t\t\t\t\tstudiohdr_t *hhdr = (studiohdr_t *)IEngineStudio.Mod_Extradata( holsters[ h ].model );\n\t\t\t\t\tif ( !hhdr )\n\t\t\t\t\t\tcontinue;\n\t\t\t\t\tm_pRenderModel = holsters[ h ].model;\n\t\t\t\t\tm_pStudioHeader = hhdr;\n\t\t\t\t\tIEngineStudio.StudioSetHeader( m_pStudioHeader );\n\t\t\t\t\tm_pCurrentEntity->curstate.sequence = 0;\n\t\t\t\t\tm_pCurrentEntity->curstate.frame = 0;\n\t\t\t\t\tm_pCurrentEntity->curstate.framerate = 0;\n\t\t\t\t\tm_pCurrentEntity->curstate.body = 0;\n\t\t\t\t\tm_pCurrentEntity->curstate.skin = 0;\n\t\t\t\t\tm_pCurrentEntity->latched.sequencetime = 0;\n\t\t\t\t\tm_pPlayerInfo = NULL;\n\t\t\t\t\tFPBody_HolsterMatrix( &holsters[ h ], playerLight, *m_protationmatrix );\n\t\t\t\t\tStudioSetupBones( );\n\t\t\t\t\tFPBody_HolsterHideBones( &holsters[ h ], m_pStudioHeader, *m_pbonetransform, *m_plighttransform );\n\t\t\t\t\tIEngineStudio.StudioSetupLighting( &lighting );\n\t\t\t\t\tStudioRenderModel( );\n\t\t\t\t}\n\t\t\t\tm_pRenderModel = saveRender;\n\t\t\t\t*m_pCurrentEntity = saveent;\n\t\t\t}\n\t\t}\n'
+
+
 def patch(path, edits):
     s = open(path, encoding='utf-8', newline='').read()
     nl = '\r\n' if '\r\n' in s else '\n'
@@ -45,7 +48,7 @@ def main():
     g = GAMES[game]
     cl = os.path.join(sdk, 'cl_dll')
 
-    for f in ('fpbody.cpp', 'fpbody.h', 'fpbody_anim.cpp', 'fpbody_anim.h'):
+    for f in ('fpbody.cpp', 'fpbody.h', 'fpbody_anim.cpp', 'fpbody_anim.h', 'fpbody_holsters.h'):
         shutil.copy(os.path.join(REPO, 'cl_dll', f), os.path.join(cl, f))
     open(os.path.join(cl, 'fpbody_game.h'), 'w').write(
         '// fpbody_game.h - per-game settings for the True First Person code (%s).\n'
@@ -104,6 +107,8 @@ def main():
          '\tStudioSaveBones();\n', 1),
         ('\t\t\tif (copy)\n\t\t\t{\n\t\t\t\tmemcpy(pos[i], pos2[i], sizeof(pos[i]));\n',
          '\t\t\tif (copy || 0 != FPBody_WholeBodyGait()) // fpbody: unarmed, arms swing with the gait\n\t\t\t{\n\t\t\t\tmemcpy(pos[i], pos2[i], sizeof(pos[i]));\n', 1),
+        ('\t\t\tStudioCalcAttachments();\n\n\t\t\t*m_pCurrentEntity = saveent;\n\t\t}\n',
+         '\t\t\tStudioCalcAttachments();\n\n\t\t\t*m_pCurrentEntity = saveent;\n\t\t}\n' + HOLSTER_BLOCK, 1),
         ('\t\tStudioProcessGait(pplayer);\n',
          '\t\tFPBody_PrePlayerBlend(pplayer->number, m_pCurrentEntity); // fpbody: less body pitch\n'
          '\t\tStudioProcessGait(pplayer);\n', 1),
@@ -184,6 +189,7 @@ def main():
          '    <ClInclude Include="..\\..\\cl_dll\\fpbody.h" />\n'
          '    <ClInclude Include="..\\..\\cl_dll\\fpbody_anim.h" />\n'
          '    <ClInclude Include="..\\..\\cl_dll\\fpbody_game.h" />\n'
+         '    <ClInclude Include="..\\..\\cl_dll\\fpbody_holsters.h" />\n'
          '    <ClInclude Include="..\\..\\cl_dll\\in_defs.h" />\n', 1),
     ])
 
