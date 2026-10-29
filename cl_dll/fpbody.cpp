@@ -37,6 +37,7 @@
 #include "pm_defs.h"
 #include "event_api.h"
 #include "pmtrace.h"
+#include "r_studioint.h"
 
 #include <string.h>
 #include <math.h>
@@ -50,6 +51,8 @@
 #endif
 
 int CAM_IsRealThirdPerson( void );	// in_camera.cpp
+extern engine_studio_api_t IEngineStudio;
+static void FPBody_Debug_f( void );
 
 static cvar_t *cl_fpbody;
 static cvar_t *cl_fpbody_forward;
@@ -88,6 +91,8 @@ void FPBody_Init( void )
 	cl_fpbody_hidehead = gEngfuncs.pfnRegisterVariable( "cl_fpbody_hidehead", "1", FCVAR_ARCHIVE );
 	cl_fpbody_smooth   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_smooth", "0", FCVAR_ARCHIVE );
 	cl_fpbody_outfit   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_outfit", "1", FCVAR_ARCHIVE );
+
+	gEngfuncs.pfnAddCommand( "fp_debug", FPBody_Debug_f );
 
 	FPAnim_Init();
 }
@@ -477,25 +482,66 @@ int FPBody_IsSuited( void )
 #endif
 }
 
+// what the last call decided, for fp_debug
+static const char *g_szOutfitReason = "not called yet";
+static struct model_s *g_pOutfitLast;
+
 struct model_s *FPBody_GetOutfitModel( int playerNumber )
 {
 	static int presuitState, scientistState, suitState;
-
-	if ( !cl_fpbody_outfit || cl_fpbody_outfit->value == 0.0f )
-		return NULL;
 
 	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 	if ( !local || playerNumber != local->index )
 		return NULL;
 
-	if ( gEngfuncs.GetMaxClients() > 1 )		// single player only
-		return NULL;
+	if ( !FPBody_Active() )
+	{
+		g_szOutfitReason = "first person body not active";
+		return g_pOutfitLast = NULL;
+	}
 
-	if ( FPBody_IsSuited() )
-		return FPBody_TryModel( "models/fpbody_suit.mdl", suitState );
+	struct model_s *m = NULL;
+	if ( cl_fpbody_outfit && cl_fpbody_outfit->value != 0.0f )
+	{
+		if ( FPBody_IsSuited() )
+		{
+			m = FPBody_TryModel( "models/fpbody_suit.mdl", suitState );
+			g_szOutfitReason = m ? "suited: fpbody_suit.mdl" : "suited, no fpbody_suit.mdl";
+		}
+		else
+		{
+			m = FPBody_TryModel( "models/fpbody_presuit.mdl", presuitState );
+			if ( !m )
+				m = FPBody_TryModel( "models/fpbody_scientist.mdl", scientistState );
+			g_szOutfitReason = m ? "not suited: pre-suit outfit" : "not suited, no outfit model";
+		}
+	}
+	else
+		g_szOutfitReason = "cl_fpbody_outfit 0";
 
-	struct model_s *m = FPBody_TryModel( "models/fpbody_presuit.mdl", presuitState );
+	// Never let the engine pick a multiplayer model (the "model" setting) for
+	// our own body: only the mod's models have the fpbody/GMod animations.
 	if ( !m )
-		m = FPBody_TryModel( "models/fpbody_scientist.mdl", scientistState );
-	return m;
+		m = local->model;
+	return g_pOutfitLast = m;
+}
+
+static void FPBody_Debug_f( void )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	gEngfuncs.Con_Printf( "fpbody: active %d, maxclients %d, suited %d, armor %d, weaponbits %08x\n",
+		FPBody_Active(), gEngfuncs.GetMaxClients(), FPBody_IsSuited(), gHUD.m_Battery.GetArmor(),
+		(unsigned int)( gHUD.m_iWeaponBits & 0xffffffff ) );
+	gEngfuncs.Con_Printf( "fpbody: outfit: %s -> %s\n", g_szOutfitReason,
+		g_pOutfitLast ? g_pOutfitLast->name : "(engine's choice)" );
+	if ( local )
+		gEngfuncs.Con_Printf( "fpbody: local player %d, entity model %s, sequence %d, gait %d\n", local->index,
+			local->model ? local->model->name : "none", local->curstate.sequence, local->curstate.gaitsequence );
+	if ( g_pOutfitLast )
+	{
+		studiohdr_t *h = (studiohdr_t *)IEngineStudio.Mod_Extradata( g_pOutfitLast );
+		if ( h )
+			gEngfuncs.Con_Printf( "fpbody: drawn model %s: %d bones, %d sequences, %d body parts, %d textures\n",
+				h->name, h->numbones, h->numseq, h->numbodyparts, h->numtextures );
+	}
 }
