@@ -27,6 +27,7 @@
 //   cl_fpbody_bodypitch 0.5 how much of the view pitch bends the body (aim poses)
 //   cl_fpbody_stabilize 0.85 how much of the head's fast sway the camera ignores (0 = none)
 //   cl_fpbody_runarms   1   unarmed: the arms swing with the walk / run animation
+//   cl_fpbody_classic   0   1 = Half-Life's original player animations (models/fpbody_classic*.mdl)
 
 #include "hud.h"
 #include "cl_util.h"
@@ -69,6 +70,7 @@ static cvar_t *cl_fpbody_lookdown;
 static cvar_t *cl_fpbody_bodypitch;
 static cvar_t *cl_fpbody_stabilize;
 static cvar_t *cl_fpbody_runarms;
+static cvar_t *cl_fpbody_classic;
 
 // Per-frame state from V_CalcRefdef
 static int g_bFrameAllowed;
@@ -103,6 +105,7 @@ void FPBody_Init( void )
 	cl_fpbody_bodypitch = gEngfuncs.pfnRegisterVariable( "cl_fpbody_bodypitch", "0.5", FCVAR_ARCHIVE );
 	cl_fpbody_stabilize = gEngfuncs.pfnRegisterVariable( "cl_fpbody_stabilize", "0.85", FCVAR_ARCHIVE );
 	cl_fpbody_runarms   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_runarms", "1", FCVAR_ARCHIVE );
+	cl_fpbody_classic   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_classic", "0", FCVAR_ARCHIVE );
 
 	gEngfuncs.pfnAddCommand( "fp_debug", FPBody_Debug_f );
 
@@ -500,6 +503,8 @@ void FPBody_SetWholeBodyGait( int playerNumber, int weaponmodel, int overlay )
 		return;
 	if ( !cl_fpbody_runarms || cl_fpbody_runarms->value == 0.0f )
 		return;
+	if ( cl_fpbody_classic && cl_fpbody_classic->value != 0.0f )
+		return;		// Half-Life's own gaits weren't made to be seen above the hips
 	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 	if ( local && playerNumber == local->index )
 		g_iWholeBodyGait = 1;
@@ -583,7 +588,13 @@ static struct model_s *g_pOutfitLast;
 
 struct model_s *FPBody_GetOutfitModel( int playerNumber )
 {
-	static int presuitState, scientistState, suitState;
+	// [classic][model]: suit, presuit, scientist (Half-Life's older name), plain body
+	static const char *names[ 2 ][ 4 ] =
+	{
+		{ "models/fpbody_suit.mdl", "models/fpbody_presuit.mdl", "models/fpbody_scientist.mdl", NULL },
+		{ "models/fpbody_classic_suit.mdl", "models/fpbody_classic_presuit.mdl", NULL, "models/fpbody_classic.mdl" },
+	};
+	static int states[ 2 ][ 4 ];
 
 	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 	if ( !local || playerNumber != local->index )
@@ -595,24 +606,30 @@ struct model_s *FPBody_GetOutfitModel( int playerNumber )
 		return g_pOutfitLast = NULL;
 	}
 
+	// cl_fpbody_classic 1: Half-Life's original player animations instead of the GMod ones
+	int c = ( cl_fpbody_classic && cl_fpbody_classic->value != 0.0f ) ? 1 : 0;
+
 	struct model_s *m = NULL;
 	if ( cl_fpbody_outfit && cl_fpbody_outfit->value != 0.0f )
 	{
 		if ( FPBody_IsSuited() )
 		{
-			m = FPBody_TryModel( "models/fpbody_suit.mdl", suitState );
-			g_szOutfitReason = m ? "suited: fpbody_suit.mdl" : "suited, no fpbody_suit.mdl";
+			m = FPBody_TryModel( names[ c ][ 0 ], states[ c ][ 0 ] );
+			g_szOutfitReason = m ? "suited: suit outfit" : "suited, no suit outfit model";
 		}
 		else
 		{
-			m = FPBody_TryModel( "models/fpbody_presuit.mdl", presuitState );
-			if ( !m )
-				m = FPBody_TryModel( "models/fpbody_scientist.mdl", scientistState );
+			m = FPBody_TryModel( names[ c ][ 1 ], states[ c ][ 1 ] );
+			if ( !m && names[ c ][ 2 ] )
+				m = FPBody_TryModel( names[ c ][ 2 ], states[ c ][ 2 ] );
 			g_szOutfitReason = m ? "not suited: pre-suit outfit" : "not suited, no outfit model";
 		}
 	}
 	else
 		g_szOutfitReason = "cl_fpbody_outfit 0";
+
+	if ( !m && names[ c ][ 3 ] )
+		m = FPBody_TryModel( names[ c ][ 3 ], states[ c ][ 3 ] );
 
 	// Never let the engine pick a multiplayer model (the "model" setting) for
 	// our own body: only the mod's models have the fpbody/GMod animations.
