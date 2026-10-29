@@ -27,6 +27,9 @@ int FPBody_Active( void );
 void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void *studiohdr,
 	float ( *bonetransform )[ 3 ][ 4 ], float ( *lighttransform )[ 3 ][ 4 ], int weaponmodel );
 
+// Called by the studio renderer before the player's aim blend is worked out
+void FPBody_PrePlayerBlend( int playerNumber, struct cl_entity_s *ent );
+
 // Called by the studio renderer before the player model's transform is set up
 void FPBody_LevelBody( int playerNumber, struct cl_entity_s *ent );
 

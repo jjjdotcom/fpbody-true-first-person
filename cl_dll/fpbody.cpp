@@ -23,6 +23,8 @@
 //   cl_fpbody_hidehead 1   collapse the head so it doesn't block the view
 //   cl_fpbody_smooth   0   0 = raw head motion, higher = smoother (e.g. 15)
 //   cl_fpbody_outfit   1   outfit before / after the suit (see FPBody_GetOutfitModel)
+//   cl_fpbody_lookdown 8   how far the camera moves forward when looking straight down
+//   cl_fpbody_bodypitch 0.5 how much of the view pitch bends the body (aim poses)
 
 #include "hud.h"
 #include "cl_util.h"
@@ -61,6 +63,8 @@ static cvar_t *cl_fpbody_right;
 static cvar_t *cl_fpbody_hidehead;
 static cvar_t *cl_fpbody_smooth;
 static cvar_t *cl_fpbody_outfit;
+static cvar_t *cl_fpbody_lookdown;
+static cvar_t *cl_fpbody_bodypitch;
 
 // Per-frame state from V_CalcRefdef
 static int g_bFrameAllowed;
@@ -91,6 +95,8 @@ void FPBody_Init( void )
 	cl_fpbody_hidehead = gEngfuncs.pfnRegisterVariable( "cl_fpbody_hidehead", "1", FCVAR_ARCHIVE );
 	cl_fpbody_smooth   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_smooth", "0", FCVAR_ARCHIVE );
 	cl_fpbody_outfit   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_outfit", "1", FCVAR_ARCHIVE );
+	cl_fpbody_lookdown = gEngfuncs.pfnRegisterVariable( "cl_fpbody_lookdown", "8", FCVAR_ARCHIVE );
+	cl_fpbody_bodypitch = gEngfuncs.pfnRegisterVariable( "cl_fpbody_bodypitch", "0.5", FCVAR_ARCHIVE );
 
 	gEngfuncs.pfnAddCommand( "fp_debug", FPBody_Debug_f );
 
@@ -298,10 +304,15 @@ void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void 
 		float pivotBone[ 3 ], pivotLight[ 3 ];
 		int r;
 
+		// Squash the head down to the neck joint, so the triangles joining the
+		// head to the collar flatten into the collar instead of fanning up
+		// into the view
+		const mstudiobone_t *pbones = (const mstudiobone_t *)( (const byte *)hdr + hdr->boneindex );
+		int pivot = pbones[ g_iHeadBone ].parent >= 0 ? pbones[ g_iHeadBone ].parent : g_iHeadBone;
 		for ( r = 0; r < 3; r++ )
 		{
-			pivotBone[ r ] = bonetransform[ g_iHeadBone ][ r ][ 3 ];
-			pivotLight[ r ] = lighttransform[ g_iHeadBone ][ r ][ 3 ];
+			pivotBone[ r ] = bonetransform[ pivot ][ r ][ 3 ];
+			pivotLight[ r ] = lighttransform[ pivot ][ r ][ 3 ];
 		}
 
 		int numbones = hdr->numbones;
@@ -392,17 +403,26 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 	float rel[ 3 ];
 	RotateYaw( local, pparams->cl_viewangles[ YAW ], rel );
 
-	Vector forward, right, up;
-	AngleVectors( pparams->cl_viewangles, forward, right, up );
+	// Offsets in the level (yaw only) frame, so looking down doesn't sink the
+	// camera into the chest; looking down moves the eyes forward over the body
+	// instead, like a real neck does.
+	float yaw = pparams->cl_viewangles[ YAW ] * ( M_PI / 180.0f );
+	float pitch = pparams->cl_viewangles[ PITCH ];
+	if ( pitch > 180.0f ) pitch -= 360.0f;
+	float down = sin( pitch * ( M_PI / 180.0f ) );
+	if ( down < 0.0f ) down = 0.0f;
+	Vector forward( cos( yaw ), sin( yaw ), 0.0f );
+	Vector right( sin( yaw ), -cos( yaw ), 0.0f );
+	float fwd = cl_fpbody_forward->value + cl_fpbody_lookdown->value * down;
 
 	Vector target;
 	for ( int i = 0; i < 3; i++ )
 	{
 		target[ i ] = pparams->simorg[ i ] + rel[ i ]
-			+ forward[ i ] * cl_fpbody_forward->value
-			+ right[ i ] * cl_fpbody_right->value
-			+ up[ i ] * cl_fpbody_up->value;
+			+ forward[ i ] * fwd
+			+ right[ i ] * cl_fpbody_right->value;
 	}
+	target[ 2 ] += cl_fpbody_up->value;
 
 	// Don't let the camera poke through walls: trace from the normal eye
 	// position (which is always inside the player's hull) to the head.
@@ -434,6 +454,22 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 
 	VectorCopy( target, outOrigin );
 	return 1;
+}
+
+// In first person the view pitch only partly bends the body (the aim poses
+// bow the whole torso, which pushes the hips out behind it). Called before
+// the player blend is worked out.
+void FPBody_PrePlayerBlend( int playerNumber, struct cl_entity_s *ent )
+{
+	if ( !ent || !FPBody_Active() )
+		return;
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( !local || playerNumber != local->index )
+		return;
+	float k = cl_fpbody_bodypitch ? cl_fpbody_bodypitch->value : 1.0f;
+	if ( k < 0.0f ) k = 0.0f;
+	if ( k > 1.0f ) k = 1.0f;
+	ent->angles[ PITCH ] *= k;
 }
 
 // Keep our own body upright: for sequences without an aim blend range (no

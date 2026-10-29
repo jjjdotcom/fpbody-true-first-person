@@ -1770,6 +1770,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 
 		VectorCopy( m_pCurrentEntity->angles, orig_angles );
 	
+		FPBody_PrePlayerBlend( pplayer->number, m_pCurrentEntity );	// fpbody
 		StudioProcessGait( pplayer );
 
 		m_pPlayerInfo->gaitsequence = pplayer->gaitsequence;

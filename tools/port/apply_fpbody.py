@@ -99,6 +99,9 @@ def main():
          '\t\tFPBody_ProcessPlayerBones(pplayer->number, m_pCurrentEntity, m_pStudioHeader,\n'
          '\t\t\t*m_pbonetransform, *m_plighttransform, pplayer->weaponmodel);\n\t}\n\n'
          '\tStudioSaveBones();\n', 1),
+        ('\t\tStudioProcessGait(pplayer);\n',
+         '\t\tFPBody_PrePlayerBlend(pplayer->number, m_pCurrentEntity); // fpbody: less body pitch\n'
+         '\t\tStudioProcessGait(pplayer);\n', 1),
         ('\t\tStudioSetUpTransform(false);\n',
          '\t\tFPBody_LevelBody(pplayer->number, m_pCurrentEntity); // fpbody: keep our body upright\n'
          '\t\tStudioSetUpTransform(false);\n', 2),
