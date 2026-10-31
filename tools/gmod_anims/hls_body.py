@@ -21,7 +21,10 @@ ValveBiped skeleton, so this:
   3. converts the materials (VMT/VTF) to 8-bit textures, every skin family.
 
 --body picks one submodel per body part (e.g. Armor=1,Helmet=1); empty
-submodels are dropped. The result contains the playermodel's data: keep it
+submodels are dropped. --head <model> [--head-body ...] takes the head from
+another playermodel on the same skeleton (the triangles skinned to the head
+replace the main model's), and --tint <hue> recolours the main model's orange
+(an HEV suit) to that hue in degrees (215 blue, 95 olive green). The result contains the playermodel's data: keep it
 local.
 """
 import argparse
@@ -112,11 +115,30 @@ def quantize(im, masked):
     return w, h, pix.tobytes(), bytes(pal)
 
 
-def convert_textures(S):
+def tint(im, hue, sat=1.0):
+    """Orange (an HEV suit) -> another hue; skin, greys and dark parts stay."""
+    from PIL import Image
+    a = im.split()[3]
+    hsv = np.array(im.convert('RGB').convert('HSV')).astype(float)
+    h = hsv[..., 0] * 360.0 / 255.0
+    m = (h >= 8) & (h <= 50) & (hsv[..., 1] > 90) & (hsv[..., 2] > 40)
+    hsv[..., 0][m] = hue * 255.0 / 360.0
+    hsv[..., 1][m] = np.clip(hsv[..., 1][m] * sat, 0, 255)
+    out = Image.fromarray(hsv.astype(np.uint8), 'HSV').convert('RGBA')
+    out.putalpha(a)
+    return out
+
+
+def convert_textures(S, hue=None, sat=1.0, skip=()):
     from PIL import Image
     out = []
     for k, name in enumerate(S.materials):
+        if k in skip:
+            out.append((name, 0, 8, 8, bytes(64), bytes(768)))      # not used by any triangle
+            continue
         im, keys = S.load_texture(k)
+        if im is not None and hue is not None:
+            im = tint(im, hue, sat)
         flags = 0
         if im is None and '$envmap' in keys:
             # chrome without a base texture: the environment map as Half-Life chrome
@@ -144,8 +166,27 @@ def convert_textures(S):
     return out
 
 
-def build_mesh(S, P, W, X, rt, choose):
-    """GoldSrc body parts: [(name, vertices, vertex bones, normals, normal bones, meshes)]"""
+def head_bones(S):
+    h = S.bone_by_name[retarget.VB + 'Head1']
+    out = set()
+    for i, b in enumerate(S.bones):
+        j = i
+        while j >= 0 and j != h:
+            j = S.bones[j]['parent']
+        if j == h:
+            out.add(i)
+    return out
+
+
+def is_head_tri(S, hb, t):
+    n = sum(1 for v in t if max(S.vertices[v]['bones'], key=lambda bw: bw[1])[0] in hb)
+    return n >= 2
+
+
+def build_mesh(S, P, W, X, rt, choose, keep='all', matoff=0, partnames=None):
+    """GoldSrc body parts: [(name, vertices, vertex bones, normals, normal bones, meshes)]
+    keep: 'all', 'nohead' (drop the triangles skinned to the head) or 'head' (only those)."""
+    hb = head_bones(S)
     Rs, Ts = S.bind_world()
     tgt_by_srcname = {retarget.VB + sn: P.bone_by_name[tn] for tn, sn in retarget.MAP}
     # Source bone -> (GoldSrc bone, the Source bone whose joint it hangs from)
@@ -160,6 +201,10 @@ def build_mesh(S, P, W, X, rt, choose):
     for bp, (bpname, nm) in enumerate(S.bodyparts):
         sub = choose.get(bpname.lower(), 0)
         meshes = [(mat, tris) for mat, tris, b, m in S.meshes if b == bp and m == sub and tris]
+        if keep != 'all':
+            want = keep == 'head'
+            meshes = [(mat, [t for t in tris if is_head_tri(S, hb, t) == want]) for mat, tris in meshes]
+            meshes = [(mat, tris) for mat, tris in meshes if tris]
         if not meshes:
             continue
         vid = {}
@@ -183,8 +228,8 @@ def build_mesh(S, P, W, X, rt, choose):
                         vid[v] = len(verts) - 1
                     cmd.append((vid[v], S.vertices[v]['uv']))
                 cmds.append(cmd)
-            gmeshes.append((mat, cmds))
-        parts.append((bpname, np.array(verts), vbones, np.array(norms), nbones, gmeshes))
+            gmeshes.append((mat + matoff, cmds))
+        parts.append(((partnames or bpname), np.array(verts), vbones, np.array(norms), nbones, gmeshes))
         assert len(verts) <= 2048, 'too many vertices in ' + bpname
     return parts
 
@@ -271,11 +316,19 @@ def main():
     ap.add_argument('base'); ap.add_argument('source'); ap.add_argument('out'); ap.add_argument('ref')
     ap.add_argument('--roots', default='')
     ap.add_argument('--body', default='')
+    ap.add_argument('--head', default='')
+    ap.add_argument('--head-body', default='')
+    ap.add_argument('--tint', type=float, default=None)
+    ap.add_argument('--sat', type=float, default=1.0)
     a = ap.parse_args()
-    choose = {}
-    for kv in filter(None, a.body.split(',')):
-        k, v = kv.split('=')
-        choose[k.lower()] = int(v)
+
+    def parse(txt):
+        out = {}
+        for kv in filter(None, txt.split(',')):
+            k, v = kv.split('=')
+            out[k.lower()] = int(v)
+        return out
+    choose = parse(a.body)
     P = GoldSrcModel(a.base)
     ref = SourceModel(a.ref, a.ref[:-4].replace('_gmod', '') + '.ani')
     S = SourceMesh(a.source, [r for r in a.roots.split(',') if r])
@@ -285,13 +338,26 @@ def main():
     resequence(P, seqs, rt, newpos)
     tmp = a.out + '.tmp'
     P.write(tmp, seqs)
-    parts = build_mesh(S, P, W, X, rt, choose)
-    textures = convert_textures(S)
-    n = write_model(P, tmp, a.out, parts, textures, S.skins)
+    roots = [r for r in a.roots.split(',') if r]
+    if a.head:
+        H = SourceMesh(a.head, roots)
+        parts = build_mesh(S, P, W, X, rt, choose, keep='nohead')
+        hparts = build_mesh(H, P, W, X, rt, parse(a.head_body), keep='head', matoff=len(S.materials), partnames='head')
+        used = {m for p in parts for m, _ in p[5]}
+        hused = {m - len(S.materials) for p in hparts for m, _ in p[5]}
+        textures = (convert_textures(S, a.tint, a.sat, skip=set(range(len(S.materials))) - used) +
+                    convert_textures(H, skip=set(range(len(H.materials))) - hused))
+        parts += hparts
+        skins = [list(range(len(textures)))]
+    else:
+        parts = build_mesh(S, P, W, X, rt, choose)
+        textures = convert_textures(S, a.tint, a.sat)
+        skins = S.skins
+    n = write_model(P, tmp, a.out, parts, textures, skins)
     import os
     os.remove(tmp)
     print('wrote', a.out, n, 'bytes;', len(parts), 'body parts,', sum(len(p[1]) for p in parts), 'vertices,',
-          len(textures), 'textures,', len(S.skins), 'skins; height scale undone', round(1 / rt.scale, 3))
+          len(textures), 'textures,', len(skins), 'skins; height scale undone', round(1 / rt.scale, 3))
 
 
 if __name__ == '__main__':
