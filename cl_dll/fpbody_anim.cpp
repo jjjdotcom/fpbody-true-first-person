@@ -868,16 +868,33 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 	StartClip( type, variant, strength, seqDur );
 }
 
+static float g_hookTime = -10.0f;	// last weapon anim from the prediction hook
+static int g_hookSeq = -1;
+
 void FPAnim_OnWeaponAnim( int iAnim, int viewmodelIndex )
 {
 	g_bHookSeen = true;
+	g_hookTime = gEngfuncs.GetClientTime();
+	g_hookSeq = iAnim;
 
 	if ( !AnimsOn() )
 		return;
 
+	// The predicted player's viewmodel field isn't always a model index (a
+	// weapon's client-side Deploy stores the model's name string there), so the
+	// index can point at any loaded model. Use it only if it really is a view
+	// model with that animation, otherwise the view model being drawn.
 	model_t *model = NULL;
 	if ( viewmodelIndex > 0 )
-		model = IEngineStudio.GetModelByIndex( viewmodelIndex );
+	{
+		model_t *m = IEngineStudio.GetModelByIndex( viewmodelIndex );
+		if ( m && m->type == mod_studio && strstr( m->name, "/v_" ) )
+		{
+			studiohdr_t *h = (studiohdr_t *)IEngineStudio.Mod_Extradata( m );
+			if ( h && iAnim >= 0 && iAnim < h->numseq )
+				model = m;
+		}
+	}
 
 	if ( !model )
 	{
@@ -885,28 +902,37 @@ void FPAnim_OnWeaponAnim( int iAnim, int viewmodelIndex )
 		if ( view )
 			model = view->model;
 	}
+	FPDbg( "weapon anim %d on %s\n", iAnim, model ? model->name : "(no model)" );
 
 	HandleWeaponAnim( model, iAnim );
 }
 
 // Fallback when client weapon prediction is off (cl_lw 0): watch the view
 // model entity for animation changes sent by the server.
+// The view model's animation, watched every frame. Weapon anims usually come
+// through the prediction hook above; the ones that don't (weapons the client
+// doesn't predict, Blue Shift / Opposing Force builds, cl_lw 0) still change
+// the view model, so they're caught here. One the hook just reported is skipped.
 static void PollViewModel( void )
 {
-	if ( g_bHookSeen )
-		return;
-
 	cl_entity_t *view = gEngfuncs.GetViewModel();
 	if ( !view || !view->model )
 		return;
 
+	float now = gEngfuncs.GetClientTime();
+	if ( view->curstate.animtime < g_lastPollAnimTime - 0.5f )
+		g_lastPollSeq = -1;								// new map / saved game: start again
 	if ( view->curstate.sequence != g_lastPollSeq || view->curstate.animtime != g_lastPollAnimTime )
 	{
 		bool first = ( g_lastPollSeq < 0 );
 		g_lastPollSeq = view->curstate.sequence;
 		g_lastPollAnimTime = view->curstate.animtime;
-		if ( !first )
+		bool hooked = g_bHookSeen && g_hookSeq == view->curstate.sequence && now - g_hookTime >= 0.0f && now - g_hookTime < 0.25f;
+		if ( !first && !hooked && AnimsOn() )
+		{
+			FPDbg( "view model anim %d (not from the hook)\n", view->curstate.sequence );
 			HandleWeaponAnim( view->model, view->curstate.sequence );
+		}
 	}
 }
 
