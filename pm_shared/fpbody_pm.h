@@ -24,6 +24,8 @@
 #define FPM_CLIMB			16
 #define FPM_CCOUNT_SHIFT	5		// 2 bits: wall-climb pushes used in this jump
 #define FPM_SLIDE			128
+#define FPM_PANIC			256		// set by the server: a fight nearby (ExtendedER panic)
+#define FPM_HOSTILE			512		// set by the server: a hostile in view (raises the gun)
 
 #define FPM_VAULT_MANTLE	1
 #define FPM_VAULT_HOP		2

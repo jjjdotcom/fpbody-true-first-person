@@ -100,6 +100,15 @@ animation addons the Freeman mod uses; the converted models stay local).
 | Falls, landings | Falling plays a fall loop; a hard landing a crouch-and-recover, or a roll when running. | `cl_dll/fpbody_anim.cpp` |
 | Weapon draws | Drawing a gun plays a draw animation for its kind. | same |
 
+| ExtendedER Player Animations | Fidgets after standing around (head nods and shakes, stretches, arm gestures), a bend-down when you pick things up and at the top of a ladder, cowering / crouch-walking / panicked running when empty-handed near a fight, flinches by damage type (shock spasms, acid gagging, burns, crushing, blasts, bullets), and a lowered gun comes up when a hostile is in front of you. `cl_fpbody_epa 0` turns it off; `cl_fpbody_epa_fidget_*` tune the fidgets. | `cl_dll/fpbody_anim.cpp`; fights and hostiles from the server (`fpbody_moves.inl`) |
+
+Fidgets and flinches are *additive* layers (`fa_` sequences): the studio
+renderer adds their bone rotations on top of whatever the body is playing
+(`FPAnim_GetAdditive` in `StudioSetupBones`), the way Source layers gestures.
+Some fidgets are Half-Life 2's own male gestures: `add_freeman.py` takes
+`models/humans/male_gestures.mdl` (from `hl2/hl2_misc_dir.vpk`, see `vpk.py`)
+as an optional last argument.
+
 The movement runs in `pm_shared`, so it's predicted on the client like the
 rest of Half-Life's movement; the state is in the player's `fuser4` (bits) and
 `fuser1` (timer). **Each mod folder needs its own `delta.lst`** with `fuser4`

@@ -23,6 +23,7 @@
 #include "math.h"
 
 #include "hud.h"
+#include "fpbody_anim.h"
 #include "cl_util.h"
 #include "parsemsg.h"
 #include <string.h>
@@ -123,6 +124,7 @@ int CHudHealth:: MsgFunc_Damage(const char *pszName,  int iSize, void *pbuf )
 	int armor = READ_BYTE();	// armor
 	int damageTaken = READ_BYTE();	// health
 	long bitsDamage = READ_LONG(); // damage bits
+	FPAnim_OnDamage( damageTaken + armor, bitsDamage );	// fpbody: ExtendedER flinches
 
 	vec3_t vecFrom;
 

@@ -147,8 +147,61 @@ void CBasePlayer::FPMoves_DoKick( void )
 	pev->velocity = pev->velocity + back * ( m_iFPKickAir ? 220.0f : 110.0f );
 }
 
+// ExtendedER: a fight near us (FPM_PANIC: empty-handed Gordon cowers / runs in a
+// panic) and a hostile in front of us (FPM_HOSTILE: the lowered gun comes up).
+// The client plays the animations; the bits ride in the move state (fuser4).
+static bool FPMoves_IgnoreMonster( CBaseEntity *pEnt )
+{
+	static const char *skip[] = { "monster_barnacle", "monster_turret", "monster_miniturret", "monster_sentry",
+		"monster_apache", "monster_blkop_apache", "monster_osprey", "monster_blkop_osprey", "monster_cockroach",
+		"monster_leech", "monster_flyer", "monster_flyer_flock", "monster_furniture", "monster_generic",
+		"monster_tentacle", "monster_nihilanth", "monster_bigmomma", "monster_gargantua", "monster_babygarg" };
+	for ( int i = 0; i < (int)( sizeof( skip ) / sizeof( skip[ 0 ] ) ); i++ )
+		if ( FClassnameIs( pEnt->pev, skip[ i ] ) )
+			return true;
+	return false;
+}
+
+void CBasePlayer::FPMoves_Scan( void )
+{
+	if ( gpGlobals->time < m_flFPScanTime )
+		return;
+	m_flFPScanTime = gpGlobals->time + 0.25f;
+
+	UTIL_MakeVectors( pev->v_angle );
+	Vector eye = pev->origin + pev->view_ofs;
+	float cone = cos( 25.0f * M_PI / 180.0f );		// a 50 degree view cone
+	CBaseEntity *pEnt = NULL;
+	while ( ( pEnt = UTIL_FindEntityInSphere( pEnt, pev->origin, 2048.0f ) ) != NULL )
+	{
+		CBaseMonster *pMon = pEnt->MyMonsterPointer();
+		if ( !pMon || pEnt == this || pEnt->IsPlayer() || !pEnt->IsAlive() || FPMoves_IgnoreMonster( pEnt ) )
+			continue;
+		Vector to = pEnt->Center() - eye;
+		float dist = to.Length();
+
+		// a fight nearby
+		if ( pMon->m_hEnemy != NULL && dist < 1020.0f )
+			m_flFPPanicUntil = gpGlobals->time + 6.0f;
+
+		// out for us, in front of us, in the open
+		if ( dist > 1.0f && ( pMon->m_hEnemy == this || pMon->IRelationship( this ) >= R_DL ) &&
+			 DotProduct( gpGlobals->v_forward, to / dist ) > cone && FVisible( pEnt ) )
+			m_flFPHostileUntil = gpGlobals->time + 0.5f;
+	}
+}
+
 void CBasePlayer::FPMoves_Think( void )
 {
+	if ( IsAlive() )
+		FPMoves_Scan();
+	int st = (int)pev->fuser4 & ~( FPM_PANIC | FPM_HOSTILE );
+	if ( IsAlive() && gpGlobals->time < m_flFPPanicUntil )
+		st |= FPM_PANIC;
+	if ( IsAlive() && gpGlobals->time < m_flFPHostileUntil )
+		st |= FPM_HOSTILE;
+	pev->fuser4 = (float)st;
+
 	if ( m_flFPKickTime > 0.0f && gpGlobals->time >= m_flFPKickTime )
 	{
 		m_flFPKickTime = 0.0f;

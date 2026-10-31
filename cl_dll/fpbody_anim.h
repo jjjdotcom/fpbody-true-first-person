@@ -43,6 +43,16 @@ int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq );
 // 1 while the renderer has the local entity's sequence translated into the drawn model
 extern int g_fpSeqRemapped;
 
+// Additive gesture layer on the local player (ExtendedER fidgets, flinches):
+// the fa_ sequence to add on top of whatever the body plays, its frame and weight.
+// The studio renderer adds its rotations (FPAnim_AddLayer) before building the bones.
+int FPAnim_GetAdditive( int entindex, void *studiohdr, int *seq, float *frame, float *weight );
+void FPAnim_AddLayer( float ( *q )[ 4 ], float ( *dq )[ 4 ], int numbones, float weight );
+// bone controller values that rotate nothing (so the additive layer isn't turned twice)
+void FPAnim_NeutralControllers( void *studiohdr, unsigned char *out4 );
+// the Damage message (health.cpp): what hurt us, for the flinches
+void FPAnim_OnDamage( int amount, int bits );
+
 // True while a full-body act (taunt, pose, sit...) is shown with the chase camera
 int FPAnim_ActCamActive( void );
 

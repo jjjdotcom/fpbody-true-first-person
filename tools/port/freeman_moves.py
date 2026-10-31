@@ -18,6 +18,8 @@ import re
 import shutil
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, '..', '..'))
 
@@ -80,6 +82,14 @@ def player_h(s):
                r'\2void FPMoves_Redeploy( void );\n')
 
 
+def player_h_epa(s):
+    return one(s, r'(\n([ \t]*)void FPMoves_Redeploy\( void \);[^\n]*\n)',
+               r'\1\2void FPMoves_Scan( void );\t\t// ExtendedER: fights and hostiles around us\n'
+               r'\2float m_flFPScanTime;\n'
+               r'\2float m_flFPPanicUntil;\n'
+               r'\2float m_flFPHostileUntil;\n')
+
+
 def player_cpp(s):
     # the implementation lives in its own file, compiled as part of player.cpp
     s = s.rstrip('\n') + '\n\n#include "fpbody_moves.inl"\t// fpbody: Freeman moves (kick, holster all)\n'
@@ -115,7 +125,11 @@ def main(sdk, src=REPO):
     edit(pm, pm_shared, 'fpbody_pm.h')
     edit(os.path.join(sdk, 'dlls', 'client.cpp'), client_cpp, 'Freeman move state')
     edit(os.path.join(sdk, 'dlls', 'player.h'), player_h, 'm_flFPKickTime')
+    edit(os.path.join(sdk, 'dlls', 'player.h'), player_h_epa, 'm_flFPPanicUntil')
     edit(os.path.join(sdk, 'dlls', 'player.cpp'), player_cpp, 'fpbody_moves.inl')
+    # ExtendedER: the additive gesture layer and the damage types, in the client
+    import epa_hooks
+    epa_hooks.main(sdk)
 
 
 if __name__ == '__main__':

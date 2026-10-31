@@ -49,6 +49,11 @@
 //   cl_fpbody_atease    1    lower the gun after a few quiet seconds (at ease)
 //   cl_fpbody_atease_delay 4 seconds without shooting, reloading or getting hurt
 //   cl_fpbody_doubletap 1    double-tap duck = prone, double-tap reload = holster all
+//   cl_fpbody_epa       1    ExtendedER Player Animations: fidgets, pickups, panic, flinches,
+//                            climbing off ladders, raising the gun when a hostile is in view
+//   cl_fpbody_epa_fidget_idle 10   seconds standing around before fidgets can start
+//   cl_fpbody_epa_fidget_min / _max 10 / 120   wait between fidget checks (seconds)
+//   cl_fpbody_epa_fidget_chance 0.5            chance a check plays one
 //
 // Console commands (the Freeman mod's moves; bound in fpbody's autoexec.cfg)
 //   pm_kick           kick (look down to stomp, jump first for a drop kick)
@@ -82,6 +87,7 @@
 #include "fpbody.h"
 #include "fpbody_anim.h"
 #include "fpbody_pm.h"
+#include "ammohistory.h"
 #include "fpbody_game.h"
 
 #ifndef M_PI
@@ -179,6 +185,11 @@ static cvar_t *cl_fpbody_moves;
 static cvar_t *cl_fpbody_atease;
 static cvar_t *cl_fpbody_atease_delay;
 static cvar_t *cl_fpbody_doubletap;
+static cvar_t *cl_fpbody_epa;
+static cvar_t *cl_fpbody_epa_fidget_idle;
+static cvar_t *cl_fpbody_epa_fidget_min;
+static cvar_t *cl_fpbody_epa_fidget_max;
+static cvar_t *cl_fpbody_epa_fidget_chance;
 static float g_mvActivity = -100.0f;		// last time the gun was used (at ease timer)
 static void PM_KickCmd( void );
 static void PM_ProneCmd( void );
@@ -400,6 +411,11 @@ void FPAnim_Init( void )
 	cl_fpbody_atease    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_atease", "1", FCVAR_ARCHIVE );
 	cl_fpbody_atease_delay = gEngfuncs.pfnRegisterVariable( "cl_fpbody_atease_delay", "4", FCVAR_ARCHIVE );
 	cl_fpbody_doubletap = gEngfuncs.pfnRegisterVariable( "cl_fpbody_doubletap", "1", FCVAR_ARCHIVE );
+	cl_fpbody_epa       = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa", "1", FCVAR_ARCHIVE );
+	cl_fpbody_epa_fidget_idle   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_idle", "10", FCVAR_ARCHIVE );
+	cl_fpbody_epa_fidget_min    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_min", "10", FCVAR_ARCHIVE );
+	cl_fpbody_epa_fidget_max    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_max", "120", FCVAR_ARCHIVE );
+	cl_fpbody_epa_fidget_chance = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_chance", "0.5", FCVAR_ARCHIVE );
 	gEngfuncs.pfnAddCommand( "pm_kick", PM_KickCmd );
 	gEngfuncs.pfnAddCommand( "pm_prone", PM_ProneCmd );
 	gEngfuncs.pfnAddCommand( "pm_atease", PM_AtEaseCmd );
@@ -1051,6 +1067,301 @@ static void PM_AtEaseCmd( void )
 		g_mvEaseForced = true;
 }
 
+
+// ---------------------------------------------------------------------------
+// ExtendedER Player Animations (Concon's Garry's Mod addon, as ported to
+// Half-Life 2 by the Freeman mod): fidgets after standing around, a bend-down
+// when you pick things up, cowering / panicked running when empty-handed in a
+// fight, flinches by damage type, a reach at the top of a ladder, and the gun
+// coming up when a hostile is in view. The server finds the fights and the
+// hostiles (FPM_PANIC / FPM_HOSTILE in the move state). Fidgets and flinches
+// are additive layers (fa_ sequences), added on top of whatever the body does.
+// ---------------------------------------------------------------------------
+
+static int g_adSeq = -1;
+static float g_adStart, g_adDur, g_adRate = 1.0f;
+static float g_epaIdleSince, g_epaNextFidget = -1.0f;
+static int g_epaSpasms;
+static float g_epaNextSpasm, g_epaNextFlinch, g_epaNextStrangle;
+static int g_epaLastAmmo = -1, g_epaLastWeapons = -1, g_epaLastArmor = -1, g_epaLastHealth = -1;
+static float g_epaNextPickup;
+static int g_epaPrevLadder;
+static float g_epaLadderVz;
+static int g_epaCower;				// 0 not cowering, 1 intro playing, 2 cowering
+static int g_epaDmgPending, g_epaDmgBits;
+static float g_epaLastHurt = -100.0f;
+static int g_epaLastWeaponModel;
+
+static float RandF( float a, float b ) { return a + ( b - a ) * ( rand() / (float)RAND_MAX ); }
+
+static bool StartAdditive( const char *name, float rate )
+{
+	if ( !g_playerHdr )
+		return false;
+	int seq = FindSeq( g_playerHdr, name );
+	if ( seq < 0 )
+		return false;
+	const mstudioseqdesc_t *sd = (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) + seq;
+	g_adSeq = seq;
+	g_adStart = g_now;
+	g_adRate = rate;
+	g_adDur = ( sd->fps > 0.0f && sd->numframes > 1 ) ? ( sd->numframes - 1 ) / sd->fps / rate : 0.1f;
+	return true;
+}
+
+int FPAnim_GetAdditive( int entindex, void *studiohdr, int *seq, float *frame, float *weight )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( g_adSeq < 0 || !local || entindex != local->index || studiohdr != (void *)g_playerHdr || !FPBody_Active() ||
+		 g_adSeq >= g_playerHdr->numseq )
+		return 0;
+	float t = gEngfuncs.GetClientTime() - g_adStart;
+	if ( t < 0.0f || t > g_adDur )
+	{
+		g_adSeq = -1;
+		return 0;
+	}
+	const mstudioseqdesc_t *sd = (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) + g_adSeq;
+	*seq = g_adSeq;
+	*frame = Clamp( t * sd->fps * g_adRate, 0.0f, (float)( sd->numframes - 1 ) );
+	*weight = Clamp01( t / 0.1f ) * Clamp01( ( g_adDur - t ) / 0.15f );
+	return 1;
+}
+
+void FPAnim_AddLayer( float ( *q )[ 4 ], float ( *dq )[ 4 ], int numbones, float weight )
+{
+	for ( int i = 0; i < numbones; i++ )
+	{
+		// the delta, scaled by the weight (slerp from no rotation)
+		float d[ 4 ] = { dq[ i ][ 0 ], dq[ i ][ 1 ], dq[ i ][ 2 ], dq[ i ][ 3 ] };
+		if ( d[ 3 ] < 0.0f )
+			d[ 0 ] = -d[ 0 ], d[ 1 ] = -d[ 1 ], d[ 2 ] = -d[ 2 ], d[ 3 ] = -d[ 3 ];
+		if ( d[ 3 ] > 0.99999f )
+			continue;
+		if ( weight < 0.999f )
+		{
+			float ang = acosf( Clamp( d[ 3 ], -1.0f, 1.0f ) );
+			float s = sinf( ang );
+			float k = s > 1e-5f ? sinf( ang * weight ) / s : weight;
+			d[ 0 ] *= k; d[ 1 ] *= k; d[ 2 ] *= k;
+			d[ 3 ] = cosf( ang * weight );
+		}
+		// q = q * d (the delta in the bone's own space)
+		float *a = q[ i ];
+		float r[ 4 ];
+		r[ 0 ] = a[ 3 ] * d[ 0 ] + a[ 0 ] * d[ 3 ] + a[ 1 ] * d[ 2 ] - a[ 2 ] * d[ 1 ];
+		r[ 1 ] = a[ 3 ] * d[ 1 ] - a[ 0 ] * d[ 2 ] + a[ 1 ] * d[ 3 ] + a[ 2 ] * d[ 0 ];
+		r[ 2 ] = a[ 3 ] * d[ 2 ] + a[ 0 ] * d[ 1 ] - a[ 1 ] * d[ 0 ] + a[ 2 ] * d[ 3 ];
+		r[ 3 ] = a[ 3 ] * d[ 3 ] - a[ 0 ] * d[ 0 ] - a[ 1 ] * d[ 1 ] - a[ 2 ] * d[ 2 ];
+		a[ 0 ] = r[ 0 ]; a[ 1 ] = r[ 1 ]; a[ 2 ] = r[ 2 ]; a[ 3 ] = r[ 3 ];
+	}
+}
+
+void FPAnim_NeutralControllers( void *studiohdr, unsigned char *out4 )
+{
+	const studiohdr_t *hdr = (const studiohdr_t *)studiohdr;
+	for ( int i = 0; i < 4; i++ )
+		out4[ i ] = 127;
+	const mstudiobonecontroller_t *bc = (const mstudiobonecontroller_t *)( (const byte *)hdr + hdr->bonecontrollerindex );
+	for ( int i = 0; i < hdr->numbonecontrollers; i++ )
+	{
+		int idx = bc[ i ].index;
+		if ( idx < 0 || idx > 3 || bc[ i ].end == bc[ i ].start )
+			continue;
+		float v = 255.0f * ( 0.0f - bc[ i ].start ) / ( bc[ i ].end - bc[ i ].start );
+		out4[ idx ] = (unsigned char)Clamp( v + 0.5f, 0.0f, 255.0f );
+	}
+}
+
+void FPAnim_OnDamage( int amount, int bits )
+{
+	if ( amount <= 0 )
+		return;
+	g_epaDmgPending += amount;
+	g_epaDmgBits |= bits;
+}
+
+static void EPA_Fidget( const char *hold, bool atEase )
+{
+	static const char *both[] = { "fa_head_fwd", "fa_head_fwd2", "fa_accent_fwd", "fa_head_back", "fa_head_shake",
+		"fa_chin_out", "fa_nod" };
+	static const char *standard[] = { "fa_point", "fa_wave", "fa_pump", "fa_arms_up", "fa_arc_chin", "fa_arc_straight" };
+	static const char *unarmed[] = { "fa_stretch_chin", "fa_stretch" };
+	const char *pool[ 24 ];
+	int n = 0;
+	bool handgun = !strcmp( hold, "pistol" ) || !strcmp( hold, "revolver" );
+	bool longGun = !strcmp( hold, "smg1" ) || !strcmp( hold, "ar2" ) || !strcmp( hold, "shotgun" ) ||
+				   !strcmp( hold, "rpg" ) || !strcmp( hold, "crossbow" );
+	for ( int i = 0; i < 7; i++ ) pool[ n++ ] = both[ i ];
+	if ( !strcmp( hold, "passive" ) || ( atEase && handgun ) )
+	{
+		for ( int i = 0; i < 2; i++ ) pool[ n++ ] = unarmed[ i ];
+	}
+	else
+	{
+		bool restricted = !strcmp( hold, "grenade" ) || !strcmp( hold, "slam" ) || !strcmp( hold, "melee" ) || ( atEase && longGun );
+		for ( int i = 0; i < 6; i++ )
+			if ( !restricted || i >= 4 )			// the first four wave the arms
+				pool[ n++ ] = standard[ i ];
+	}
+	// only the ones the model has
+	int have = 0;
+	for ( int i = 0; i < n; i++ )
+		if ( FindSeq( g_playerHdr, pool[ i ] ) >= 0 )
+			pool[ have++ ] = pool[ i ];
+	if ( have )
+		StartAdditive( pool[ rand() % have ], 1.0f );
+}
+
+static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool ducked )
+{
+	bool on = cl_fpbody_epa->value != 0.0f;
+	const char *hold = HoldType();
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	int weaponModel = local ? local->curstate.weaponmodel : 0;
+
+	// --- a hostile in view raises the gun (server: FPM_HOSTILE)
+	if ( on && ( st & FPM_HOSTILE ) )
+		g_mvActivity = g_now;
+
+	// --- flinches by damage type (the Damage message)
+	if ( g_epaDmgPending > 0 )
+	{
+		int bits = g_epaDmgBits;
+		g_epaDmgPending = 0;
+		g_epaDmgBits = 0;
+		g_epaLastHurt = g_now;
+		bool ready = g_now >= g_epaNextFlinch;
+		if ( on && ready && !( st & ( FPM_VAULT | FPM_PRONE ) ) )
+		{
+			g_epaNextFlinch = g_now + 0.2f;
+			if ( bits & DMG_SHOCK )
+			{
+				g_epaSpasms = 1 + rand() % 8;			// a burst of twitches
+				g_epaNextSpasm = g_now;
+			}
+			else if ( bits & ( DMG_ACID | DMG_POISON | DMG_NERVEGAS ) )
+			{
+				StartAdditive( "fa_flinch_phys", 1.0f );
+				if ( ( bits & ( DMG_ACID | DMG_NERVEGAS ) ) && g_now >= g_epaNextStrangle && ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
+				{
+					g_epaNextStrangle = g_now + 15.0f;	// gagging on it
+					StartOverlayKind( "fm_strangle", OVK_EASE, 0.0f );
+				}
+			}
+			else if ( bits & DMG_BLAST )
+			{
+				if ( g_ovSeq < 0 || g_ovKind == OVK_EASE )
+					StartOverlayKind( "fm_blast", OVK_EASE, 1.4f );
+				else
+					StartAdditive( "fa_flinch_phys2", 1.0f );
+			}
+			else if ( bits & DMG_BULLET )
+			{
+				static const char *hit[] = { "fa_flinch2", "fa_flinch_stomach", "fa_flinch_stomach2", "fa_flinch_shoulder_l",
+					"fa_flinch_shoulder_r", "fa_flinch_head" };
+				StartAdditive( hit[ rand() % 6 ], 1.0f );
+			}
+			else if ( bits & DMG_FALL )
+				;											// the landing animation covers it
+			else if ( bits & ( DMG_CRUSH | DMG_CLUB | DMG_SLASH | DMG_SONIC | DMG_ENERGYBEAM | DMG_PARALYZE ) )
+				StartAdditive( rand() & 1 ? "fa_flinch_phys" : "fa_flinch_phys2", 1.0f );
+			else
+				StartAdditive( rand() & 1 ? "fa_flinch" : "fa_flinch_back", 1.0f );	// burns, drowning, anything else
+		}
+	}
+	if ( g_epaSpasms > 0 && g_now >= g_epaNextSpasm )
+	{
+		static const char *spasm[] = { "fa_flinch", "fa_flinch_back", "fa_flinch_head", "fa_flinch_phys",
+			"fa_flinch_shoulder_l", "fa_flinch_shoulder_r", "fa_flinch_stomach" };
+		if ( on )
+			StartAdditive( spasm[ rand() % 7 ], 1.4f );
+		g_epaSpasms--;
+		g_epaNextSpasm = g_now + RandF( 0.1f, 0.4f );
+	}
+
+	// --- picked something up: bend down and grab
+	int ammo = 0, weapons = 0;
+	for ( int i = 0; i < MAX_AMMO_TYPES; i++ )
+		ammo += gWR.CountAmmo( i );
+	for ( int s = 0; s < MAX_WEAPON_SLOTS; s++ )
+		for ( int p = 0; p < MAX_WEAPON_POSITIONS; p++ )
+			if ( gWR.GetWeaponSlot( s, p ) )
+				weapons++;
+	int armor = gHUD.m_Battery.GetArmor(), health = gHUD.m_Health.m_iHealth;
+	bool got = g_epaLastAmmo >= 0 && ( ammo > g_epaLastAmmo || weapons > g_epaLastWeapons || armor > g_epaLastArmor ||
+									   health >= g_epaLastHealth + 5 );
+	g_epaLastAmmo = ammo; g_epaLastWeapons = weapons; g_epaLastArmor = armor; g_epaLastHealth = health;
+	if ( got && on && !( in_use.state & 1 ) && g_now >= g_epaNextPickup && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) &&
+		 ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
+	{
+		g_epaNextPickup = g_now + 0.5f;					// a crate of items is one reach
+		StartOverlayKind( "fm_pickup", OVK_EASE, 0.8f );
+	}
+
+	// --- ladders: hands on the ledge when climbing off the top
+	if ( g_onladder )
+		g_epaLadderVz = pparams->simvel[ 2 ];
+	else if ( g_epaPrevLadder && on && g_epaLadderVz > 10.0f && ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
+		StartOverlayKind( "fm_pickup", OVK_EASE, 0.7f );
+	g_epaPrevLadder = g_onladder;
+
+	// --- empty-handed in a fight: cower, crouch-walk, run in a panic (server: FPM_PANIC)
+	bool panic = on && ( st & FPM_PANIC ) && weaponModel == 0 && onground && !ducked && !( st & ( FPM_PRONE | FPM_SLIDE | FPM_VAULT ) ) &&
+				 pparams->waterlevel < 2 && !g_onladder;
+	if ( panic && ( g_ovSeq < 0 || g_ovKind >= OVK_LOOP || ( g_epaCower == 1 && OverlayIs( "fm_cower_intro" ) ) ) )
+	{
+		if ( g_speed2D < 20.0f )
+		{
+			if ( g_epaCower == 0 )
+			{
+				g_epaCower = StartOverlayKind( "fm_cower_intro", OVK_LOOP, 0.0f ) ? 1 : 2;
+				if ( g_epaCower == 1 ) g_ovLoop = false;
+			}
+			else if ( g_epaCower == 1 && !OverlayIs( "fm_cower_intro" ) )
+				g_epaCower = 2;
+			if ( g_epaCower == 2 )
+				WantLoop( "fm_cower", 0.0f );
+		}
+		else
+		{
+			g_epaCower = 0;
+			if ( g_speed2D < 160.0f )
+				WantLoop( "fm_panic_walk", Clamp( g_speed2D / 70.0f, 0.5f, 1.6f ) );
+			else
+				WantLoop( "fm_panic_run", Clamp( g_speed2D / 220.0f, 0.6f, 1.5f ) );
+		}
+	}
+	else
+	{
+		g_epaCower = 0;
+		if ( g_ovSeq >= 0 && ( OverlayIs( "fm_cower" ) || OverlayIs( "fm_cower_intro" ) || OverlayIs( "fm_panic_walk" ) ||
+							   OverlayIs( "fm_panic_run" ) ) )
+			StopOverlay();
+	}
+
+	// --- fidgets after standing around
+	bool active = !onground || g_speed2D > 200.0f || ( in_attack.state & 1 ) || ( in_attack2.state & 1 ) ||
+				  ( st & ( FPM_PRONE | FPM_SLIDE | FPM_VAULT | FPM_CLIMB | FPM_PANIC ) ) || g_now - g_epaLastHurt < 2.0f ||
+				  weaponModel != g_epaLastWeaponModel || g_onladder || pparams->waterlevel >= 2 ||
+				  ( g_ovSeq >= 0 && g_ovKind != OVK_EASE );
+	g_epaLastWeaponModel = weaponModel;
+	float idle = cl_fpbody_epa_fidget_idle->value;
+	float fmin = cl_fpbody_epa_fidget_min->value, fmax = cl_fpbody_epa_fidget_max->value > fmin ? cl_fpbody_epa_fidget_max->value : fmin;
+	if ( active || g_epaNextFidget < 0.0f )
+	{
+		g_epaIdleSince = g_now;
+		if ( g_epaNextFidget < g_now + idle )
+			g_epaNextFidget = g_now + idle + RandF( fmin, fmax );
+	}
+	else if ( on && g_now - g_epaIdleSince >= idle && g_now >= g_epaNextFidget && g_adSeq < 0 )
+	{
+		g_epaNextFidget = g_now + RandF( fmin, fmax );
+		if ( RandF( 0.0f, 1.0f ) < cl_fpbody_epa_fidget_chance->value )
+			EPA_Fidget( hold, g_ovSeq >= 0 && g_ovKind == OVK_EASE );
+	}
+}
+
 static void FPMoves_Frame( struct ref_params_s *pparams )
 {
 	int st = g_fpmState;
@@ -1192,6 +1503,8 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	}
 	else if ( !easeWant && !drawing && g_ovSeq >= 0 && g_ovKind == OVK_EASE )
 		StopOverlay();
+
+	EPA_Frame( pparams, st, onground, ducked );
 
 	g_mvPrevState = st;
 	g_mvPrevOnGround = onground;
@@ -2157,7 +2470,8 @@ static bool IsUpperBodyAct( const char *label )
 		   !strnicmp( label, "sv_ref_reload_", 14 ) || !strnicmp( label, "sv_crouch_reload_", 17 ) ||
 		   !strnicmp( label, "cs_ref_reload_", 14 ) || !strnicmp( label, "cs_crouch_reload_", 17 ) ||
 		   !strnicmp( label, "gm_shove_", 9 ) || !strnicmp( label, "gm_zombie_attack_", 17 ) ||
-		   !strnicmp( label, "fm_draw_", 8 ) || !strnicmp( label, "fm_passive_", 11 );
+		   !strnicmp( label, "fm_draw_", 8 ) || !strnicmp( label, "fm_passive_", 11 ) ||
+		   !stricmp( label, "fm_pickup" ) || !stricmp( label, "fm_strangle" ) || !stricmp( label, "fm_blast" );
 }
 
 // Start a gm_ sequence now. wantDur > 0 stretches it to that many seconds.

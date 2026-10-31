@@ -1004,6 +1004,27 @@ void CStudioModelRenderer::StudioSetupBones ( void )
 		}
 	}
 
+
+	// fpbody: an additive gesture layer on the local player (ExtendedER fidgets, flinches)
+	{
+		int addSeq;
+		float addFrame, addWeight;
+		if ( m_pPlayerInfo && FPAnim_GetAdditive( m_pCurrentEntity->index, m_pStudioHeader, &addSeq, &addFrame, &addWeight ) )
+		{
+			mstudioseqdesc_t *pad = (mstudioseqdesc_t *)( (byte *)m_pStudioHeader + m_pStudioHeader->seqindex ) + addSeq;
+			unsigned char ctl[ 4 ], prev[ 4 ], neutral[ 4 ];
+			memcpy( ctl, m_pCurrentEntity->curstate.controller, 4 );
+			memcpy( prev, m_pCurrentEntity->latched.prevcontroller, 4 );
+			FPAnim_NeutralControllers( m_pStudioHeader, neutral );	// the layer must not turn the controller bones again
+			memcpy( m_pCurrentEntity->curstate.controller, neutral, 4 );
+			memcpy( m_pCurrentEntity->latched.prevcontroller, neutral, 4 );
+			StudioCalcRotations( pos3, q3, pad, StudioGetAnim( m_pRenderModel, pad ), addFrame );
+			memcpy( m_pCurrentEntity->curstate.controller, ctl, 4 );
+			memcpy( m_pCurrentEntity->latched.prevcontroller, prev, 4 );
+			FPAnim_AddLayer( q, q3, m_pStudioHeader->numbones, addWeight );
+		}
+	}
+
 	for (i = 0; i < m_pStudioHeader->numbones; i++) 
 	{
 		QuaternionMatrix( q[i], bonematrix );

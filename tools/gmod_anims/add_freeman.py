@@ -1,10 +1,11 @@
 """Add the Half-Life 2: Freeman mod's player animations to an fpbody player model.
 
-  python3 -I add_freeman.py <Freeman models folder> <in.mdl> <out.mdl> [classic|gmod]
+  python3 -I add_freeman.py <Freeman models folder> <in.mdl> <out.mdl> [classic|gmod] [male_gestures.mdl]
 
 The Freeman mod (Source) plays kicks, vaults, wall climbing, prone, falls,
 hard landings, rolls, a lowered ("at ease") weapon, empty hands, weapon draws
-and a slide from several Garry's Mod Workshop animation packs. This retargets
+and a slide from several Garry's Mod Workshop animation packs, and the
+ExtendedER Player Animations' fidgets, pickups, panic and flinches. This retargets
 them (ValveBiped -> Bip01, see retarget.py) and appends them as fm_<name>
 sequences, which the client plays by name (cl_dll/fpbody_anim.cpp), plus the
 "unarmed" weapon hold (ref_/crouch_ aim/shoot_unarmed) the server picks with
@@ -18,7 +19,14 @@ third-party animation data):
   ram/fall.mdl                              falling
   xdreanims/m_anm_slot_042.mdl              weapon draws
   blackops_iii_special_anims/bo3_pb_male_enh_anims.mdl   slide
-  m_anm_gmod.mdl + m_anm.ani                Garry's Mod passive and unarmed sets
+  m_anm_gmod.mdl + m_anm.ani                Garry's Mod passive, unarmed, cower, panic and flinches
+  freeman_eli.mdl + .ani                    Episode Two's Eli gestures (fidgets)
+  male_gestures.mdl + .ani                  Half-Life 2's male gestures (fidgets; from
+                                            hl2/hl2_misc_dir.vpk, optional 5th argument)
+
+fa_<name> sequences are additive: each frame holds the rotation to add to
+whatever the body is doing (the client layers them in StudioSetupBones),
+like Source's gesture layers. Everything else is a whole pose.
 
 "classic" models (Half-Life's own skeleton heights) put the feet 18 units
 below the origin for anything played while ducked (Half-Life moves the origin
@@ -86,6 +94,48 @@ for hold in ('passive', 'pistol', 'revolver', 'smg1', 'ar2', 'shotgun', 'rpg', '
     SEQS['fm_prone_' + hold] = ('prone', 'prone_' + hold, True, True)
 for walk in ('passive', 'onehand', 'twohand', 'rpg', 'crossbow', 'physgun'):
     SEQS['fm_pronewalk_' + walk] = ('prone', 'prone_walk' + walk, True, True)
+# ExtendedER: picking things up, panic when empty-handed in a fight, gagging on acid
+SEQS.update({
+    'fm_pickup':      ('draw', 'pickup_generic_offhand_base_layer', False, False),
+    'fm_cower_intro': ('gmod', '@seq_cower', False, False),
+    'fm_cower':       ('gmod', '@idle_all_cower', False, True),
+    'fm_panic_run':   ('gmod', 'a_RunN_p2', False, True),
+    'fm_panic_walk':  ('gmod', 'a_CwalkN', False, True),
+    'fm_strangle':    ('draw', 'react_puke_base_layer', False, False),
+    'fm_blast':       ('draw', 'react_blast_base_layer', False, False),
+})
+
+# additive layers (fa_<name>): ExtendedER fidgets and the flinches
+ADDITIVE = {
+    # fidgets
+    'fa_head_fwd':      ('male', 'g_head_forwardaccentDelta'),
+    'fa_head_fwd2':     ('male', 'b_head_forwardapexDelta'),
+    'fa_accent_fwd':    ('male', 'bg_accentFwd'),
+    'fa_head_back':     ('male', 'b_head_back'),
+    'fa_head_shake':    ('eli', 'E_bg_hshake'),
+    'fa_chin_out':      ('eli', 'E_bg_arcfwd_chinout'),
+    'fa_nod':           ('eli', 'E_bg_arcfwd_nod_pod'),
+    'fa_point':         ('male', 'g_frustrated_pointinLoopDelta'),
+    'fa_wave':          ('male', 'g_waveinLoopDelta'),
+    'fa_pump':          ('male', 'g_pumpleft_rpgdownaccentDelta'),
+    'fa_arms_up':       ('male', 'g_armsupaccentDelta'),
+    'fa_arc_chin':      ('eli', 'E_bg_arcbk_chindwn_podapexDelta'),
+    'fa_arc_straight':  ('eli', 'E_bg_arcbk_straightapexDelta'),
+    'fa_stretch_chin':  ('eli', 'E_bg_arcbk_chindwn'),
+    'fa_stretch':       ('eli', 'E_bg_arcbk_straight'),
+    # flinches (Garry's Mod)
+    'fa_flinch':        ('gmod', 'flinch_01'),
+    'fa_flinch2':       ('gmod', 'flinch_02'),
+    'fa_flinch_back':   ('gmod', 'flinch_back_01'),
+    'fa_flinch_head':   ('gmod', 'flinch_head_01'),
+    'fa_flinch_head2':  ('gmod', 'flinch_head_02'),
+    'fa_flinch_phys':   ('gmod', 'flinch_phys_01'),
+    'fa_flinch_phys2':  ('gmod', 'flinch_phys_02'),
+    'fa_flinch_shoulder_l': ('gmod', 'flinch_shoulder_l'),
+    'fa_flinch_shoulder_r': ('gmod', 'flinch_shoulder_r'),
+    'fa_flinch_stomach':    ('gmod', 'flinch_stomach_01'),
+    'fa_flinch_stomach2':   ('gmod', 'flinch_stomach_02'),
+}
 
 # the empty-hands weapon hold, looked up by the server as <stance>_<part>_unarmed
 UNARMED = {'ref_aim_unarmed': ('gmod', '@idle_all_01', False), 'ref_shoot_unarmed': ('gmod', '@idle_all_01', False),
@@ -99,6 +149,7 @@ PACKS = {
     'draw': ('xdreanims/m_anm_slot_042.mdl', None),
     'bo3': ('blackops_iii_special_anims/bo3_pb_male_enh_anims.mdl', None),
     'gmod': ('m_anm_gmod.mdl', 'm_anm.ani'),
+    'eli': ('freeman_eli.mdl', 'freeman_eli.ani'),
 }
 
 
@@ -160,10 +211,66 @@ def make_seq(label, frames, fps, loop, template):
     return d
 
 
-def main(folder, in_path, out_path, kind='classic'):
+def euler_mat(e):
+    from srcmdl import euler_to_quat, quat_to_mat
+    return quat_to_mat(euler_to_quat(*e))
+
+
+def mat_euler(m):
+    return retarget.mat_to_euler(m)
+
+
+def autolayers(g, sq):
+    out = []
+    for k in range(sq['numautolayers']):
+        o = sq['off'] + sq['autolayerindex'] + k * 24
+        iseq, ipose, flags, st, pk, tl, en = struct.unpack_from('<hhiffff', g.d, o)
+        out.append((g.seqs[iseq], flags, st, pk, tl, en))
+    return out
+
+
+def gesture_poses(g, sq, base):
+    """Source poses of a gesture played on top of base, frame by frame: its own
+    delta animation, or (Half-Life 2's composite gestures, whose own animation
+    is empty) its auto-layers - an apex delta, then a loop delta fading in and out."""
+    a = g.anims[sq['anims'][0]]
+    layers = autolayers(g, sq)
+    if not layers or not ( a['flags'] & 0x20 ):
+        post = bool(sq['flags'] & 16)
+        return [retarget.apply_delta(base, d, post=post) if a['flags'] & 4 else d for d in g.frames(a)]
+    n = a['numframes']
+    lframes = {id(l[0]): g.frames(g.anims[l[0]['anims'][0]]) for l in layers}
+    out = []
+    for f in range(n):
+        c = f / max(1, n - 1)
+        pose = base
+        for ls, flags, st, pk, tl, en in layers:
+            if c < st or c > en:
+                continue
+            if pk > st and c < pk:
+                w = (c - st) / (pk - st)
+            elif en > tl and c > tl:
+                w = (en - c) / (en - tl)
+            else:
+                w = 1.0
+            if flags & 64:                          # spline ramp
+                w = w * w * (3 - 2 * w)
+            if w <= 0.001:
+                continue
+            lc = (c - st) / (en - st) if en > st else 0.0
+            fr = lframes[id(ls)]
+            if ls['flags'] & 1:
+                lc = lc % 1.0
+            d = fr[min(len(fr) - 1, int(round(min(1.0, max(0.0, lc)) * (len(fr) - 1))))]
+            pose = retarget.apply_delta(pose, d, w=w, post=bool(ls['flags'] & 16))
+        out.append(pose)
+    return out
+
+
+def main(folder, in_path, out_path, kind='classic', male=None):
     folder = folder.rstrip('/') + '/'
     M = GoldSrcModel(in_path)
-    seqs = [s for s in existing_sequences(M) if not s['label'].startswith('fm_') and not s['label'].endswith('_unarmed')]
+    seqs = [s for s in existing_sequences(M) if not s['label'].startswith(('fm_', 'fa_')) and not s['label'].endswith('_unarmed')]
     by = {s['label']: s for s in seqs}
     template = by.get('look_idle') or seqs[0]
     ref = SourceModel(folder + PACKS['gmod'][0], folder + PACKS['gmod'][1])
@@ -185,6 +292,50 @@ def main(folder, in_path, out_path, kind='classic'):
         build(label, pack, name, ducked, loop)
     for label, (pack, name, ducked) in UNARMED.items():
         build(label, pack, name, ducked, True)
+
+    # additive layers: the retargeted (base + delta) pose's rotation relative to the
+    # retargeted base pose, bone by bone; positions stay at the rest pose
+    if male and 'male' not in PACKS:
+        PACKS['male'] = (male, male[:-4] + '.ani')
+    base_src = ref.frame_pose(ref.anim_by_name['@idle_all_01'], 0)
+    rest = M.rest_local()
+    for label, (pack, name) in ADDITIVE.items():
+        if pack not in PACKS:
+            print('skipped', label, '(no', pack, 'pack)')
+            continue
+        if pack not in packs:
+            m, a = PACKS[pack]
+            mp = m if m.startswith('/') else folder + m
+            ap = a if (a and a.startswith('/')) else (folder + a if a else None)
+            packs[pack] = ref if pack == 'gmod' else SourceModel(mp, ap)
+            rts[pack] = PackRetargeter(packs[pack], M, ref)
+        g = packs[pack]
+        sq = g.seq_by_name[name.lower()]
+        a = g.anims[sq['anims'][0]]
+        post = bool(sq['flags'] & 16)
+        # the base pose in this pack's bone order
+        bpos = np.array([b['pos'] for b in g.bones], float)
+        bq = np.array([b['quat'] for b in g.bones], float)
+        for i, b in enumerate(g.bones):
+            j = ref.bone_by_name.get(b['name'])
+            if j is not None:
+                bpos[i] = base_src[0][j]; bq[i] = base_src[1][j]
+        base = rts[pack].pose(bpos, bq)
+        Rb = [euler_mat(base[i, 3:6]) for i in range(len(rest))]
+        frames = []
+        for src in gesture_poses(g, sq, (bpos, bq)):
+            full = rts[pack].pose(*src)
+            fr = np.zeros_like(full)
+            for i in range(len(rest)):
+                fr[i, :3] = rest[i, :3]
+                fr[i, 3:6] = mat_euler(Rb[i].T @ euler_mat(full[i, 3:6]))
+            frames.append(fr)
+        if not (a['flags'] & 4) and not autolayers(g, sq):	# a whole pose: relative to its first frame
+            f0 = [euler_mat(frames[0][i, 3:6]) for i in range(len(rest))]
+            for fr in frames:
+                for i in range(len(rest)):
+                    fr[i, 3:6] = mat_euler(f0[i].T @ euler_mat(fr[i, 3:6]))
+        added.append(make_seq(label, np.array(frames), a['fps'], False, template))
     seqs += added
     M.write(out_path, seqs)
     textures_last(out_path)
@@ -192,4 +343,4 @@ def main(folder, in_path, out_path, kind='classic'):
 
 
 if __name__ == '__main__':
-    print(main(*sys.argv[1:5]))
+    print(main(*sys.argv[1:6]))
