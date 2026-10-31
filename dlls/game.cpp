@@ -40,6 +40,7 @@ cvar_t	defaultteam = {"mp_defaultteam","0" };
 cvar_t	allowmonsters={"mp_allowmonsters","0", FCVAR_SERVER };
 
 cvar_t sv_buddha = { "sv_buddha", "0", 0 };	// fpbody: buddha mode
+cvar_t sv_fpbody_anims = { "sv_fpbody_anims", "cz", FCVAR_ARCHIVE };	// fpbody: cz / cs player weapon animations
 cvar_t  allow_spectators = { "allow_spectators", "0.0", FCVAR_SERVER };		// 0 prevents players from being spectators
 
 cvar_t  mp_chattime = {"mp_chattime","10", FCVAR_SERVER };
@@ -470,6 +471,7 @@ void GameDLLInit( void )
 	CVAR_REGISTER (&displaysoundlist);
 	CVAR_REGISTER( &allow_spectators );
 	CVAR_REGISTER( &sv_buddha );
+	CVAR_REGISTER( &sv_fpbody_anims );
 
 	CVAR_REGISTER (&teamplay);
 	CVAR_REGISTER (&fraglimit);

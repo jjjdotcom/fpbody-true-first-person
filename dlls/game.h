@@ -44,5 +44,6 @@ extern cvar_t	*g_psv_allow_autoaim;
 extern cvar_t	*g_footsteps;
 
 extern cvar_t sv_buddha;	// fpbody: buddha mode
+extern cvar_t sv_fpbody_anims;	// fpbody: cz / cs player weapon animations
 
 #endif		// GAME_H

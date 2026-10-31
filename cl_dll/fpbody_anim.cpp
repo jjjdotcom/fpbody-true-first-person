@@ -35,7 +35,10 @@
 //   cl_fpbody_gunlower  20   classic mode: degrees the shouldered Condition Zero holds are
 //                            tilted down in our own view (0 = as in Condition Zero)
 //   cl_fpbody_reloads   cz   classic mode third-person reloads: cz = Condition Zero first,
-//                            sven = Sven Co-op first (the other fills gaps), 0 = off
+//                            cs = Counter-Strike 1.6 first, sven = Sven Co-op first
+//                            (the others fill gaps), 0 = off
+//   (server) sv_fpbody_anims cz  classic mode weapon holds: cz = Condition Zero,
+//                            cs = Counter-Strike 1.6 (falls back to Condition Zero)
 //   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK; in classic mode,
 //                            the left hand on the Tau Cannon's side bar)
 //   cl_fpbody_grip_fwd  0    move the off-hand grip forward/back along the gun (units)
@@ -563,14 +566,20 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 	}
 
 	// Third-person reloads: the classic player models carry Condition Zero's
-	// (<stance>_reload_<set>) and Sven Co-op's (sv_<stance>_reload_<set>).
-	// cl_fpbody_reloads picks which is tried first; the other is the backup for
-	// weapons the first has no reload for. Played on the upper body.
+	// (<stance>_reload_<set>), Counter-Strike 1.6's (cs_<stance>_reload_<set>)
+	// and Sven Co-op's (sv_<stance>_reload_<set>). cl_fpbody_reloads picks which
+	// is tried first; the others are the backup for weapons the first has no
+	// reload for. Played on the upper body.
 	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL ) && g_playerHdr && FPBody_Classic() )
 	{
 		const char *pref = cl_fpbody_reloads->string;
 		bool off = !pref[ 0 ] || !strcmp( pref, "0" );
-		bool svenFirst = !off && !strnicmp( pref, "sv", 2 );
+		// 0 = Condition Zero, 1 = Counter-Strike 1.6, 2 = Sven Co-op
+		int order[ 3 ] = { 0, 1, 2 };
+		if ( !strnicmp( pref, "sv", 2 ) )
+			order[ 0 ] = 2, order[ 1 ] = 0, order[ 2 ] = 1;
+		else if ( !strnicmp( pref, "cs", 2 ) )
+			order[ 0 ] = 1, order[ 1 ] = 0, order[ 2 ] = 2;
 
 		struct reloadset_t { const char *view, *cz, *sv; };
 		static const reloadset_t sets[] =
@@ -597,23 +606,27 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 			{
 				const mstudioseqdesc_t *cur = (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) +
 											  local->curstate.sequence;
-				crouch = !strnicmp( cur->label, "crouch", 6 );
+				const char *lab = cur->label;
+				if ( !strnicmp( lab, "cs_", 3 ) || !strnicmp( lab, "sv_", 3 ) )
+					lab += 3;
+				crouch = !strnicmp( lab, "crouch", 6 );
 			}
 			const char *st = crouch ? "crouch" : "ref";
 			bool shotgun = !strcmp( rs->view, "v_shotgun" );
 
-			for ( int pass = 0; pass < 2; pass++ )
+			for ( int pass = 0; pass < 3; pass++ )
 			{
-				bool sven = ( pass == 0 ) == svenFirst;
+				bool sven = order[ pass ] == 2;
+				const char *prefix = order[ pass ] == 2 ? "sv_" : order[ pass ] == 1 ? "cs_" : "";
 				const char *set = sven ? rs->sv : rs->cz;
 				if ( !set )
 					continue;
-				// shotgun: Condition Zero's plays once when the reload starts, Sven
+				// shotgun: Condition Zero's / Counter-Strike's play once when the reload starts, Sven
 				// Co-op's once per shell; every other gun on its reload
 				if ( shotgun ? ( sven ? type != CLIP_SHELL : type != CLIP_SHELL_START ) : type != CLIP_RELOAD )
 					continue;
 				char name[ 48 ];
-				snprintf( name, sizeof( name ), "%s%s_reload_%s", sven ? "sv_" : "", st, set );
+				snprintf( name, sizeof( name ), "%s%s_reload_%s", prefix, st, set );
 				int seq = FindSeq( g_playerHdr, name );
 				if ( seq < 0 )
 					continue;
@@ -1596,6 +1609,8 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 				const char *lab = ( (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) +
 									local->curstate.sequence )->label;
 				static const char *raised[] = { "_mp5", "_shotgun", "_onehanded", "_rifle", "_m249" };
+				if ( !strnicmp( lab, "cs_", 3 ) )		// Counter-Strike 1.6 set: same holds
+					lab += 3;
 				if ( !strnicmp( lab, "ref_", 4 ) || !strnicmp( lab, "crouch_", 7 ) )
 					for ( int i = 0; i < (int)( sizeof( raised ) / sizeof( raised[ 0 ] ) ); i++ )
 					{
@@ -1702,6 +1717,7 @@ static bool IsUpperBodyAct( const char *label )
 	return !strnicmp( label, "gm_gesture_", 11 ) || !strnicmp( label, "gm_reload_", 10 ) ||
 		   !strnicmp( label, "ref_reload_", 11 ) || !strnicmp( label, "crouch_reload_", 14 ) ||
 		   !strnicmp( label, "sv_ref_reload_", 14 ) || !strnicmp( label, "sv_crouch_reload_", 17 ) ||
+		   !strnicmp( label, "cs_ref_reload_", 14 ) || !strnicmp( label, "cs_crouch_reload_", 17 ) ||
 		   !strnicmp( label, "gm_shove_", 9 ) || !strnicmp( label, "gm_zombie_attack_", 17 );
 }
 

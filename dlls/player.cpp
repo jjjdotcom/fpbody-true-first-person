@@ -1021,6 +1021,21 @@ void CBasePlayer::Killed( entvars_t *pevAttacker, int iGib )
 
 
 // Set the activity based on an event or current state
+// fpbody: sv_fpbody_anims "cs" prefers the Counter-Strike 1.6 set (cs_<name>)
+static int FPBody_LookupAnim( CBaseAnimating *ent, const char *name )
+{
+	const char *set = sv_fpbody_anims.string;
+	if ( set && set[ 0 ] && strcmp( set, "cz" ) && strcmp( set, "0" ) )
+	{
+		char alt[ 80 ];
+		snprintf( alt, sizeof( alt ), "%s_%s", set, name );
+		int seq = ent->LookupSequence( alt );
+		if ( seq >= 0 )
+			return seq;
+	}
+	return ent->LookupSequence( name );
+}
+
 void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
 {
 	int animDesired;
@@ -1117,7 +1132,7 @@ void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
 		else
 			strcpy( szAnim, "ref_shoot_" );
 		strcat( szAnim, m_szAnimExtention );
-		animDesired = LookupSequence( szAnim );
+		animDesired = FPBody_LookupAnim( this, szAnim );
 		if (animDesired == -1)
 			animDesired = 0;
 
@@ -1145,7 +1160,7 @@ void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
 			else
 				strcpy( szAnim, "ref_aim_" );
 			strcat( szAnim, m_szAnimExtention );
-			animDesired = LookupSequence( szAnim );
+			animDesired = FPBody_LookupAnim( this, szAnim );
 			if (animDesired == -1)
 				animDesired = 0;
 			m_Activity = ACT_WALK;

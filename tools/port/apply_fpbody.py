@@ -221,6 +221,10 @@ def main():
     import buddha
     buddha.main(sdk)
 
+    # sv_fpbody_anims: Condition Zero or Counter-Strike 1.6 player weapon animations
+    import anim_sets
+    anim_sets.main(sdk)
+
 
 if __name__ == '__main__':
     main()
