@@ -32,6 +32,8 @@
 //   cl_fpbody_actcam    1    show full-body acts from behind (0 = stay in the head)
 //   cl_fpbody_gmod      1    use the GMod animations in the player model when present
 //   cl_fpbody_aimfire   1    turn the gun straight down the view while firing
+//   cl_fpbody_gunlower  20   classic mode: degrees the shouldered Condition Zero holds are
+//                            tilted down in our own view (0 = as in Condition Zero)
 //   cl_fpbody_reloads   cz   classic mode third-person reloads: cz = Condition Zero first,
 //                            sven = Sven Co-op first (the other fills gaps), 0 = off
 //   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK; in classic mode,
@@ -86,6 +88,8 @@ static cvar_t *cl_fpbody_gmod;
 static cvar_t *cl_fpbody_aimfire;
 static cvar_t *cl_fpbody_offhand;
 static cvar_t *cl_fpbody_reloads;
+static cvar_t *cl_fpbody_gunlower;
+static float g_gunLowerW;
 static cvar_t *cl_fpbody_grip_fwd;
 static cvar_t *cl_fpbody_grip_down;
 
@@ -352,6 +356,7 @@ void FPAnim_Init( void )
 	cl_fpbody_aimfire   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_aimfire", "1", FCVAR_ARCHIVE );
 	cl_fpbody_offhand   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand", "1", FCVAR_ARCHIVE );
 	cl_fpbody_reloads   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloads", "cz", FCVAR_ARCHIVE );
+	cl_fpbody_gunlower  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gunlower", "20", FCVAR_ARCHIVE );
 	cl_fpbody_grip_fwd  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_fwd", "0", FCVAR_ARCHIVE );
 	cl_fpbody_grip_down = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_down", "0", FCVAR_ARCHIVE );
 
@@ -1574,6 +1579,33 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 		EvalClip( g_cur, now, fade, p, f, r, u );
 		EvalClip( g_prev, now, 1.0f - fade, p, f, r, u );
 		EvalActions( now, p, f, r, u );
+
+		// Condition Zero holds put the sights at eye level, which from inside the
+		// head fills the view; classic mode tilts those guns down a little (only
+		// in our own view - other players see the full hold)
+		{
+			float want = 0.0f;
+			cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+			if ( FPBody_Classic() && g_ovSeq < 0 && local && g_playerHdr &&
+				 local->curstate.sequence >= 0 && local->curstate.sequence < g_playerHdr->numseq )
+			{
+				const char *lab = ( (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) +
+									local->curstate.sequence )->label;
+				static const char *raised[] = { "_mp5", "_shotgun", "_onehanded", "_rifle", "_m249" };
+				if ( !strnicmp( lab, "ref_", 4 ) || !strnicmp( lab, "crouch_", 7 ) )
+					for ( int i = 0; i < (int)( sizeof( raised ) / sizeof( raised[ 0 ] ) ); i++ )
+					{
+						size_t n = strlen( lab ), m = strlen( raised[ i ] );
+						if ( n > m && !stricmp( lab + n - m, raised[ i ] ) )
+						{
+							want = ( i == 2 ) ? 0.4f : 1.0f;		// pistols already sit lower
+							break;
+						}
+					}
+			}
+			g_gunLowerW += ( want - g_gunLowerW ) * Clamp01( g_frameTime * 6.0f );
+			p.armsPitch += cl_fpbody_gunlower->value * g_gunLowerW;
+		}
 
 		float scale = cl_fpbody_animscale->value;
 		p.armsPitch *= scale; p.armsYaw *= scale; p.armsRoll *= scale; p.armsBack *= scale;
