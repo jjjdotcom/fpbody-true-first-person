@@ -1376,6 +1376,8 @@ static const gunhandle_t g_handles[] =
 {
 	// Half-Life MMod Tau Cannon: side bar (the gun uses the shotgun hold, see gauss.cpp)
 	{ "p_gauss", "Bip01 R Hand", { 16.3f, 8.0f, 2.5f }, 37260 },	// HD only (LD gauss has no side bar)
+	// Sven Co-op Tau Cannon: the bar over the left side
+	{ "p_gauss", "Bip01 R Hand", { 16.0f, 7.5f, 6.0f }, 125620 },
 };
 
 static float g_handleW;

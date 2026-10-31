@@ -21,6 +21,12 @@ HL_P = SRC + '/final_p/'   # the p_ models the mods ship (VAPW + converted viewm
 OP_P = SRC + '/final_p/'
 MM_P = SRC + '/mmod_p/'   # Half-Life MMod replacements (glock)
 TABLE = {}
+
+
+def egon_keep(path):
+    """(pack bones, nozzle bones) of a p_egon: VAPW / Valve layout, or Sven Co-op's"""
+    return ({5, 6}, {8, 9}) if '/sven_p/' in path else ({3, 6}, {8, 9})
+
 for f in (OUT + '/weapons_hd.json', OUT + '/weapons_op4.json'):
     for k, v in json.load(open(f)).items():
         if v:
@@ -32,7 +38,7 @@ def info(path, only_bones=None):
     c = (pts.min(0) + pts.max(0)) / 2
     _, _, vt = np.linalg.svd(pts - pts.mean(0)); ax = vt[0]
     name = os.path.basename(path)
-    if name in TABLE and '/mmod_p/' not in path:
+    if name in TABLE and '/mmod_p/' not in path and '/sven_p/' not in path:
         ax = np.array(TABLE[name]['axis'])
     if ax[np.argmax(abs(ax))] < 0:
         ax = -ax
@@ -72,11 +78,12 @@ def layout(J, op4):
     L.append(put(HL_P + 'p_crowbar.mdl', n(-up * 0.9 + left * 0.3), back, sp3 - fwd * 7.5 + left * 5 - up * 3))
     # egon pack + nozzle
     eg = HL_P + 'p_egon.mdl'
-    c, _ = info(eg, {3, 6})
-    L.append(gun_world_tris(eg, lambda P: P - c + (sp1 - fwd * 11 + up * 1 - left * 3), {3, 6}))
-    c2, _ = info(eg, {8, 9})
+    pk, nz = egon_keep(eg)
+    c, _ = info(eg, pk)
+    L.append(gun_world_tris(eg, lambda P: P - c + (sp1 - fwd * 11 + up * 1 - left * 3), pk))
+    c2, _ = info(eg, nz)
     Rh = np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]], float)
-    L.append(gun_world_tris(eg, lambda P: (P - c2) @ Rh.T + (pel - fwd * 9 + left * 9 + up * 4), {8, 9}))
+    L.append(gun_world_tris(eg, lambda P: (P - c2) @ Rh.T + (pel - fwd * 9 + left * 9 + up * 4), nz))
     # belt and legs
     L.append(put(HL_P + 'p_357.mdl', n(-up * 0.95 + fwd * 0.15), fwd, rthigh))
     L.append(put(HL_P + 'p_9mmhandgun.mdl', n(-up * 0.95 + fwd * 0.15), fwd, rthigh + fwd * 3.5 - up * 1))
