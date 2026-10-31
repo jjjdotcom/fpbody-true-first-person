@@ -322,6 +322,25 @@ def main(l4d_path, freeman, in_path, out_path, bo3=None):
     if l4d_path != '-':
         l4d(M, ref, l4d_path, seqs, by)
 
+    # empty hands standing still: unarmed, the gait drives the whole body, so the
+    # idle gaits are the empty-hands idle (the COD IW idle, see add_freeman.py)
+    if l4d_path != '-' and 'ref_aim_unarmed' in by:
+        idle = by['ref_aim_unarmed']
+        for label in ('deep_idle', 'idle', 'look_idle'):
+            if label in by:
+                by[label]['frames'] = [idle['frames'][0].copy()]
+                by[label]['fps'] = idle['fps']
+                by[label]['flags'] |= 1
+
+    # At Ease with a pistol (the Freeman mod): relaxed hands - the empty-hands idle,
+    # walk and run, played on the upper body (fm_relax_*)
+    seqs = [s for s in seqs if not s['label'].startswith('fm_relax_')]
+    by = {s['label']: s for s in seqs}
+    template = by.get('look_idle') or seqs[0]
+    for label, src in (('fm_relax_idle', 'ref_aim_unarmed'), ('fm_relax_walk', 'walk'), ('fm_relax_run', 'run2')):
+        if src in by:
+            seqs.append(make_seq(label, by[src]['frames'][0].copy(), by[src]['fps'], True, template))
+
     # sprints ----------------------------------------------------------
     out = [s for s in seqs if not s['label'].startswith('fm_sprint_')]
     if bo3 and bo3 != '-':

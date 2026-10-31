@@ -1150,14 +1150,16 @@ static int g_epaCower;				// 0 not cowering, 1 intro playing, 2 cowering
 static int g_epaDmgPending, g_epaDmgBits;
 static float g_epaDmgAt;
 static int g_ctxLastWater = -1, g_ctxLastUse;
-static float g_ctxNextCharger;
 static float g_epaLastHurt = -100.0f;
 static int g_epaLastWeaponModel;
 
 static float RandF( float a, float b ) { return a + ( b - a ) * ( rand() / (float)RAND_MAX ); }
 
+static float g_adHoldUntil, g_adHoldFrac = 0.45f;		// hold the gesture at its reach while a charger is used
+
 static bool StartAdditive( const char *name, float rate )
 {
+	g_adHoldUntil = 0.0f;
 	if ( !g_playerHdr )
 		return false;
 	int seq = FindSeq( g_playerHdr, name );
@@ -1178,6 +1180,11 @@ int FPAnim_GetAdditive( int entindex, void *studiohdr, int *seq, float *frame, f
 		 g_adSeq >= g_playerHdr->numseq )
 		return 0;
 	float t = gEngfuncs.GetClientTime() - g_adStart;
+	if ( g_adHoldUntil > 0.0f && gEngfuncs.GetClientTime() < g_adHoldUntil && t > g_adHoldFrac * g_adDur )
+	{
+		g_adStart = gEngfuncs.GetClientTime() - g_adHoldFrac * g_adDur;	// keep the arm out (charger)
+		t = g_adHoldFrac * g_adDur;
+	}
 	if ( t < 0.0f || t > g_adDur )
 	{
 		g_adSeq = -1;
@@ -1374,14 +1381,14 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 	// --- Contextual: doors get a push, buttons a press, chargers a reach that repeats
 	// while you hold use, anything else you +use a reach (server: what we used)
 	int use = ( st >> FPM_USE_SHIFT ) & 7;
-	if ( on && ctx && use && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) &&
-		 ( use != g_ctxLastUse || ( use == FPM_USE_CHARGER && g_now >= g_ctxNextCharger ) ) )
+	if ( on && ctx && use && use != g_ctxLastUse && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) )
 	{
 		const char *name = use == FPM_USE_DOOR ? "fa_use_door" : use == FPM_USE_BUTTON ? "fa_use_button" : "fa_use_give";
 		if ( StartAdditive( name, 1.0f ) )
 			g_mvActivity = g_now;
-		g_ctxNextCharger = g_now + 1.2f;
 	}
+	if ( use == FPM_USE_CHARGER && g_adSeq >= 0 )
+		g_adHoldUntil = g_now + 0.25f;				// charging: the hand stays on the charger
 	g_ctxLastUse = use;
 
 	// --- picked something up: bend down and grab
@@ -1635,6 +1642,17 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	else if ( !onground && g_mvFallStart >= 0.0f && g_now - g_mvFallStart > 0.35f && !( st & FPM_VAULT ) &&
 			  pparams->waterlevel < 2 && !g_onladder )
 		loop = "fm_fall";
+	else if ( g_onladder && !( st & ( FPM_PRONE | FPM_VAULT ) ) && FindSeq( g_playerHdr, "fm_ladder_idle" ) >= 0 )
+	{
+		// ladders (Freeman): climb up / down at the climbing speed, hang still
+		if ( vz > 5.0f )
+			loop = "fm_ladder_up";
+		else if ( vz < -5.0f )
+			loop = "fm_ladder_down";
+		else
+			loop = "fm_ladder_idle";
+		rate = ( vz > 5.0f || vz < -5.0f ) ? Clamp( (float)fabs( vz ) / 120.0f, 0.4f, 2.0f ) : 1.0f;
+	}
 	else if ( ( st & FPM_SPRINT ) && onground && !ducked && g_speed2D > 200.0f && FindSeq( g_playerHdr, SprintAnim( HoldType() ) ) >= 0 )
 	{
 		loop = SprintAnim( HoldType() );
@@ -1660,7 +1678,11 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 					 OverlayIs( "fm_draw_melee" ) );
 	if ( easeWant && !drawing && ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
 	{
-		const char *name = g_speed2D < 20.0f ? "fm_passive_idle" : g_speed2D < 160.0f ? "fm_passive_walk" : "fm_passive_run";
+		// Freeman: pistols and the .357 hang at the side (relaxed hands), long guns go to the passive hold
+		const char *hold = HoldType();
+		bool relaxed = ( !strcmp( hold, "pistol" ) || !strcmp( hold, "revolver" ) ) && FindSeq( g_playerHdr, "fm_relax_idle" ) >= 0;
+		const char *name = relaxed ? ( g_speed2D < 20.0f ? "fm_relax_idle" : g_speed2D < 160.0f ? "fm_relax_walk" : "fm_relax_run" )
+								   : ( g_speed2D < 20.0f ? "fm_passive_idle" : g_speed2D < 160.0f ? "fm_passive_walk" : "fm_passive_run" );
 		if ( !OverlayIs( name ) )
 			StartOverlayKind( name, OVK_EASE, 0.0f );
 	}
@@ -2633,7 +2655,7 @@ static bool IsUpperBodyAct( const char *label )
 		   !strnicmp( label, "sv_ref_reload_", 14 ) || !strnicmp( label, "sv_crouch_reload_", 17 ) ||
 		   !strnicmp( label, "cs_ref_reload_", 14 ) || !strnicmp( label, "cs_crouch_reload_", 17 ) ||
 		   !strnicmp( label, "gm_shove_", 9 ) || !strnicmp( label, "gm_zombie_attack_", 17 ) ||
-		   !strnicmp( label, "fm_draw_", 8 ) || !strnicmp( label, "fm_passive_", 11 ) ||
+		   !strnicmp( label, "fm_draw_", 8 ) || !strnicmp( label, "fm_passive_", 11 ) || !strnicmp( label, "fm_relax_", 9 ) ||
 		   !stricmp( label, "fm_pickup" ) || !stricmp( label, "fm_strangle" ) || !stricmp( label, "fm_blast" );
 }
 

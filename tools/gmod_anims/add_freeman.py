@@ -68,6 +68,10 @@ SEQS = {
     'fm_vault':       ('mixamo', 'wos_mma_vault', False, False),
     'fm_pullup':      ('mixamo', 'wos_mma_bracedhang_to_crouch', False, False),
     'fm_climb':       ('mixamo', 'wos_mma_climbladder_up', False, True),
+    # ladders (the Freeman mod's, from the weapon-draw pack)
+    'fm_ladder_up':   ('draw', 'ladder_up', False, True),
+    'fm_ladder_down': ('draw', 'ladder_down', False, True),
+    'fm_ladder_idle': ('draw', 'ladder_idle', False, True),
     # falls and landings
     'fm_fall':        ('fall', 'fall', False, True),
     'fm_hardland':    ('mixamo', 'wos_mma_hardlanding', False, False),
