@@ -1,6 +1,6 @@
 @echo off
 setlocal
-rem Builds the True First Person client.dll (Release | Win32) with your installed Visual Studio.
+rem Builds the True First Person client.dll and hl.dll (Release | Win32) with your installed Visual Studio.
 cd /d "%~dp0"
 
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -41,6 +41,16 @@ if errorlevel 1 (
   goto :end
 )
 
+echo Building hl.dll ...
+"%MSBUILD%" "projects\vs2019\hldll.vcxproj" /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=%TOOLSET% /m /nologo /v:minimal
+if errorlevel 1 (
+  echo.
+  echo hl.dll BUILD FAILED. Copy the error lines above and paste them to Claude.
+  goto :end
+)
+if not exist "fpbody\dlls" mkdir "fpbody\dlls"
+copy /y "projects\vs2019\Release\hldll\hl.dll" "fpbody\dlls\hl.dll" >nul
+
 rem Make sure the DLL is in this repository's mod folder
 if not exist "fpbody\cl_dlls" mkdir "fpbody\cl_dlls"
 copy /y "projects\vs2019\Release\hl_cdll\client.dll" "fpbody\cl_dlls\client.dll" >nul
@@ -48,7 +58,7 @@ echo.
 if exist "fpbody\cl_dlls\client.dll" (
   echo SUCCESS: client.dll is in fpbody\cl_dlls\
   echo Copy the fpbody folder into your Half-Life folder, next to valve,
-  echo add valve\dlls\hl.dll to fpbody\dlls, then run hl.exe -game fpbody
+  echo then run hl.exe -game fpbody
 ) else (
   echo Build finished, but client.dll was not found in projects\vs2019\Release\hl_cdll\
 )
