@@ -22,7 +22,7 @@ Mod's own animations (m_anm_gmod.mdl in the Freeman folder). Everything else
 
 With the BO3 sprint pack (Workshop 3807533640, bo3animations.mdl) it also adds
 fm_sprint_<type> loops (smg, rifle, pistol, lmg, launcher, grenade, melee,
-hold) for the sprint (cl_dll/fpbody_anim.cpp). With - instead of the L4D
+hold, and unarmed - Garry's Mod's run) for the sprint (cl_dll/fpbody_anim.cpp). With - instead of the L4D
 pack only the sprints are added (Half-Life's classic animation models).
 
 The result contains third-party animation data: keep it local.
@@ -66,7 +66,11 @@ HOLD = {
     'penguin':   ('grenade',  'range_grenade'),
     'grenade':   ('grenade',  'range_grenade'),
 }
-# gait label -> (L4D sequence, move grid cell or None, loop)
+# gait label -> (L4D sequence, move grid cell or None, loop). Left 4 Dead's
+# empty-handed ("passive") cycles carry a rifle, and unarmed in first person
+# the gaits drive the whole body, so they stay Garry's Mod's (arms swinging):
+# set USE_L4D_GAITS to use them anyway.
+USE_L4D_GAITS = False
 GAITS = {
     'walk':        ('walk_passive', (1, 0), True),
     'walk2handed': ('walk_passive', (1, 0), True),
@@ -245,7 +249,7 @@ def l4d(M, ref, l4d_path, seqs, by):
         return np.array([rt.pose(*fn(i / max(1, n - 1) if n > 1 else 0.0)) for i in range(n)])
 
     # gaits ------------------------------------------------------------
-    for label, (name, cell, loop) in GAITS.items():
+    for label, (name, cell, loop) in (GAITS.items() if USE_L4D_GAITS else ()):
         if label not in by:
             continue
         sq = g.seq_by_name[name]
@@ -330,6 +334,11 @@ def main(l4d_path, freeman, in_path, out_path, bo3=None):
             fr = np.array([rb.pose(*p) for p in b.frames(a)])
             seq = make_seq('fm_sprint_' + kind, fr, a['fps'], True, template)
             out.append(seq)
+        # empty hands: Garry's Mod's run (arms swinging)
+        rr = PackRetargeter(ref, M, ref)
+        a = ref.anim_by_name['a_RunN']
+        fr = np.array([rr.pose(*p) for p in ref.frames(a)])
+        out.append(make_seq('fm_sprint_unarmed', fr, a['fps'], True, template))
         print('sprints done', flush=True)
     M.write(out_path, out)
     textures_last(out_path)

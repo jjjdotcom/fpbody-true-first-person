@@ -1502,7 +1502,7 @@ static const char *SprintAnim( const char *hold )
 	if ( !strcmp( hold, "physgun" ) ) return "fm_sprint_lmg";
 	if ( !strcmp( hold, "melee" ) ) return "fm_sprint_melee";
 	if ( !strcmp( hold, "grenade" ) || !strcmp( hold, "slam" ) ) return "fm_sprint_grenade";
-	return "fm_sprint_hold";
+	return FindSeq( g_playerHdr, "fm_sprint_unarmed" ) >= 0 ? "fm_sprint_unarmed" : "fm_sprint_hold";	// empty hands
 }
 
 static void FPMoves_Frame( struct ref_params_s *pparams )

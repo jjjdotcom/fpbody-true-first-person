@@ -27,7 +27,7 @@
 //   cl_fpbody_bodypitch 0.5 how much of the view pitch bends the body (aim poses)
 //   cl_fpbody_stabilize 0.85 how much of the head's fast sway the camera ignores (0 = none)
 //   cl_fpbody_runarms   1   unarmed: the arms swing with the walk / run animation
-//   cl_fpbody_classic   1   Half-Life's original player animations (models/fpbody_classic*.mdl), 0 = GMod
+//   cl_fpbody_classic   0   1 = Half-Life's original player animations (models/fpbody_classic*.mdl), 0 = GMod
 //   cl_fpbody_hls       1   with the GMod animations: the Half-Life: Source style bodies
 //                            (models/fpbody_hls_*.mdl, built on Garry's Mod's skeleton) if present
 //   cl_fpbody_holster   1   weapons we carry are shown on the body (back, hips, thighs)
@@ -113,7 +113,7 @@ void FPBody_Init( void )
 	cl_fpbody_bodypitch = gEngfuncs.pfnRegisterVariable( "cl_fpbody_bodypitch", "0.5", FCVAR_ARCHIVE );
 	cl_fpbody_stabilize = gEngfuncs.pfnRegisterVariable( "cl_fpbody_stabilize", "0.85", FCVAR_ARCHIVE );
 	cl_fpbody_runarms   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_runarms", "1", FCVAR_ARCHIVE );
-	cl_fpbody_classic   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_classic", "1", FCVAR_ARCHIVE );
+	cl_fpbody_classic   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_classic", "0", FCVAR_ARCHIVE );
 	cl_fpbody_holster   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_holster", "1", FCVAR_ARCHIVE );
 
 	gEngfuncs.pfnAddCommand( "fp_debug", FPBody_Debug_f );
