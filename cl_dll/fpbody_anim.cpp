@@ -1400,9 +1400,15 @@ static const gunhandle_t g_handles[] =
 	{ "p_gauss", "Bip01 R Hand", { 16.0f, 7.5f, 6.0f }, 125620 },
 	// Sven Co-op MP5: under the handguard (the Condition Zero hold was made for a shorter gun)
 	{ "p_9mmar", "Bip01 R Hand", { 15.5f, 5.0f, 2.0f }, 182228 },
-	// HD pack M16 (Half-Life / Blue Shift and Opposing Force builds): under the handguard
-	{ "p_9mmar", "Bip01 R Hand", { 18.5f, 5.0f, 3.0f }, 32708 },
-	{ "p_9mmar", "Bip01 R Hand", { 18.5f, 5.0f, 3.0f }, 29484 },
+	// HD pack weapon models (the same in valve_hd, bshift_hd and gearbox_hd), measured
+	// in tools/gmod_anims/lefthand_hd.py: the M16's handguard (the gun is held far
+	// forward, so as far along it as the arm reaches), the crossbow's fore-stock,
+	// and a two-handed grip under the pistols
+	{ "p_9mmar", "Bip01 R Hand", { 13.5f, 4.5f, 3.0f }, 32708 },
+	{ "p_9mmar", "Bip01 R Hand", { 13.5f, 4.5f, 3.0f }, 29484 },
+	{ "p_crossbow", "Bip01 R Hand", { 9.5f, 4.0f, 0.5f }, 38036 },
+	{ "p_9mmhandgun", "Bip01 R Hand", { 3.0f, 4.5f, -1.0f }, 12500 },
+	{ "p_357", "Bip01 R Hand", { 3.0f, 4.5f, -1.0f }, 28164 },
 };
 
 static float g_handleW;
