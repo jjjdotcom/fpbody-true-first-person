@@ -20,6 +20,7 @@
 #include "usercmd.h"
 #include "pm_defs.h"
 #include "pm_shared.h"
+#include "fpbody_pm.h"	// fpbody: Freeman moves
 #include "pm_movevars.h"
 #include "pm_debug.h"
 #include <stdio.h>  // NULL
@@ -1247,6 +1248,7 @@ void PM_Friction (void)
 		//friction = pmove->movevars->friction;      
 
 		friction *= pmove->friction;  // player friction?
+		friction *= FPM_FRICTION_SCALE( pmove );	// fpbody: sliding
 
 		// Bleed off some speed, but if we have less than the bleed
 		//  threshhold, bleed the theshold amount.
@@ -2941,6 +2943,8 @@ void PM_ReduceTimers( void )
 	}
 }
 
+#include "fpbody_pm_move.h"	// fpbody: Freeman moves
+
 /*
 =============
 PlayerMove
@@ -3022,7 +3026,12 @@ void PM_PlayerMove ( qboolean server )
 
 	PM_UpdateStepSound();
 
+	// fpbody: prone, slide, vault and wall climb (a vault moves the player itself)
+	if ( FPM_PreDuck( pLadder != NULL ) )
+		return;
+
 	PM_Duck();
+	FPM_PostDuck();
 	
 	// Don't run ladder code if dead or on a train
 	if ( !pmove->dead && !(pmove->flags & FL_ONTRAIN) )

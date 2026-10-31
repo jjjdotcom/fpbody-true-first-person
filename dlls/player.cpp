@@ -1033,7 +1033,15 @@ static int FPBody_LookupAnim( CBaseAnimating *ent, const char *name )
 		if ( seq >= 0 )
 			return seq;
 	}
-	return ent->LookupSequence( name );
+	int seq = ent->LookupSequence( name );
+	size_t n = strlen( name );
+	if ( seq < 0 && n > 0 && name[ n - 1 ] == '_' )	// fpbody: no weapon
+	{
+		char alt[ 80 ];
+		snprintf( alt, sizeof( alt ), "%sunarmed", name );
+		seq = ent->LookupSequence( alt );
+	}
+	return seq;
 }
 
 void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
@@ -2719,6 +2727,7 @@ void CBasePlayer :: UpdatePlayerSound ( void )
 
 void CBasePlayer::PostThink()
 {
+	FPMoves_Think();	// fpbody: kick, redeploy after holster-all
 	if ( g_fGameOver )
 		goto pt_end;         // intermission or finale
 
@@ -3605,6 +3614,7 @@ void CBasePlayer::ImpulseCommands( )
 	PlayerUse();
 		
 	int iImpulse = (int)pev->impulse;
+	FPMoves_Impulse( iImpulse );	// fpbody: kick, holster all
 	switch (iImpulse)
 	{
 	case 99:
@@ -5103,3 +5113,4 @@ void CInfoIntermission::Think ( void )
 
 LINK_ENTITY_TO_CLASS( info_intermission, CInfoIntermission );
 
+#include "fpbody_moves.inl"	// fpbody: Freeman moves (kick, holster all)

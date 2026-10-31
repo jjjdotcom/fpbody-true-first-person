@@ -81,6 +81,35 @@ included here). With `fpbody/models/player.mdl` in place:
   `fp_act salute`, ...), `fp_act_stop` stops it, `fp_actlist` lists all 75.
   Full-body acts end when you move, shoot or jump.
 
+## Moves from the Half-Life 2 "Freeman" mod
+
+Ported from the Freeman mod (Source): its movement code, re-written for
+GoldSrc's player movement, and its animations, converted onto the player
+models by `tools/gmod_anims/add_freeman.py` (the packs are Garry's Mod Workshop
+animation addons the Freeman mod uses; the converted models stay local).
+
+| Move | How | Code |
+|---|---|---|
+| Kick | `pm_kick` (V). Look down to stomp, kick in the air for a drop kick (double damage). Opens doors you could open with +use, pushes what it hits and you back. | `dlls/fpbody_moves.inl` (impulse 211) |
+| Vault / mantle / pull-up | Jump at a ledge or low wall holding forward: hop over a low wall, climb onto a chest-high ledge, pull up onto a high one. | `pm_shared/fpbody_pm_move.h` |
+| Wall climb | Jump at a wall and keep holding jump (3 pushes); forward at the top pulls you up. | same |
+| Slide | Duck while running. | same |
+| Prone | `pm_prone` (Z) or double-tap duck; jump gets up. Uses the duck hull, half its speed. | same (impulse 210) |
+| At ease | The gun lowers after `cl_fpbody_atease_delay` (4) quiet seconds; `pm_atease` (B) lowers / raises it. | `cl_dll/fpbody_anim.cpp` |
+| Holster all | `pm_holster` (G) or double-tap reload: empty hands; again, or fire, takes the gun out. | `dlls/fpbody_moves.inl` (impulse 212) |
+| Falls, landings | Falling plays a fall loop; a hard landing a crouch-and-recover, or a roll when running. | `cl_dll/fpbody_anim.cpp` |
+| Weapon draws | Drawing a gun plays a draw animation for its kind. | same |
+
+The movement runs in `pm_shared`, so it's predicted on the client like the
+rest of Half-Life's movement; the state is in the player's `fuser4` (bits) and
+`fuser1` (timer). **Each mod folder needs its own `delta.lst`** with `fuser4`
+widened, made from the game's with `tools/port/delta_lst.py`; without it the
+client never learns about moves the server confirmed. `fpbody/autoexec.cfg`
+binds the keys. `cl_fpbody_moves 0` turns the animations off (the moves keep
+working), `cl_fpbody_atease 0` the lowered gun, `cl_fpbody_doubletap 0` the
+double-taps. Other mods: `tools/port/freeman_moves.py <sdk>` (run by
+`apply_fpbody.py`).
+
 ## Limitations
 
 - The first-person view model isn't drawn (the engine hides it in third

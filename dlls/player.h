@@ -176,6 +176,15 @@ public:
 	int			m_iHideHUD;		// the players hud weapon info is to be hidden
 	int			m_iClientHideHUD;
 	int			m_iFOV;			// field of view
+	// fpbody: Freeman moves (dlls/fpbody_moves.inl)
+	float m_flFPKickTime;		// when the kick lands (0 = none)
+	float m_flFPNextKick;
+	int m_iFPKickAir;
+	EHANDLE m_hFPHolstered;		// the gun put away with pm_holster
+	void FPMoves_Impulse( int iImpulse );
+	void FPMoves_Think( void );
+	void FPMoves_DoKick( void );
+	void FPMoves_Redeploy( void );
 	int			m_iClientFOV;	// client's known FOV
 	// usable player items 
 	CBasePlayerItem	*m_rgpPlayerItems[MAX_ITEM_TYPES];

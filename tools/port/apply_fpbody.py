@@ -229,6 +229,10 @@ def main():
     import seq_remap
     seq_remap.main(sdk)
 
+    # the Half-Life 2 Freeman mod's moves: prone, slide, vault, wall climb, kick, holster all
+    import freeman_moves
+    freeman_moves.main(sdk)
+
 
 if __name__ == '__main__':
     main()

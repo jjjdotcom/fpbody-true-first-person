@@ -44,6 +44,19 @@
 //                            the left hand on the Tau Cannon's side bar)
 //   cl_fpbody_grip_fwd  0    move the off-hand grip forward/back along the gun (units)
 //   cl_fpbody_grip_down 0    move the off-hand grip down/up (units)
+//   cl_fpbody_moves     1    play the Freeman moves' animations (kick, vault, climb, prone,
+//                            falls, landings, slide, draws)
+//   cl_fpbody_atease    1    lower the gun after a few quiet seconds (at ease)
+//   cl_fpbody_atease_delay 4 seconds without shooting, reloading or getting hurt
+//   cl_fpbody_doubletap 1    double-tap duck = prone, double-tap reload = holster all
+//
+// Console commands (the Freeman mod's moves; bound in fpbody's autoexec.cfg)
+//   pm_kick           kick (look down to stomp, jump first for a drop kick)
+//   pm_prone          lie down / get up (or double-tap duck)
+//   pm_atease         lower / raise the gun
+//   pm_holster        put the gun away (empty hands); again, or fire, takes it out
+//   Vaulting: jump at a ledge or low wall holding forward. Wall climbing: jump at
+//   a wall and keep holding jump. Slide: duck while running.
 //
 // Console commands (GMod animations, need fpbody/models/player.mdl)
 //   fp_act <name>     play a gesture/taunt, e.g. "fp_act dance", "fp_act wave"
@@ -68,6 +81,7 @@
 
 #include "fpbody.h"
 #include "fpbody_anim.h"
+#include "fpbody_pm.h"
 #include "fpbody_game.h"
 
 #ifndef M_PI
@@ -79,6 +93,8 @@ extern kbutton_t in_use;
 extern kbutton_t in_attack;
 extern kbutton_t in_attack2;
 extern kbutton_t in_jump;
+extern kbutton_t in_duck;
+extern kbutton_t in_reload;
 FPBODY_DECLARE_ONLADDER	// pm_shared, set by client movement prediction (fpbody_game.h)
 
 static cvar_t *cl_fpbody_anims;
@@ -153,6 +169,21 @@ static float g_ovRate = 1.0f;
 static bool g_ovFull;
 static bool g_ovLoop;
 static bool g_ovUser;						// started by fp_act (vs. automatic reload)
+// what started the overlay: fp_act, a reload / gesture, a Freeman move (one-off or
+// looping: prone, falling, climbing) or the at-ease lowered gun
+enum { OVK_USER = 1, OVK_RELOAD, OVK_MOVE, OVK_LOOP, OVK_EASE };
+static int g_ovKind;
+static bool MoveBusy( void ) { return g_ovSeq >= 0 && ( g_ovKind == OVK_MOVE || g_ovKind == OVK_LOOP ); }
+static bool StartOverlayKind( const char *name, int kind, float wantDur );
+static cvar_t *cl_fpbody_moves;
+static cvar_t *cl_fpbody_atease;
+static cvar_t *cl_fpbody_atease_delay;
+static cvar_t *cl_fpbody_doubletap;
+static float g_mvActivity = -100.0f;		// last time the gun was used (at ease timer)
+static void PM_KickCmd( void );
+static void PM_ProneCmd( void );
+static void PM_AtEaseCmd( void );
+static void PM_HolsterCmd( void );
 static float g_speed2D;
 
 static void StopOverlay( void ) { g_ovSeq = -1; g_ovRequest[ 0 ] = 0; }
@@ -365,6 +396,15 @@ void FPAnim_Init( void )
 	cl_fpbody_grip_fwd  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_fwd", "0", FCVAR_ARCHIVE );
 	cl_fpbody_grip_down = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_down", "0", FCVAR_ARCHIVE );
 
+	cl_fpbody_moves     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_moves", "1", FCVAR_ARCHIVE );
+	cl_fpbody_atease    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_atease", "1", FCVAR_ARCHIVE );
+	cl_fpbody_atease_delay = gEngfuncs.pfnRegisterVariable( "cl_fpbody_atease_delay", "4", FCVAR_ARCHIVE );
+	cl_fpbody_doubletap = gEngfuncs.pfnRegisterVariable( "cl_fpbody_doubletap", "1", FCVAR_ARCHIVE );
+	gEngfuncs.pfnAddCommand( "pm_kick", PM_KickCmd );
+	gEngfuncs.pfnAddCommand( "pm_prone", PM_ProneCmd );
+	gEngfuncs.pfnAddCommand( "pm_atease", PM_AtEaseCmd );
+	gEngfuncs.pfnAddCommand( "pm_holster", PM_HolsterCmd );
+
 	gEngfuncs.pfnAddCommand( "fp_act", FP_ActCmd );
 	gEngfuncs.pfnAddCommand( "fp_act_stop", StopOverlay );
 	gEngfuncs.pfnAddCommand( "fp_actlist", FP_ActList );
@@ -547,11 +587,39 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 		return;
 
 	// switching weapons cancels a GMod reload in progress
-	if ( ( type == CLIP_DRAW || type == CLIP_HOLSTER ) && g_ovSeq >= 0 && !g_ovUser )
+	if ( ( type == CLIP_DRAW || type == CLIP_HOLSTER ) && g_ovSeq >= 0 && ( g_ovKind == OVK_RELOAD || g_ovKind == OVK_EASE ) )
 		StopOverlay();
 
+	// the gun is in use: no lowered gun for a while
+	if ( type != CLIP_IDLE )
+		g_mvActivity = g_now;
+
+	// Freeman: draw animations (upper body) when a gun comes out
+	if ( type == CLIP_DRAW && g_playerHdr && cl_fpbody_moves->value != 0.0f && !MoveBusy() &&
+		 ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
+	{
+		const char *draw = NULL;
+		if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_357" ) || Has( modelName, "v_desert_eagle" ) ||
+			 Has( modelName, "v_hgun" ) )
+			draw = "fm_draw_pistol";
+		else if ( Has( modelName, "v_rpg" ) || Has( modelName, "v_gauss" ) || Has( modelName, "v_egon" ) )
+			draw = "fm_draw_rpg";
+		else if ( Has( modelName, "v_crowbar" ) || Has( modelName, "v_knife" ) || Has( modelName, "v_pipe_wrench" ) ||
+				  Has( modelName, "v_bgrap" ) )
+			draw = "fm_draw_melee";
+		else if ( Has( modelName, "v_9mmar" ) || Has( modelName, "v_shotgun" ) || Has( modelName, "v_crossbow" ) ||
+				  Has( modelName, "v_m40a1" ) || Has( modelName, "v_saw" ) || Has( modelName, "v_shock" ) ||
+				  Has( modelName, "v_spore_launcher" ) || Has( modelName, "v_displacer" ) )
+			draw = "fm_draw_rifle";
+		if ( draw && StartOverlayKind( draw, OVK_EASE, Clamp( seqDur, 0.5f, 1.0f ) ) )
+		{
+			StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
+			return;
+		}
+	}
+
 	// Use GMod's reload animation for this weapon when the model has one
-	if ( type == CLIP_RELOAD && g_bGmodModel && cl_fpbody_gmod->value != 0.0f )
+	if ( type == CLIP_RELOAD && g_bGmodModel && cl_fpbody_gmod->value != 0.0f && !MoveBusy() )
 	{
 		const char *gm = NULL;
 		if ( Has( modelName, "v_9mmhandgun" ) )     gm = "gm_reload_pistol";
@@ -572,7 +640,8 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 	// and Sven Co-op's (sv_<stance>_reload_<set>). cl_fpbody_reloads picks which
 	// is tried first; the others are the backup for weapons the first has no
 	// reload for. Played on the upper body.
-	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL ) && g_playerHdr && FPBody_Classic() )
+	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL ) && g_playerHdr && FPBody_Classic() &&
+		 !MoveBusy() )
 	{
 		const char *pref = cl_fpbody_reloads->string;
 		bool off = !pref[ 0 ] || !strcmp( pref, "0" );
@@ -872,6 +941,267 @@ static void EvalClip( const clip_t &c, float now, float weight, pose_t &p,
 // Per-frame action-button state
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The Freeman mod's moves (pm_shared/fpbody_pm.h does the movement, the
+// server the kick and holster-all): animations for them, the at-ease lowered
+// gun, and the commands / double-taps that start them. The fm_ sequences are
+// added to the player models by tools/gmod_anims/add_freeman.py.
+// ---------------------------------------------------------------------------
+
+static int g_mvPrevState;
+static int g_mvPrevOnGround = 1;
+static float g_mvFallStart = -1.0f;
+static float g_mvMaxFall;
+static float g_mvLastDuck = -10.0f, g_mvLastReload = -10.0f;
+static bool g_mvDuckDown, g_mvReloadDown;
+static bool g_mvEaseForced;
+static int g_mvLastHealth = -1;
+static bool g_mvDucked;
+static bool g_mvOnGround = true;
+
+static const char *HoldType( void )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	model_t *m = ( local && local->curstate.weaponmodel > 0 ) ? IEngineStudio.GetModelByIndex( local->curstate.weaponmodel ) : NULL;
+	if ( !m )
+		return "passive";
+	char n[ 64 ];
+	Lower( m->name, n, sizeof( n ) );
+	if ( Has( n, "p_9mmhandgun" ) || Has( n, "p_glock" ) || Has( n, "p_desert_eagle" ) || Has( n, "p_hgun" ) ) return "pistol";
+	if ( Has( n, "p_357" ) ) return "revolver";
+	if ( Has( n, "p_9mmar" ) || Has( n, "p_mp5" ) ) return "smg1";
+	if ( Has( n, "p_shotgun" ) ) return "shotgun";
+	if ( Has( n, "p_crossbow" ) || Has( n, "p_m40a1" ) ) return "crossbow";
+	if ( Has( n, "p_rpg" ) ) return "rpg";
+	if ( Has( n, "p_gauss" ) || Has( n, "p_egon" ) || Has( n, "p_displacer" ) || Has( n, "p_spore" ) ) return "physgun";
+	if ( Has( n, "p_saw" ) || Has( n, "p_shock" ) ) return "ar2";
+	if ( Has( n, "p_crowbar" ) || Has( n, "p_knife" ) || Has( n, "p_pipe_wrench" ) || Has( n, "p_bgrap" ) ) return "melee";
+	if ( Has( n, "p_grenade" ) || Has( n, "p_squeak" ) || Has( n, "p_penguin" ) ) return "grenade";
+	if ( Has( n, "p_satchel" ) || Has( n, "p_tripmine" ) ) return "slam";
+	return "passive";
+}
+
+static const char *ProneWalk( const char *hold )
+{
+	if ( !strcmp( hold, "passive" ) ) return "passive";
+	if ( !strcmp( hold, "smg1" ) || !strcmp( hold, "ar2" ) || !strcmp( hold, "shotgun" ) ) return "twohand";
+	if ( !strcmp( hold, "rpg" ) || !strcmp( hold, "crossbow" ) || !strcmp( hold, "physgun" ) ) return hold;
+	return "onehand";
+}
+
+static bool OverlayIs( const char *name )
+{
+	if ( g_ovSeq < 0 || !g_playerHdr || g_ovSeq >= g_playerHdr->numseq )
+		return false;
+	const mstudioseqdesc_t *sd = (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) + g_ovSeq;
+	return !stricmp( sd->label, name );
+}
+
+// keep a looping move animation going (prone, falling, climbing); rate 0 = leave it
+static void WantLoop( const char *name, float rate )
+{
+	if ( OverlayIs( name ) )
+	{
+		if ( rate > 0.0f && fabs( rate - g_ovRate ) > 0.01f )
+		{
+			float phase = ( g_now - g_ovStart ) * g_ovRate;		// keep the cycle where it is
+			g_ovRate = rate;
+			g_ovStart = g_now - phase / rate;
+		}
+		g_ovKind = OVK_LOOP;
+		return;
+	}
+	if ( StartOverlayKind( name, OVK_LOOP, 0.0f ) && rate > 0.0f )
+		g_ovRate = rate;
+}
+
+static void PM_KickCmd( void )
+{
+	gEngfuncs.pfnClientCmd( "impulse 211\n" );
+	if ( !FPBody_Active() || !g_playerHdr || cl_fpbody_moves->value == 0.0f || ( g_fpmState & ( FPM_VAULT | FPM_PRONE ) ) )
+		return;
+	if ( MoveBusy() && g_ovKind == OVK_MOVE && g_now - g_ovStart < g_ovDur * 0.85f )
+		return;									// still in the last kick / landing
+	Vector ang;
+	gEngfuncs.GetViewAngles( (float *)ang );
+	float pitch = ang[ PITCH ];					// + = looking down
+	const char *name;
+	if ( !g_mvOnGround )
+		name = pitch > 50.0f ? "fm_stomp_air" : pitch > 30.0f ? "fm_kick_air_25" : pitch > 12.0f ? "fm_kick_air_45" : "fm_kick_air";
+	else if ( g_mvDucked )
+		name = pitch > 45.0f ? "fm_stomp_crouch" : "fm_kick_crouch";
+	else
+		name = pitch > 50.0f ? "fm_stomp" : pitch > 30.0f ? "fm_kick_25" : pitch > 12.0f ? "fm_kick_45" : "fm_kick";
+	StartOverlayKind( name, OVK_MOVE, !strncmp( name, "fm_stomp", 8 ) ? 0.8f : 1.0f );
+	g_mvActivity = g_now;
+}
+
+static void PM_ProneCmd( void ) { gEngfuncs.pfnClientCmd( "impulse 210\n" ); }
+static void PM_HolsterCmd( void ) { gEngfuncs.pfnClientCmd( "impulse 212\n" ); }
+
+static void PM_AtEaseCmd( void )
+{
+	if ( g_ovSeq >= 0 && g_ovKind == OVK_EASE )
+	{
+		g_mvEaseForced = false;
+		g_mvActivity = g_now;					// raise it
+		StopOverlay();
+	}
+	else
+		g_mvEaseForced = true;
+}
+
+static void FPMoves_Frame( struct ref_params_s *pparams )
+{
+	int st = g_fpmState;
+	bool onground = pparams->onground != 0;
+	bool ducked = pparams->viewheight[ 2 ] < 20.0f;
+	bool on = FPBody_Active() && g_playerHdr && cl_fpbody_moves->value != 0.0f;
+	g_mvDucked = ducked;
+	g_mvOnGround = onground;
+
+	// double-taps: duck = prone, reload = holster all
+	bool duckDown = ( in_duck.state & 1 ) != 0, reloadDown = ( in_reload.state & 1 ) != 0;
+	if ( cl_fpbody_doubletap->value != 0.0f )
+	{
+		if ( duckDown && !g_mvDuckDown )
+		{
+			if ( g_now - g_mvLastDuck < 0.3f ) { PM_ProneCmd(); g_mvLastDuck = -10.0f; }
+			else g_mvLastDuck = g_now;
+		}
+		if ( reloadDown && !g_mvReloadDown )
+		{
+			if ( g_now - g_mvLastReload < 0.3f ) { PM_HolsterCmd(); g_mvLastReload = -10.0f; }
+			else g_mvLastReload = g_now;
+		}
+	}
+	g_mvDuckDown = duckDown;
+	g_mvReloadDown = reloadDown;
+
+	// anything that brings the gun up
+	int health = gHUD.m_Health.m_iHealth;
+	if ( ( in_attack.state & 1 ) || ( in_attack2.state & 1 ) || reloadDown || ( g_mvLastHealth >= 0 && health < g_mvLastHealth ) )
+	{
+		g_mvActivity = g_now;
+		g_mvEaseForced = false;
+	}
+	g_mvLastHealth = health;
+
+	// falling
+	float vz = pparams->simvel[ 2 ];
+	if ( !onground )
+	{
+		if ( -vz > g_mvMaxFall )
+			g_mvMaxFall = -vz;
+		if ( vz < -300.0f && g_mvFallStart < 0.0f )
+			g_mvFallStart = g_now;
+		else if ( vz >= -300.0f )
+			g_mvFallStart = -1.0f;
+	}
+
+	if ( !on )
+	{
+		if ( g_ovSeq >= 0 && g_ovKind >= OVK_MOVE )
+			StopOverlay();
+		g_mvPrevState = st;
+		g_mvPrevOnGround = onground;
+		if ( onground ) g_mvMaxFall = 0.0f;
+		return;
+	}
+
+	int started = st & ~g_mvPrevState;
+	int ended = g_mvPrevState & ~st;
+	bool oneShot = g_ovSeq >= 0 && g_ovKind == OVK_MOVE;
+
+	// one-off moves, in order of importance
+	if ( started & FPM_VAULT )
+	{
+		int type = FPM_VTYPE( st );
+		const char *name = type == FPM_VAULT_HOP ? "fm_vault" : type == FPM_VAULT_PULLUP ? "fm_pullup" : "fm_mantle";
+		StartOverlayKind( name, OVK_MOVE, g_fpmTimer > 0.1f ? g_fpmTimer + 0.15f : 0.9f );
+	}
+	else if ( started & FPM_SLIDE )
+		StartOverlayKind( "fm_slide", OVK_MOVE, 0.95f );
+	else if ( onground && !g_mvPrevOnGround && g_mvMaxFall > 500.0f && !( st & FPM_VAULT ) && pparams->waterlevel < 2 )
+	{
+		bool roll = g_speed2D > 150.0f && !ducked;
+		StartOverlayKind( roll ? "fm_roll" : "fm_hardland", OVK_MOVE, roll ? 1.1f : 1.0f );
+	}
+	else if ( started & FPM_PRONE )
+		StartOverlayKind( ducked ? "fm_pronedown_crouch" : "fm_pronedown_stand", OVK_MOVE, 0.9f );
+	else if ( ended & FPM_PRONE )
+		StartOverlayKind( ( in_duck.state & 1 ) ? "fm_proneup_crouch" : "fm_proneup_stand", OVK_MOVE, 0.9f );
+	oneShot = g_ovSeq >= 0 && g_ovKind == OVK_MOVE;
+
+	// a one-off move that no longer fits: getting up, moving off, or a vault cut short
+	if ( oneShot && g_now - g_ovStart > 0.2f )
+	{
+		if ( ( OverlayIs( "fm_slide" ) && !( st & FPM_SLIDE ) && g_now - g_ovStart > 0.5f ) ||
+			 ( ( OverlayIs( "fm_mantle" ) || OverlayIs( "fm_vault" ) || OverlayIs( "fm_pullup" ) ) && !( st & FPM_VAULT ) &&
+			   onground && g_speed2D > 60.0f ) )
+		{
+			StopOverlay();
+			oneShot = false;
+		}
+	}
+
+	// looping states
+	const char *loop = NULL;
+	float rate = 0.0f;
+	if ( st & FPM_PRONE )
+	{
+		const char *hold = HoldType();
+		static char name[ 48 ];
+		if ( g_speed2D > 8.0f )
+		{
+			snprintf( name, sizeof( name ), "fm_pronewalk_%s", ProneWalk( hold ) );
+			rate = Clamp( g_speed2D / 50.0f, 0.3f, 1.6f );
+		}
+		else
+			snprintf( name, sizeof( name ), "fm_prone_%s", hold );
+		loop = name;
+	}
+	else if ( ( st & FPM_CLIMB ) && !onground && vz > -150.0f && !( st & FPM_VAULT ) )
+		loop = "fm_climb";
+	else if ( !onground && g_mvFallStart >= 0.0f && g_now - g_mvFallStart > 0.35f && !( st & FPM_VAULT ) &&
+			  pparams->waterlevel < 2 && !g_onladder )
+		loop = "fm_fall";
+
+	if ( loop && !oneShot )
+		WantLoop( loop, rate );
+	else if ( !loop && g_ovSeq >= 0 && g_ovKind == OVK_LOOP )
+		StopOverlay();
+
+	// at ease: lower the gun after a few quiet seconds
+	bool easeOk = cl_fpbody_atease->value != 0.0f && onground && !ducked && !( st & ( FPM_PRONE | FPM_SLIDE | FPM_VAULT ) ) &&
+				  !gHUD.m_Flash.IsOn() && pparams->waterlevel < 2 && !g_onladder;
+	if ( easeOk )
+	{
+		const char *hold = HoldType();
+		easeOk = strcmp( hold, "passive" ) && strcmp( hold, "melee" ) && strcmp( hold, "grenade" ) && strcmp( hold, "slam" );
+	}
+	bool easeWant = easeOk && ( g_mvEaseForced || g_now - g_mvActivity > cl_fpbody_atease_delay->value );
+	bool drawing = g_ovSeq >= 0 && g_ovKind == OVK_EASE &&
+				   ( OverlayIs( "fm_draw_pistol" ) || OverlayIs( "fm_draw_rifle" ) || OverlayIs( "fm_draw_rpg" ) ||
+					 OverlayIs( "fm_draw_melee" ) );
+	if ( easeWant && !drawing && ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
+	{
+		const char *name = g_speed2D < 20.0f ? "fm_passive_idle" : g_speed2D < 160.0f ? "fm_passive_walk" : "fm_passive_run";
+		if ( !OverlayIs( name ) )
+			StartOverlayKind( name, OVK_EASE, 0.0f );
+	}
+	else if ( !easeWant && !drawing && g_ovSeq >= 0 && g_ovKind == OVK_EASE )
+		StopOverlay();
+
+	g_mvPrevState = st;
+	g_mvPrevOnGround = onground;
+	if ( onground )
+	{
+		g_mvMaxFall = 0.0f;
+		g_mvFallStart = -1.0f;
+	}
+}
+
 void FPAnim_Frame( struct ref_params_s *pparams )
 {
 	g_now = gEngfuncs.GetClientTime();
@@ -882,7 +1212,7 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 	g_speed2D = (float)sqrt( pparams->simvel[ 0 ] * pparams->simvel[ 0 ] + pparams->simvel[ 1 ] * pparams->simvel[ 1 ] );
 
 	// full-body acts end when you move, shoot or jump
-	if ( g_ovSeq >= 0 && g_ovFull && g_now - g_ovStart > 0.3f )
+	if ( g_ovSeq >= 0 && g_ovFull && g_ovKind == OVK_USER && g_now - g_ovStart > 0.3f )
 	{
 		if ( g_speed2D > 40.0f || ( in_attack.state & 1 ) || ( in_attack2.state & 1 ) || ( in_jump.state & 1 ) )
 			StopOverlay();
@@ -970,6 +1300,8 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 	g_lastYaw = yaw;
 	g_lastPitch = pitch;
 	g_haveLastAngles = true;
+
+	FPMoves_Frame( pparams );
 }
 
 static void EvalActions( float now, pose_t &p, const float *f, const float *r, const float *u )
@@ -1824,7 +2156,8 @@ static bool IsUpperBodyAct( const char *label )
 		   !strnicmp( label, "ref_reload_", 11 ) || !strnicmp( label, "crouch_reload_", 14 ) ||
 		   !strnicmp( label, "sv_ref_reload_", 14 ) || !strnicmp( label, "sv_crouch_reload_", 17 ) ||
 		   !strnicmp( label, "cs_ref_reload_", 14 ) || !strnicmp( label, "cs_crouch_reload_", 17 ) ||
-		   !strnicmp( label, "gm_shove_", 9 ) || !strnicmp( label, "gm_zombie_attack_", 17 );
+		   !strnicmp( label, "gm_shove_", 9 ) || !strnicmp( label, "gm_zombie_attack_", 17 ) ||
+		   !strnicmp( label, "fm_draw_", 8 ) || !strnicmp( label, "fm_passive_", 11 );
 }
 
 // Start a gm_ sequence now. wantDur > 0 stretches it to that many seconds.
@@ -1854,6 +2187,15 @@ static bool StartOverlay( const char *name, bool user, float wantDur )
 	g_ovLoop = ( sd->flags & STUDIO_LOOPING ) != 0;
 	g_ovFull = !IsUpperBodyAct( sd->label );
 	g_ovUser = user;
+	g_ovKind = user ? OVK_USER : OVK_RELOAD;
+	return true;
+}
+
+static bool StartOverlayKind( const char *name, int kind, float wantDur )
+{
+	if ( !StartOverlay( name, false, wantDur ) )
+		return false;
+	g_ovKind = kind;
 	return true;
 }
 
@@ -1913,7 +2255,7 @@ int FPAnim_GetOverlay( int playerNumber, void *studiohdr, int *seq, float *animt
 		g_ovSeq = -1;
 	}
 
-	if ( !FPBody_Active() || cl_fpbody_gmod->value == 0.0f )
+	if ( !FPBody_Active() || ( cl_fpbody_gmod->value == 0.0f && g_ovKind <= OVK_RELOAD ) )
 	{
 		g_ovSeq = -1;
 		g_ovRequest[ 0 ] = 0;
@@ -1946,5 +2288,5 @@ int FPAnim_GetOverlay( int playerNumber, void *studiohdr, int *seq, float *animt
 
 int FPAnim_ActCamActive( void )
 {
-	return g_ovSeq >= 0 && g_ovFull && cl_fpbody_actcam && cl_fpbody_actcam->value != 0.0f;
+	return g_ovSeq >= 0 && g_ovFull && g_ovKind == OVK_USER && cl_fpbody_actcam && cl_fpbody_actcam->value != 0.0f;
 }

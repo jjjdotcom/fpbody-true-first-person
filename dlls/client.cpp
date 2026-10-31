@@ -1700,6 +1700,8 @@ void UpdateClientData ( const edict_t *ent, int sendweapons, struct clientdata_s
 
 	cd->flags			= pev->flags;
 	cd->health			= pev->health;
+	cd->fuser1 = pev->fuser1;	// fpbody: Freeman move timer
+	cd->fuser4 = pev->fuser4;	// fpbody: Freeman move state
 
 	cd->viewmodel		= MODEL_INDEX( STRING( pev->viewmodel ) );
 
