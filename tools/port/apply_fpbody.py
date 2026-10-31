@@ -211,6 +211,14 @@ def main():
         % (g['title'], g['moddir'], g['fallback'], g['startmap'], g['trainmap']))
     print('mod folder', os.path.abspath(mod))
 
+    # Tau Cannon in the shotgun hold (the left hand reaches the side bar of the MMod model)
+    gp = os.path.join(sdk, 'dlls', 'gauss.cpp')
+    gs = open(gp, encoding='latin-1', newline='').read()
+    gs2 = re.sub(r'(DefaultDeploy\s*\(\s*"models/v_gauss\.mdl",\s*"models/p_gauss\.mdl",\s*GAUSS_DRAW,\s*)"gauss"', r'\1"shotgun"', gs)
+    if gs2 != gs:
+        open(gp, 'w', encoding='latin-1', newline='').write(gs2)
+        print('patched', gp)
+
     # buddha mode in the server DLL
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import buddha

@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 H_ = {}; exec(open('/home/claude/gmodconv/holster_sheet.py').read().split("outdir = sys.argv[1]")[0], H_)
 E_ = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], float)
 # wrist targets, world-aligned offsets (x fwd, y left, z up) from the gun's bone, -> stored in bone frame
-CASES = [('Tau Cannon (MMod)', 'gauss', '/home/claude/gmodconv/src/mmod_p/p_gauss.mdl', 'Bip01 R Hand', np.eye(3), np.array([16.3, 8.0, 2.5])),
+# the Gluon gun and Displacer keep Half-Life's own hold (no IK); the Tau Cannon uses the shotgun hold
+CASES = [('Tau Cannon (MMod)', 'shotgun', '/home/claude/gmodconv/src/mmod_p/p_gauss.mdl', 'Bip01 R Hand', np.eye(3), np.array([16.3, 8.0, 2.5])),
          ('Gluon gun (VAPW)', 'egon', '/home/claude/gmodconv/src/final_p/p_egon.mdl', 'Bip01 R Arm2', E_, np.array([20.8, 8.5, 4.7])),
          ('Displacer', 'egon', '/home/claude/gmodconv/src/final_p/p_displacer.mdl', 'Bip01 R Hand', np.eye(3), np.array([11.0, 10.5, 4.2]))]
 

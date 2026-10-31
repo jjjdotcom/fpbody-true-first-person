@@ -33,7 +33,7 @@
 //   cl_fpbody_gmod      1    use the GMod animations in the player model when present
 //   cl_fpbody_aimfire   1    turn the gun straight down the view while firing
 //   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK; in classic mode,
-//                            the left hand on the Tau Cannon, Gluon gun and Displacer handles)
+//                            the left hand on the Tau Cannon's side bar)
 //   cl_fpbody_grip_fwd  0    move the off-hand grip forward/back along the gun (units)
 //   cl_fpbody_grip_down 0    move the off-hand grip down/up (units)
 //
@@ -1279,8 +1279,8 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	}
 }
 
-// Classic mode keeps Half-Life's own holds, except the big guns whose world
-// model has a handle for the left hand: the left wrist is put on it by arm IK.
+// Classic mode keeps Half-Life's own holds, except guns whose world model has
+// a handle for the left hand: the left wrist is put on it by arm IK.
 // The wrist point is in the space of the bone the gun's mesh hangs from,
 // measured on the models the mods ship (tools/gmod_anims/lefthand_sim.py).
 struct gunhandle_t
@@ -1292,9 +1292,8 @@ struct gunhandle_t
 
 static const gunhandle_t g_handles[] =
 {
-	{ "p_gauss", "Bip01 R Hand", { 16.3f, 8.0f, 2.5f } },		// Half-Life MMod Tau Cannon: side handle
-	{ "p_egon", "Bip01 R Arm2", { 20.8f, -4.7f, 8.5f } },		// VAPW Gluon gun: front grip
-	{ "p_displacer", "Bip01 R Hand", { 11.0f, 10.5f, 4.2f } },	// Displacer: side bar
+	// Half-Life MMod Tau Cannon: side bar (the gun uses the shotgun hold, see gauss.cpp)
+	{ "p_gauss", "Bip01 R Hand", { 16.3f, 8.0f, 2.5f } },
 };
 
 static float g_handleW;
