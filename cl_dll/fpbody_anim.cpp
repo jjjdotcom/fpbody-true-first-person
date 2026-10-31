@@ -205,6 +205,8 @@ static cvar_t *cl_fpbody_sprint_recover;
 static float g_mvActivity = -100.0f;		// last time the gun was used (at ease timer)
 static void PM_KickCmd( void );
 static void PM_ProneCmd( void );
+static void FP_InvNextCmd( void );
+static void FP_InvPrevCmd( void );
 static void PM_AtEaseCmd( void );
 static void PM_HolsterCmd( void );
 static float g_speed2D;
@@ -433,6 +435,8 @@ void FPAnim_Init( void )
 	cl_fpbody_epa_fidget_max    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_max", "120", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_chance = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_chance", "0.5", FCVAR_ARCHIVE );
 	gEngfuncs.pfnAddCommand( "pm_kick", PM_KickCmd );
+	gEngfuncs.pfnAddCommand( "fp_invnext", FP_InvNextCmd );
+	gEngfuncs.pfnAddCommand( "fp_invprev", FP_InvPrevCmd );
 	gEngfuncs.pfnAddCommand( "pm_prone", PM_ProneCmd );
 	gEngfuncs.pfnAddCommand( "pm_atease", PM_AtEaseCmd );
 	gEngfuncs.pfnAddCommand( "pm_holster", PM_HolsterCmd );
@@ -1069,6 +1073,38 @@ static void PM_KickCmd( void )
 }
 
 static void PM_ProneCmd( void ) { gEngfuncs.pfnClientCmd( "impulse 210\n" ); }
+
+// fp_invnext / fp_invprev: next / previous weapon, taken out straight away (no
+// confirm press) - for a controller's D-pad (Steam Input sends the mouse wheel).
+// Presses in quick succession keep going from the one just picked, since the
+// server hasn't switched yet.
+extern WEAPON *gpActiveSel;
+extern WEAPON *gpLastSel;
+extern int g_weaponselect;
+static WEAPON *g_quickSel;
+static float g_quickTime = -100.0f;
+
+static void QuickSwitch( bool next )
+{
+	float now = gEngfuncs.GetClientTime();
+	if ( g_quickSel && now - g_quickTime < 0.6f && ( !gpActiveSel || gpActiveSel == (WEAPON *)1 ) )
+		gpActiveSel = g_quickSel;
+	if ( next )
+		gHUD.m_Ammo.UserCmd_NextWeapon();
+	else
+		gHUD.m_Ammo.UserCmd_PrevWeapon();
+	if ( !gpActiveSel || gpActiveSel == (WEAPON *)1 )
+		return;
+	ServerCmd( gpActiveSel->szName );
+	g_weaponselect = gpActiveSel->iId;
+	g_quickSel = gpActiveSel;
+	g_quickTime = now;
+	gpLastSel = gpActiveSel;
+	gpActiveSel = NULL;
+	PlaySound( "common/wpn_select.wav", 1 );
+}
+static void FP_InvNextCmd( void ) { QuickSwitch( true ); }
+static void FP_InvPrevCmd( void ) { QuickSwitch( false ); }
 static void PM_HolsterCmd( void ) { gEngfuncs.pfnClientCmd( "impulse 212\n" ); }
 
 static void PM_AtEaseCmd( void )
