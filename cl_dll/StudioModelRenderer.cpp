@@ -1565,7 +1565,7 @@ void CStudioModelRenderer::StudioProcessGait( entity_state_t *pplayer )
 	// calc gait frame
 	if (pseqdesc->linearmovement[0] > 0)
 	{
-		m_pPlayerInfo->gaitframe += (m_flGaitMovement / pseqdesc->linearmovement[0]) * pseqdesc->numframes;
+		m_pPlayerInfo->gaitframe += (m_flGaitMovement / pseqdesc->linearmovement[0]) * pseqdesc->numframes * FPAnim_GaitScale();	// fpbody
 	}
 	else
 	{

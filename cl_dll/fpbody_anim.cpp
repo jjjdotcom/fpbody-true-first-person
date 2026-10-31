@@ -55,6 +55,8 @@
 //   cl_fpbody_epa_fidget_min / _max 10 / 120   wait between fidget checks (seconds)
 //   cl_fpbody_epa_fidget_chance 0.5            chance a check plays one
 //   cl_fpbody_epa_fidget_speed 1               playback speed of the fidgets (2 = twice as fast)
+//   cl_fpbody_gaitspeed 0.7  with the GMod animations: how fast the walk / run cycles play
+//                            for your speed (1 = feet match the ground, lower = slower legs)
 //   cl_fpbody_sprint    1    sprinting (+alt1, bound to shift in autoexec.cfg): faster, with stamina
 //   cl_fpbody_sprint_time 6  seconds of sprinting on a full stamina bar
 //   cl_fpbody_sprint_recover 4  seconds to refill it (starts a second after you stop)
@@ -202,6 +204,7 @@ static cvar_t *cl_fpbody_epa_fidget_chance;
 static cvar_t *cl_fpbody_epa_fidget_speed;
 static cvar_t *cl_fpbody_contextual;
 static cvar_t *cl_fpbody_sprint;
+static cvar_t *cl_fpbody_gaitspeed;
 static cvar_t *cl_fpbody_sprint_time;
 static cvar_t *cl_fpbody_sprint_recover;
 static float g_mvActivity = -100.0f;		// last time the gun was used (at ease timer)
@@ -430,6 +433,7 @@ void FPAnim_Init( void )
 	cl_fpbody_epa       = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa", "1", FCVAR_ARCHIVE );
 	cl_fpbody_contextual = gEngfuncs.pfnRegisterVariable( "cl_fpbody_contextual", "1", FCVAR_ARCHIVE );
 	cl_fpbody_sprint    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sprint", "1", FCVAR_ARCHIVE );
+	cl_fpbody_gaitspeed = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gaitspeed", "0.7", FCVAR_ARCHIVE );
 	cl_fpbody_sprint_time = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sprint_time", "6", FCVAR_ARCHIVE );
 	cl_fpbody_sprint_recover = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sprint_recover", "4", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_idle   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_idle", "10", FCVAR_ARCHIVE );
@@ -1465,6 +1469,13 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 // --- sprint stamina (the movement is in pm_shared/fpbody_pm_move.h)
 static float g_spStamina = 1.0f, g_spLast = -1.0f, g_spUsedAt = -100.0f;
 static bool g_spLocked;					// ran dry: no sprinting until a third is back and the key is let go
+
+float FPAnim_GaitScale( void )
+{
+	if ( !cl_fpbody_gaitspeed || FPBody_Classic() )
+		return 1.0f;					// Half-Life's own gaits were made for its speeds
+	return Clamp( cl_fpbody_gaitspeed->value, 0.2f, 2.0f );
+}
 
 // input.cpp: whether the sprint button (IN_ALT1) goes out this frame
 int FPBody_SprintAllowed( int bits )

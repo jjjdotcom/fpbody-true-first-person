@@ -48,6 +48,10 @@ extern int g_fpSeqRemapped;
 // The studio renderer adds its rotations (FPAnim_AddLayer) before building the bones.
 int FPAnim_GetAdditive( int entindex, void *studiohdr, int *seq, float *frame, float *weight );
 void FPAnim_AddLayer( float ( *q )[ 4 ], float ( *dq )[ 4 ], int numbones, float weight );
+
+// How fast the walk / run cycles play for the distance covered (cl_fpbody_gaitspeed;
+// the Garry's Mod cycles were made for slower running than Half-Life's).
+float FPAnim_GaitScale( void );
 // bone controller values that rotate nothing (so the additive layer isn't turned twice)
 void FPAnim_NeutralControllers( void *studiohdr, unsigned char *out4 );
 // the Damage message (health.cpp): what hurt us, for the flinches

@@ -112,6 +112,12 @@ def input_cpp(s):
                '\n\\1if ( FPBody_SprintAllowed( bits ) )\t// fpbody: sprint\n\\1\tbits |= IN_ALT1;')
 
 
+def renderer_cpp(s):
+    # the walk / run cycles' speed (cl_fpbody_gaitspeed)
+    return one(s, r'(gaitframe \+= \(m_flGaitMovement / pseqdesc->linearmovement\[0\]\) \* pseqdesc->numframes);',
+               r'\1 * FPAnim_GaitScale();\t// fpbody')
+
+
 def player_cpp(s):
     # the implementation lives in its own file, compiled as part of player.cpp
     s = s.rstrip('\n') + '\n\n#include "fpbody_moves.inl"\t// fpbody: Freeman moves (kick, holster all)\n'
@@ -152,6 +158,7 @@ def main(sdk, src=REPO):
     edit(os.path.join(sdk, 'dlls', 'player.h'), player_h_ctx, 'm_flFPUseUntil')
     edit(os.path.join(sdk, 'dlls', 'player.cpp'), player_cpp_ctx, 'FPMoves_OnUse')
     edit(os.path.join(sdk, 'cl_dll', 'input.cpp'), input_cpp, 'FPBody_SprintAllowed')
+    edit(os.path.join(sdk, 'cl_dll', 'StudioModelRenderer.cpp'), renderer_cpp, 'FPAnim_GaitScale')
     # SDKs whose build copies network/delta.lst into the mod: the widened one
     net = os.path.join(sdk, 'network', 'delta.lst')
     if os.path.exists(net):
