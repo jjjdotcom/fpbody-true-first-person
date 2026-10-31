@@ -152,6 +152,12 @@ def main(sdk, src=REPO):
     edit(os.path.join(sdk, 'dlls', 'player.h'), player_h_ctx, 'm_flFPUseUntil')
     edit(os.path.join(sdk, 'dlls', 'player.cpp'), player_cpp_ctx, 'FPMoves_OnUse')
     edit(os.path.join(sdk, 'cl_dll', 'input.cpp'), input_cpp, 'FPBody_SprintAllowed')
+    # SDKs whose build copies network/delta.lst into the mod: the widened one
+    net = os.path.join(sdk, 'network', 'delta.lst')
+    if os.path.exists(net):
+        import delta_lst
+        delta_lst.main(net, net)
+        print('widened fuser4 in', net)
     # ExtendedER: the additive gesture layer and the damage types, in the client
     import epa_hooks
     epa_hooks.main(sdk)
