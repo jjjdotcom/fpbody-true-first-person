@@ -17,8 +17,8 @@ load_tris, posed_world_tris, gun_world_tris, frame_from = (G['load_tris'], G['po
 
 SRC = '/home/claude/gmodconv/src'
 OUT = '/home/claude/gmodconv/out'
-HL_P = SRC + '/hd_p/'
-OP_P = SRC + '/op4_p/'
+HL_P = SRC + '/final_p/'   # the p_ models the mods ship (VAPW + converted viewmodels + originals)
+OP_P = SRC + '/final_p/'
 MM_P = SRC + '/mmod_p/'   # Half-Life MMod replacements (glock)
 TABLE = {}
 for f in (OUT + '/weapons_hd.json', OUT + '/weapons_op4.json'):
@@ -72,14 +72,14 @@ def layout(J, op4):
     L.append(put(HL_P + 'p_crowbar.mdl', n(-up * 0.9 + left * 0.3), back, sp3 - fwd * 7.5 + left * 5 - up * 3))
     # egon pack + nozzle
     eg = HL_P + 'p_egon.mdl'
-    c, _ = info(eg, {3})
-    L.append(gun_world_tris(eg, lambda P: P - c + (sp1 - fwd * 11 + up * 1 - left * 3), {3}))
+    c, _ = info(eg, {3, 6})
+    L.append(gun_world_tris(eg, lambda P: P - c + (sp1 - fwd * 11 + up * 1 - left * 3), {3, 6}))
     c2, _ = info(eg, {8, 9})
     Rh = np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]], float)
     L.append(gun_world_tris(eg, lambda P: (P - c2) @ Rh.T + (pel - fwd * 9 + left * 9 + up * 4), {8, 9}))
     # belt and legs
     L.append(put(HL_P + 'p_357.mdl', n(-up * 0.95 + fwd * 0.15), fwd, rthigh))
-    L.append(put(MM_P + 'p_9mmhandgun.mdl', n(-up * 0.95 + fwd * 0.15), fwd, rthigh + fwd * 3.5 - up * 1))
+    L.append(put(HL_P + 'p_9mmhandgun.mdl', n(-up * 0.95 + fwd * 0.15), fwd, rthigh + fwd * 3.5 - up * 1))
     L.append(put(HL_P + 'p_tripmine.mdl', up, left, lthigh + fwd * 0.5))
     L.append(put(HL_P + 'p_grenade.mdl', up, left, pel + left * 6.5 + fwd * 1.5 + up * 1.0))
     L.append(put(HL_P + 'p_hgun.mdl', n(-up), -left, pel + left * 8.5 - fwd * 2 - up * 3))

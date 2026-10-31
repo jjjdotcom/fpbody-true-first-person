@@ -14,8 +14,8 @@ exec(open('/home/claude/gmodconv/holster_mock.py').read().split("HD = json.load"
 load_tris = G_['load_tris']
 
 OUT = '/home/claude/gmodconv/out'
-HL_P = '/home/claude/gmodconv/src/hd_p/'
-OP_P = '/home/claude/gmodconv/src/op4_p/'
+HL_P = '/home/claude/gmodconv/src/final_p/'
+OP_P = '/home/claude/gmodconv/src/final_p/'
 HFOV, VFOV = 106.26, 73.74          # fov 90 at 4:3, widened to 16:9 like the Steam version
 
 
