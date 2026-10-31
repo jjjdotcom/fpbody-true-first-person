@@ -515,6 +515,17 @@ void ClientCommand( edict_t *pEntity )
 	{
 		Host_Say( pEntity, 1 );
 	}
+	else if ( FStrEq( pcmd, "buddha" ) )	// fpbody: buddha mode
+	{
+		if ( gpGlobals->maxClients == 1 || CVAR_GET_FLOAT( "sv_cheats" ) != 0 )
+		{
+			const bool on = CMD_ARGC() > 1 ? atoi( CMD_ARGV( 1 ) ) != 0 : sv_buddha.value == 0;
+			CVAR_SET_FLOAT( "sv_buddha", on ? 1 : 0 );
+			ClientPrint( pev, HUD_PRINTCONSOLE, on ? "buddha ON\n" : "buddha OFF\n" );
+		}
+		else
+			ClientPrint( pev, HUD_PRINTCONSOLE, "buddha needs sv_cheats 1 in multiplayer\n" );
+	}
 	else if ( FStrEq(pcmd, "fullupdate" ) )
 	{
 		GetClassPtr((CBasePlayer *)pev)->ForceClientDllUpdate(); 

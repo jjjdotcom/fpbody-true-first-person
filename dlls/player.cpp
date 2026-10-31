@@ -506,6 +506,14 @@ int CBasePlayer :: TakeDamage( entvars_t *pevInflictor, entvars_t *pevAttacker, 
 
 	// this cast to INT is critical!!! If a player ends up with 0.5 health, the engine will get that
 	// as an int (zero) and think the player is dead! (this will incite a clientside screentilt, etc)
+	// fpbody: buddha mode - take the hit, but never drop below 1 health
+	if ( sv_buddha.value != 0 && pev->health - (int)flDamage < 1 )
+	{
+		flDamage = (int)pev->health - 1;
+		if ( flDamage < 0 )
+			flDamage = 0;
+	}
+
 	fTookDamage = CBaseMonster::TakeDamage(pevInflictor, pevAttacker, (int)flDamage, bitsDamageType);
 
 	// reset damage time countdown for each type of time based damage player just sustained

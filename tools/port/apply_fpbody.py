@@ -211,6 +211,11 @@ def main():
         % (g['title'], g['moddir'], g['fallback'], g['startmap'], g['trainmap']))
     print('mod folder', os.path.abspath(mod))
 
+    # buddha mode in the server DLL
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import buddha
+    buddha.main(sdk)
+
 
 if __name__ == '__main__':
     main()
