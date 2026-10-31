@@ -19,6 +19,7 @@ SRC = '/home/claude/gmodconv/src'
 OUT = '/home/claude/gmodconv/out'
 HL_P = SRC + '/hd_p/'
 OP_P = SRC + '/op4_p/'
+MM_P = SRC + '/mmod_p/'   # Half-Life MMod replacements (glock)
 TABLE = {}
 for f in (OUT + '/weapons_hd.json', OUT + '/weapons_op4.json'):
     for k, v in json.load(open(f)).items():
@@ -31,7 +32,7 @@ def info(path, only_bones=None):
     c = (pts.min(0) + pts.max(0)) / 2
     _, _, vt = np.linalg.svd(pts - pts.mean(0)); ax = vt[0]
     name = os.path.basename(path)
-    if name in TABLE:
+    if name in TABLE and '/mmod_p/' not in path:
         ax = np.array(TABLE[name]['axis'])
     if ax[np.argmax(abs(ax))] < 0:
         ax = -ax
@@ -78,7 +79,7 @@ def layout(J, op4):
     L.append(gun_world_tris(eg, lambda P: (P - c2) @ Rh.T + (pel - fwd * 9 + left * 9 + up * 4), {8, 9}))
     # belt and legs
     L.append(put(HL_P + 'p_357.mdl', n(-up * 0.95 + fwd * 0.15), fwd, rthigh))
-    L.append(put(HL_P + 'p_9mmhandgun.mdl', n(-up * 0.95 + fwd * 0.15), fwd, rthigh + fwd * 3.5 - up * 1))
+    L.append(put(MM_P + 'p_9mmhandgun.mdl', n(-up * 0.95 + fwd * 0.15), fwd, rthigh + fwd * 3.5 - up * 1))
     L.append(put(HL_P + 'p_tripmine.mdl', up, left, lthigh + fwd * 0.5))
     L.append(put(HL_P + 'p_grenade.mdl', up, left, pel + left * 6.5 + fwd * 1.5 + up * 1.0))
     L.append(put(HL_P + 'p_hgun.mdl', n(-up), -left, pel + left * 8.5 - fwd * 2 - up * 3))

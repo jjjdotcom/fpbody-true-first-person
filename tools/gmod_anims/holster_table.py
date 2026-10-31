@@ -56,7 +56,7 @@ c, _ = info(eg, {3}); add('weapon_egon', eg, 'Bip01 Spine1', np.eye(3), (sp1 - f
 c2, _ = info(eg, {8, 9}); Rh = np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]], float)
 add('weapon_egon', eg, 'Bip01 Pelvis', Rh, (pel - fwd * 9 + left * 9 + up * 4) - Rh @ c2, keep={8, 9}, note='nozzle, left side')
 P('weapon_357 weapon_python', HL_P + 'p_357.mdl', 'Bip01 R Leg', n(-up * 0.95 + fwd * 0.15), fwd, rthigh, 'right thigh')
-P('weapon_9mmhandgun weapon_glock', HL_P + 'p_9mmhandgun.mdl', 'Bip01 R Leg', n(-up * 0.95 + fwd * 0.15), fwd, rthigh + fwd * 3.5 - up * 1, 'right thigh, front')
+P('weapon_9mmhandgun weapon_glock', MM_P + 'p_9mmhandgun.mdl', 'Bip01 R Leg', n(-up * 0.95 + fwd * 0.15), fwd, rthigh + fwd * 3.5 - up * 1, 'right thigh, front')
 P('weapon_tripmine', HL_P + 'p_tripmine.mdl', 'Bip01 L Leg', up, left, lthigh + fwd * 0.5, 'left thigh')
 P('weapon_handgrenade', HL_P + 'p_grenade.mdl', 'Bip01 Pelvis', up, left, pel + left * 6.5 + fwd * 1.5 + up * 1.0, 'left hip')
 P('weapon_hornetgun', HL_P + 'p_hgun.mdl', 'Bip01 Pelvis', n(-up), -left, pel + left * 8.5 - fwd * 2 - up * 3, 'left hip, hanging')
@@ -97,7 +97,7 @@ for w, m, b, Rl, tl, mask, note in rows[:3]:
 import re
 maxerr = 0
 for w, m, b, Rl, tl, mask, note in rows:
-    path = (HL_P if os.path.exists(HL_P + os.path.basename(m)) else OP_P) + os.path.basename(m)
+    path = (MM_P if os.path.exists(MM_P + os.path.basename(m)) else HL_P if os.path.exists(HL_P + os.path.basename(m)) else OP_P) + os.path.basename(m)
     keep = None if mask == 0 else {i for i in range(32) if mask >> i & 1}
     Gm = GoldSrcModel(path); Rg, Tg = Gm.world(Gm.decode(0)[0][0])
     _, tris = load_tris(path)
