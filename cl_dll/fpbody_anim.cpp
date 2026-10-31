@@ -32,6 +32,7 @@
 //   cl_fpbody_actcam    1    show full-body acts from behind (0 = stay in the head)
 //   cl_fpbody_gmod      1    use the GMod animations in the player model when present
 //   cl_fpbody_aimfire   1    turn the gun straight down the view while firing
+//   cl_fpbody_czreload  1    classic mode: Condition Zero reload animations
 //   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK; in classic mode,
 //                            the left hand on the Tau Cannon's side bar)
 //   cl_fpbody_grip_fwd  0    move the off-hand grip forward/back along the gun (units)
@@ -83,6 +84,7 @@ static cvar_t *cl_fpbody_actcam;
 static cvar_t *cl_fpbody_gmod;
 static cvar_t *cl_fpbody_aimfire;
 static cvar_t *cl_fpbody_offhand;
+static cvar_t *cl_fpbody_czreload;
 static cvar_t *cl_fpbody_grip_fwd;
 static cvar_t *cl_fpbody_grip_down;
 
@@ -148,6 +150,7 @@ static void StopOverlay( void ) { g_ovSeq = -1; g_ovRequest[ 0 ] = 0; }
 static void FP_ActCmd( void );
 static void FP_ActList( void );
 static bool StartOverlay( const char *name, bool user, float wantDur );
+static int FindSeq( const studiohdr_t *hdr, const char *name );
 
 // ---------------------------------------------------------------------------
 // Small math helpers
@@ -347,6 +350,7 @@ void FPAnim_Init( void )
 	cl_fpbody_gmod      = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gmod", "1", FCVAR_ARCHIVE );
 	cl_fpbody_aimfire   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_aimfire", "1", FCVAR_ARCHIVE );
 	cl_fpbody_offhand   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand", "1", FCVAR_ARCHIVE );
+	cl_fpbody_czreload  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_czreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_grip_fwd  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_fwd", "0", FCVAR_ARCHIVE );
 	cl_fpbody_grip_down = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_down", "0", FCVAR_ARCHIVE );
 
@@ -549,6 +553,49 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 		{
 			StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
 			return;
+		}
+	}
+
+	// Condition Zero reloads: the classic player models carry ref_reload_<set> /
+	// crouch_reload_<set>; played on the upper body while the legs keep walking
+	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START ) && g_playerHdr && FPBody_Classic() &&
+		 cl_fpbody_czreload->value != 0.0f && FindSeq( g_playerHdr, "ref_reload_mp5" ) >= 0 )
+	{
+		const char *set = NULL;
+		if ( Has( modelName, "v_9mmar" ) )               set = "mp5";
+		else if ( Has( modelName, "v_shotgun" ) )        set = "shotgun";
+		else if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_357" ) ||
+				  Has( modelName, "v_desert_eagle" ) )   set = "onehanded";
+		else if ( Has( modelName, "v_crossbow" ) || Has( modelName, "v_m40a1" ) ) set = "rifle";
+		else if ( Has( modelName, "v_saw" ) )            set = "m249";
+
+		// the shotgun reloads shell by shell: play it once, when the reload starts
+		bool shotgun = set && !strcmp( set, "shotgun" );
+		if ( set && ( type == CLIP_RELOAD ) != shotgun )
+		{
+			bool crouch = false;
+			cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+			if ( local && local->curstate.sequence >= 0 && local->curstate.sequence < g_playerHdr->numseq )
+			{
+				const mstudioseqdesc_t *cur = (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) +
+											  local->curstate.sequence;
+				crouch = !strnicmp( cur->label, "crouch", 6 );
+			}
+			char name[ 48 ];
+			snprintf( name, sizeof( name ), "%s_reload_%s", crouch ? "crouch" : "ref", set );
+			int seq = FindSeq( g_playerHdr, name );
+			float now = gEngfuncs.GetClientTime();
+			// a reload in two viewmodel parts (M249 start / end) keeps the one already playing
+			if ( seq >= 0 && seq == g_ovSeq && now - g_ovStart < g_ovDur )
+			{
+				StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
+				return;
+			}
+			if ( seq >= 0 && StartOverlay( name, false, type == CLIP_RELOAD ? seqDur : 0.0f ) )
+			{
+				StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
+				return;
+			}
 		}
 	}
 
@@ -1288,12 +1335,13 @@ struct gunhandle_t
 	const char *model;
 	const char *bone;		// player bone the gun mesh is attached to
 	float wrist[ 3 ];		// left wrist target in that bone's space
+	int length;				// header length of the model it was measured on (0 = any)
 };
 
 static const gunhandle_t g_handles[] =
 {
 	// Half-Life MMod Tau Cannon: side bar (the gun uses the shotgun hold, see gauss.cpp)
-	{ "p_gauss", "Bip01 R Hand", { 16.3f, 8.0f, 2.5f } },
+	{ "p_gauss", "Bip01 R Hand", { 16.3f, 8.0f, 2.5f }, 37260 },	// HD only (LD gauss has no side bar)
 };
 
 static float g_handleW;
@@ -1318,6 +1366,9 @@ static const gunhandle_t *HandleForModel( int modelindex )
 		snprintf( want, sizeof( want ), "/%s.mdl", g_handles[ i ].model );
 		if ( Has( name, want ) )
 		{
+			const studiohdr_t *mh = (const studiohdr_t *)IEngineStudio.Mod_Extradata( m );
+			if ( g_handles[ i ].length && ( !mh || mh->length != g_handles[ i ].length ) )
+				continue;
 			cached = &g_handles[ i ];
 			break;
 		}
@@ -1584,6 +1635,7 @@ static int FindSeq( const studiohdr_t *hdr, const char *name )
 static bool IsUpperBodyAct( const char *label )
 {
 	return !strnicmp( label, "gm_gesture_", 11 ) || !strnicmp( label, "gm_reload_", 10 ) ||
+		   !strnicmp( label, "ref_reload_", 11 ) || !strnicmp( label, "crouch_reload_", 14 ) ||
 		   !strnicmp( label, "gm_shove_", 9 ) || !strnicmp( label, "gm_zombie_attack_", 17 );
 }
 

@@ -746,19 +746,49 @@ int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr
 			held = wm->name;
 	}
 
+	// Each weapon has a row per model variant (LD / HD, picked by the game's
+	// HD models setting); the row whose recorded header length matches the
+	// model the engine loaded wins. If none matches (a model from somewhere
+	// else), the first row of that weapon and bone is used.
+	struct model_s *loaded[ NUM_HOLSTER_DEFS ];
+	bool lenOk[ NUM_HOLSTER_DEFS ];
+	for ( int i = 0; i < NUM_HOLSTER_DEFS; i++ )
+	{
+		const fpholster_def_t *d = &g_holsterDefs[ i ];
+		loaded[ i ] = NULL;
+		lenOk[ i ] = false;
+		if ( anchorOf[ i ] < 0 || ( held && !stricmp( held, d->model ) ) || !OwnsWeaponNamed( d->weapons ) )
+			continue;
+		loaded[ i ] = FPBody_TryModel( d->model, modelState[ i ] );
+		if ( !loaded[ i ] )
+			continue;
+		const studiohdr_t *mh = (const studiohdr_t *)IEngineStudio.Mod_Extradata( loaded[ i ] );
+		lenOk[ i ] = mh && mh->length == d->length;
+	}
+
 	int n = 0;
 	for ( int i = 0; i < NUM_HOLSTER_DEFS && n < max; i++ )
 	{
 		const fpholster_def_t *d = &g_holsterDefs[ i ];
-		if ( anchorOf[ i ] < 0 )
-			continue;
-		if ( held && !stricmp( held, d->model ) )
-			continue;			// it's in our hands
-		if ( !OwnsWeaponNamed( d->weapons ) )
-			continue;
-		struct model_s *m = FPBody_TryModel( d->model, modelState[ i ] );
+		struct model_s *m = loaded[ i ];
 		if ( !m )
 			continue;
+		if ( !lenOk[ i ] )
+		{
+			bool other = false, first = true;
+			for ( int j = 0; j < NUM_HOLSTER_DEFS; j++ )
+			{
+				const fpholster_def_t *e = &g_holsterDefs[ j ];
+				if ( j == i || strcmp( e->weapons, d->weapons ) || strcmp( e->bone, d->bone ) )
+					continue;
+				if ( lenOk[ j ] )
+					other = true;
+				if ( j < i && loaded[ j ] )
+					first = false;
+			}
+			if ( other || !first )
+				continue;
+		}
 		out[ n ].model = m;
 		out[ n ].anchor = anchorOf[ i ];
 		out[ n ].local = d->local;

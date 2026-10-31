@@ -317,7 +317,7 @@ BOOL CSatchel::Deploy( )
 	if ( m_chargeReady )
 		return DefaultDeploy( "models/v_satchel_radio.mdl", "models/p_satchel_radio.mdl", SATCHEL_RADIO_DRAW, "hive" );
 	else
-		return DefaultDeploy( "models/v_satchel.mdl", "models/p_satchel.mdl", SATCHEL_DRAW, "trip" );
+		return DefaultDeploy( "models/v_satchel.mdl", "models/p_satchel.mdl", SATCHEL_DRAW, "c4" );
 
 	
 	return TRUE;
@@ -432,7 +432,7 @@ void CSatchel::WeaponIdle( void )
 	case 0:
 		SendWeaponAnim( SATCHEL_FIDGET1 );
 		// use tripmine animations
-		strcpy( m_pPlayer->m_szAnimExtention, "trip" );
+		strcpy( m_pPlayer->m_szAnimExtention, "c4" );
 		break;
 	case 1:
 		SendWeaponAnim( SATCHEL_RADIO_FIDGET1 );
@@ -457,7 +457,7 @@ void CSatchel::WeaponIdle( void )
 		SendWeaponAnim( SATCHEL_DRAW );
 
 		// use tripmine animations
-		strcpy( m_pPlayer->m_szAnimExtention, "trip" );
+		strcpy( m_pPlayer->m_szAnimExtention, "c4" );
 
 		m_flNextPrimaryAttack = GetNextAttackDelay(0.5);
 		m_flNextSecondaryAttack = UTIL_WeaponTimeBase() + 0.5;
