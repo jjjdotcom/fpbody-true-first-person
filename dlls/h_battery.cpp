@@ -26,6 +26,7 @@
 #include "saverestore.h"
 #include "skill.h"
 #include "gamerules.h"
+#include "weapons.h"	// fpbody: MAX_NORMAL_BATTERY
 
 class CRecharge : public CBaseToggle
 {
@@ -162,13 +163,13 @@ void CRecharge::Use( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE use
 
 
 	// charge the player
-	if (m_hActivator->pev->armorvalue < 100)
+	if (m_hActivator->pev->armorvalue < MAX_NORMAL_BATTERY)
 	{
 		m_iJuice--;
 		m_hActivator->pev->armorvalue += 1;
 
-		if (m_hActivator->pev->armorvalue > 100)
-			m_hActivator->pev->armorvalue = 100;
+		if (m_hActivator->pev->armorvalue > MAX_NORMAL_BATTERY)
+			m_hActivator->pev->armorvalue = MAX_NORMAL_BATTERY;
 	}
 
 	// govern the rate of charge

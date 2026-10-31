@@ -16,6 +16,9 @@ This evaluates those layers (see Pose below), retargets the result
                                                  every weapon hold, with the aim
                                                  pitch blends from the aim matrix
 
+and adds l4d_reload_<smg|rifle|pistol|shotgun_start|shotgun_loop|shotgun_end>,
+the survivors' reloads (upper body), for the client to play on reloads.
+
 Attack gestures the pack doesn't have as a simple delta come from Garry's
 Mod's own animations (m_anm_gmod.mdl in the Freeman folder). Everything else
 (fm_ / fa_ moves, deaths, the empty-hands idle) is kept.
@@ -86,6 +89,15 @@ GAITS = {
 SPRINT = {'smg': 'bo3_sprint_smg', 'rifle': 'bo3_sprint_rifle', 'pistol': 'bo3_sprint_pistol',
           'lmg': 'bo3_sprint_lmg', 'launcher': 'bo3_sprint_launcher', 'grenade': 'bo3_sprint_grenade',
           'melee': 'bo3_sprint_sword', 'hold': 'bo3_sprint_hold'}
+# Left 4 Dead reloads -> l4d_reload_<kind> (name, loops)
+RELOADS = {
+    'l4d_reload_smg':           ('Reload_Standing_SMG_layer', False),
+    'l4d_reload_rifle':         ('Reload_Standing_Rifle_layer', False),
+    'l4d_reload_pistol':        ('Reload_Standing_Pistol_layer', False),
+    'l4d_reload_shotgun_start': ('Reload_Standing_PumpShotgun_start', False),
+    'l4d_reload_shotgun_loop':  ('Reload_Standing_PumpShotgun_loop1', True),
+    'l4d_reload_shotgun_end':   ('Reload_Standing_PumpShotgun_end', False),
+}
 IDLE_STEP = 3                        # long idles: every 3rd frame
 
 
@@ -316,6 +328,22 @@ def l4d(M, ref, l4d_path, seqs, by):
                 s['frames'] = blends
                 s['fps'] = a['fps'] / step if kind == 'aim' else ra['fps']
         print('hold', ext, 'done', flush=True)
+
+    # reloads ------------------------------------------------------------
+    # Left 4 Dead's reload layers (upper body, absolute) as l4d_reload_<kind>;
+    # the client plays them over the hold (cl_dll/fpbody_anim.cpp)
+    template = by.get('look_idle') or seqs[0]
+    seqs[:] = [s for s in seqs if not s['label'].startswith('l4d_reload_')]
+    for label, (name, loop) in RELOADS.items():
+        sq = g.seq_by_name.get(name.lower())
+        if sq is None:
+            continue
+        a = P.grid_anim(sq, None)
+        n = a['numframes']
+        fr = frames(lambda c: P(name, c), n)
+        seqs.append(make_seq(label, fr, a['fps'], loop, template))
+        by[label] = seqs[-1]
+    print('reloads done', flush=True)
 
 
 

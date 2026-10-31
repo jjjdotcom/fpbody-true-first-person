@@ -227,8 +227,37 @@ void CBasePlayer::FPMoves_OnUse( CBaseEntity *pObject )
 	m_flFPNextUse = gpGlobals->time + 1.0f;
 }
 
+// Health regeneration: after sv_fpbody_regen_delay seconds without losing
+// health, it comes back at sv_fpbody_regen_rate per second, up to
+// sv_fpbody_regen_max (and never past the normal maximum).
+void CBasePlayer::FPMoves_Regen( void )
+{
+	if ( !IsAlive() )
+	{
+		m_flFPRegenLastHealth = 0.0f;
+		return;
+	}
+	if ( pev->health < m_flFPRegenLastHealth - 0.01f )
+		m_flFPHurtTime = gpGlobals->time;			// got hurt: wait again
+	else if ( m_flFPHurtTime > gpGlobals->time )
+		m_flFPHurtTime = gpGlobals->time;			// the clock restarted (new map / loaded game)
+
+	float cap = sv_fpbody_regen_max.value;
+	if ( pev->max_health > 0.0f && cap > pev->max_health )
+		cap = pev->max_health;
+	if ( sv_fpbody_regen.value != 0.0f && pev->health < cap && !( pev->flags & FL_GODMODE ) &&
+		 gpGlobals->time - m_flFPHurtTime >= sv_fpbody_regen_delay.value && sv_fpbody_regen_rate.value > 0.0f )
+	{
+		pev->health += sv_fpbody_regen_rate.value * gpGlobals->frametime;
+		if ( pev->health > cap )
+			pev->health = cap;
+	}
+	m_flFPRegenLastHealth = pev->health;
+}
+
 void CBasePlayer::FPMoves_Think( void )
 {
+	FPMoves_Regen();
 	if ( IsAlive() )
 		FPMoves_Scan();
 	int st = (int)pev->fuser4 & ~( FPM_PANIC | FPM_HOSTILE | ( 7 << FPM_HITGROUP_SHIFT ) | ( 7 << FPM_USE_SHIFT ) );

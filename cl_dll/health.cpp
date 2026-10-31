@@ -125,6 +125,7 @@ int CHudHealth:: MsgFunc_Damage(const char *pszName,  int iSize, void *pbuf )
 	int damageTaken = READ_BYTE();	// health
 	long bitsDamage = READ_LONG(); // damage bits
 	FPAnim_OnDamage( damageTaken + armor, bitsDamage );	// fpbody: ExtendedER flinches
+	bitsDamage &= ~( DMG_BULLET | DMG_BLAST | DMG_CLUB | DMG_SLASH | DMG_CRUSH | DMG_FALL | DMG_SONIC | DMG_ENERGYBEAM );	// fpbody: those have no HUD icon
 
 	vec3_t vecFrom;
 

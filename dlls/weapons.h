@@ -86,7 +86,7 @@ public:
 #define MAX_WEAPONS			32
 
 
-#define MAX_NORMAL_BATTERY	100
+#define MAX_NORMAL_BATTERY	200	// fpbody: was 100
 
 
 // weapon weight factors (for auto-switching)   (-1 = noswitch)
@@ -107,7 +107,7 @@ public:
 
 
 // weapon clip/carry ammo capacities
-#define URANIUM_MAX_CARRY		100
+#define URANIUM_MAX_CARRY		500	// fpbody: was 100
 #define	_9MM_MAX_CARRY			250
 #define _357_MAX_CARRY			36
 #define BUCKSHOT_MAX_CARRY		125

@@ -40,6 +40,8 @@ void V_Init( void );
 void VectorAngles( const float *forward, float *angles );
 int CL_ButtonBits( int );
 int FPBody_SprintAllowed( int bits );	// fpbody: sprint (cl_dll/fpbody_anim.cpp)
+void FPBody_DuckPressed( int fresh );	// fpbody: double-tap duck = prone
+void FPBody_ReloadPressed( int fresh );	// fpbody: double-tap reload = holster all
 
 // xxx need client dll function to get and clear impuse
 extern cvar_t *in_joystick;
@@ -477,12 +479,17 @@ void IN_JumpDown (void)
 void IN_JumpUp (void) {KeyUp(&in_jump);}
 void IN_DuckDown(void)
 {
+	FPBody_DuckPressed( !( in_duck.state & 1 ) );	// fpbody
 	KeyDown(&in_duck);
 	gHUD.m_Spectator.HandleButtonsDown( IN_DUCK );
 
 }
 void IN_DuckUp(void) {KeyUp(&in_duck);}
-void IN_ReloadDown(void) {KeyDown(&in_reload);}
+void IN_ReloadDown()
+{
+	FPBody_ReloadPressed( !( in_reload.state & 1 ) );	// fpbody
+	KeyDown(&in_reload);
+}
 void IN_ReloadUp(void) {KeyUp(&in_reload);}
 void IN_Alt1Down(void) {KeyDown(&in_alt1);}
 void IN_Alt1Up(void) {KeyUp(&in_alt1);}

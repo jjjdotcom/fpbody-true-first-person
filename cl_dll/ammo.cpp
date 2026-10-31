@@ -29,6 +29,8 @@
 #include "ammohistory.h"
 #include "vgui_TeamFortressViewport.h"
 
+void FPAnim_OnPickup( void );	// fpbody (cl_dll/fpbody_anim.cpp)
+
 WEAPON *gpActiveSel;	// NULL means off, 1 means just the menu bar, otherwise
 						// this points to the active weapon menu item
 WEAPON *gpLastSel;		// Last weapon menu selection 
@@ -499,7 +501,7 @@ int CHudAmmo::MsgFunc_AmmoX(const char *pszName, int iSize, void *pbuf)
 	BEGIN_READ( pbuf, iSize );
 
 	int iIndex = READ_BYTE();
-	int iCount = READ_BYTE();
+	int iCount = READ_SHORT();	// fpbody: a short (uranium carries 500)
 
 	gWR.SetAmmo( iIndex, abs(iCount) );
 
@@ -509,6 +511,7 @@ int CHudAmmo::MsgFunc_AmmoX(const char *pszName, int iSize, void *pbuf)
 int CHudAmmo::MsgFunc_AmmoPickup( const char *pszName, int iSize, void *pbuf )
 {
 	BEGIN_READ( pbuf, iSize );
+	FPAnim_OnPickup();	// fpbody: bend down and grab it
 	int iIndex = READ_BYTE();
 	int iCount = READ_BYTE();
 
@@ -521,6 +524,7 @@ int CHudAmmo::MsgFunc_AmmoPickup( const char *pszName, int iSize, void *pbuf )
 int CHudAmmo::MsgFunc_WeapPickup( const char *pszName, int iSize, void *pbuf )
 {
 	BEGIN_READ( pbuf, iSize );
+	FPAnim_OnPickup();	// fpbody: bend down and grab it
 	int iIndex = READ_BYTE();
 
 	// Add the weapon to the history
@@ -532,6 +536,7 @@ int CHudAmmo::MsgFunc_WeapPickup( const char *pszName, int iSize, void *pbuf )
 int CHudAmmo::MsgFunc_ItemPickup( const char *pszName, int iSize, void *pbuf )
 {
 	BEGIN_READ( pbuf, iSize );
+	FPAnim_OnPickup();	// fpbody: bend down and grab it
 	const char *szName = READ_STRING();
 
 	// Add the weapon to the history
@@ -657,13 +662,13 @@ int CHudAmmo::MsgFunc_WeaponList(const char *pszName, int iSize, void *pbuf )
 
 	Weapon.iAmmoType = (int)READ_CHAR();	
 	
-	Weapon.iMax1 = READ_BYTE();
-	if (Weapon.iMax1 == 255)
+	Weapon.iMax1 = READ_SHORT();	// fpbody: a short (uranium carries 500)
+	if (Weapon.iMax1 == -1 || Weapon.iMax1 == 255)
 		Weapon.iMax1 = -1;
 
 	Weapon.iAmmo2Type = READ_CHAR();
-	Weapon.iMax2 = READ_BYTE();
-	if (Weapon.iMax2 == 255)
+	Weapon.iMax2 = READ_SHORT();	// fpbody: a short (uranium carries 500)
+	if (Weapon.iMax2 == -1 || Weapon.iMax2 == 255)
 		Weapon.iMax2 = -1;
 
 	Weapon.iSlot = READ_CHAR();

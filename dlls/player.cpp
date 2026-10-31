@@ -232,7 +232,7 @@ void LinkUserMessages( void )
 	gmsgShowMenu = REG_USER_MSG( "ShowMenu", -1 );
 	gmsgShake = REG_USER_MSG("ScreenShake", sizeof(ScreenShake));
 	gmsgFade = REG_USER_MSG("ScreenFade", sizeof(ScreenFade));
-	gmsgAmmoX = REG_USER_MSG("AmmoX", 2);
+	gmsgAmmoX = REG_USER_MSG("AmmoX", 3);	// fpbody: count is a short (uranium carries 500)
 	gmsgTeamNames = REG_USER_MSG( "TeamNames", -1 );
 
 	gmsgStatusText = REG_USER_MSG("StatusText", -1);
@@ -4111,7 +4111,7 @@ void CBasePlayer::SendAmmoUpdate(void)
 			// send "Ammo" update message
 			MESSAGE_BEGIN( MSG_ONE, gmsgAmmoX, NULL, pev );
 				WRITE_BYTE( i );
-				WRITE_BYTE( max( min( m_rgAmmo[i], 254 ), 0 ) );  // clamp the value to one byte
+				WRITE_SHORT( max( min( m_rgAmmo[i], 32000 ), 0 ) );  // fpbody: a short (uranium carries 500)
 			MESSAGE_END();
 		}
 	}
@@ -4128,6 +4128,8 @@ ForceClientDllUpdate to ensure the demo gets messages
 reflecting all of the HUD state info.
 =========================================================
 */
+#define DMG_FPBODY_REACT ( DMG_BULLET | DMG_BLAST | DMG_CLUB | DMG_SLASH | DMG_CRUSH | DMG_FALL | DMG_SONIC | DMG_ENERGYBEAM )	// fpbody: damage the client body flinches at
+
 void CBasePlayer :: UpdateClientData( void )
 {
 	if (m_fInitHUD)
@@ -4235,7 +4237,7 @@ void CBasePlayer :: UpdateClientData( void )
 		}
 
 		// only send down damage type that have hud art
-		int visibleDamageBits = m_bitsDamageType & DMG_SHOWNHUD;
+		int visibleDamageBits = m_bitsDamageType & ( DMG_SHOWNHUD | DMG_FPBODY_REACT );	// fpbody: the body reacts to blasts, bullets and hits too
 
 		MESSAGE_BEGIN( MSG_ONE, gmsgDamage, NULL, pev );
 			WRITE_BYTE( pev->dmg_save );
@@ -4335,9 +4337,9 @@ void CBasePlayer :: UpdateClientData( void )
 			MESSAGE_BEGIN( MSG_ONE, gmsgWeaponList, NULL, pev );  
 				WRITE_STRING(pszName);			// string	weapon name
 				WRITE_BYTE(GetAmmoIndex(II.pszAmmo1));	// byte		Ammo Type
-				WRITE_BYTE(II.iMaxAmmo1);				// byte     Max Ammo 1
+				WRITE_SHORT(II.iMaxAmmo1);				// byte     Max Ammo 1
 				WRITE_BYTE(GetAmmoIndex(II.pszAmmo2));	// byte		Ammo2 Type
-				WRITE_BYTE(II.iMaxAmmo2);				// byte     Max Ammo 2
+				WRITE_SHORT(II.iMaxAmmo2);				// byte     Max Ammo 2
 				WRITE_BYTE(II.iSlot);					// byte		bucket
 				WRITE_BYTE(II.iPosition);				// byte		bucket pos
 				WRITE_BYTE(II.iId);						// byte		id (bit index into pev->weapons)

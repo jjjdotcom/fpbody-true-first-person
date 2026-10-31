@@ -34,6 +34,9 @@
 //   cl_fpbody_aimfire   1    turn the gun straight down the view while firing
 //   cl_fpbody_gunlower  20   classic mode: degrees the shouldered Condition Zero holds are
 //                            tilted down in our own view (0 = as in Condition Zero)
+//   cl_fpbody_glreload  1    reload the 9mmAR grenade launcher after every shot (body animation)
+//   cl_fpbody_pickup    1    bend down and grab anything you pick up (ammo, weapons, health, batteries, items)
+//   cl_fpbody_l4dreload 1    Left 4 Dead reloads for pistols, rifles and the shotgun (GMod mode)
 //   cl_fpbody_reloads   cz   classic mode third-person reloads: cz = Condition Zero first,
 //                            cs = Counter-Strike 1.6 first, sven = Sven Co-op first
 //                            (the others fill gaps), 0 = off
@@ -51,9 +54,9 @@
 //   cl_fpbody_doubletap 1    double-tap duck = prone, double-tap reload = holster all
 //   cl_fpbody_epa       1    ExtendedER Player Animations: fidgets, pickups, panic, flinches,
 //                            climbing off ladders, raising the gun when a hostile is in view
-//   cl_fpbody_epa_fidget_idle 10   seconds standing around before fidgets can start
-//   cl_fpbody_epa_fidget_min / _max 10 / 120   wait between fidget checks (seconds)
-//   cl_fpbody_epa_fidget_chance 0.5            chance a check plays one
+//   cl_fpbody_epa_fidget_idle 3    seconds standing around before fidgets can start
+//   cl_fpbody_epa_fidget_min / _max 3 / 10     wait between fidget checks (seconds)
+//   cl_fpbody_epa_fidget_chance 1              chance a check plays one
 //   cl_fpbody_epa_fidget_speed 1               playback speed of the fidgets (2 = twice as fast)
 //   cl_fpbody_gaitspeed 0.7  with the GMod animations: how fast the walk / run cycles play
 //                            for your speed (1 = feet match the ground, lower = slower legs)
@@ -125,6 +128,14 @@ static cvar_t *cl_fpbody_gmod;
 static cvar_t *cl_fpbody_aimfire;
 static cvar_t *cl_fpbody_offhand;
 static cvar_t *cl_fpbody_reloads;
+static cvar_t *cl_fpbody_glreload;
+static cvar_t *cl_fpbody_l4dreload;
+static cvar_t *cl_fpbody_pickup;
+static bool g_pickupPending;			// the HUD got a pickup message
+static float g_pickupUntil;			// the pickup reach is playing
+static float g_l4dShellAt = -10.0f;	// last Left 4 Dead shotgun shell
+static float g_glOpenW;				// grenade launcher reload: left hand at the launcher's opening
+static float g_glReloadAt;			// when to reload the 9mmAR grenade launcher (0 = no)
 static cvar_t *cl_fpbody_gunlower;
 static float g_gunLowerW;
 static cvar_t *cl_fpbody_grip_fwd;
@@ -422,6 +433,9 @@ void FPAnim_Init( void )
 	cl_fpbody_aimfire   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_aimfire", "1", FCVAR_ARCHIVE );
 	cl_fpbody_offhand   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand", "1", FCVAR_ARCHIVE );
 	cl_fpbody_reloads   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloads", "cz", FCVAR_ARCHIVE );
+	cl_fpbody_glreload  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_glreload", "1", FCVAR_ARCHIVE );
+	cl_fpbody_l4dreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_l4dreload", "1", FCVAR_ARCHIVE );
+	cl_fpbody_pickup    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pickup", "1", FCVAR_ARCHIVE );
 	cl_fpbody_gunlower  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gunlower", "20", FCVAR_ARCHIVE );
 	cl_fpbody_grip_fwd  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_fwd", "0", FCVAR_ARCHIVE );
 	cl_fpbody_grip_down = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_down", "0", FCVAR_ARCHIVE );
@@ -436,10 +450,10 @@ void FPAnim_Init( void )
 	cl_fpbody_gaitspeed = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gaitspeed", "0.7", FCVAR_ARCHIVE );
 	cl_fpbody_sprint_time = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sprint_time", "6", FCVAR_ARCHIVE );
 	cl_fpbody_sprint_recover = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sprint_recover", "4", FCVAR_ARCHIVE );
-	cl_fpbody_epa_fidget_idle   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_idle", "10", FCVAR_ARCHIVE );
-	cl_fpbody_epa_fidget_min    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_min", "10", FCVAR_ARCHIVE );
-	cl_fpbody_epa_fidget_max    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_max", "120", FCVAR_ARCHIVE );
-	cl_fpbody_epa_fidget_chance = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_chance", "0.5", FCVAR_ARCHIVE );
+	cl_fpbody_epa_fidget_idle   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_idle", "3", FCVAR_ARCHIVE );
+	cl_fpbody_epa_fidget_min    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_min", "3", FCVAR_ARCHIVE );
+	cl_fpbody_epa_fidget_max    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_max", "10", FCVAR_ARCHIVE );
+	cl_fpbody_epa_fidget_chance = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_chance", "1", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_speed  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_speed", "1", FCVAR_ARCHIVE );
 	gEngfuncs.pfnAddCommand( "pm_kick", PM_KickCmd );
 	gEngfuncs.pfnAddCommand( "fp_invnext", FP_InvNextCmd );
@@ -614,8 +628,23 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 	float strength;
 	int type = Classify( modelName, seqName, &variant, &strength );
 
+	// 9mmAR grenade launcher: the kick, then a reload of the launcher after every
+	// shot (the view model has no reload for it)
+	if ( Has( modelName, "v_9mmar" ) && Has( seqName, "launch" ) )
+	{
+		g_lastShot = gEngfuncs.GetClientTime();
+		g_mvActivity = g_now;
+		StartClip( CLIP_RECOIL, 0, 1.6f, seqDur );
+		if ( cl_fpbody_glreload->value != 0.0f )
+			g_glReloadAt = g_lastShot + 0.35f;
+		return;
+	}
+
 	if ( type == CLIP_NONE )
 		return;
+
+	if ( type == CLIP_DRAW || type == CLIP_HOLSTER )
+		g_glReloadAt = 0.0f;							// switched away: no launcher reload
 
 	if ( type == CLIP_IDLE )
 	{
@@ -639,7 +668,7 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 
 	// Freeman: draw animations (upper body) when a gun comes out
 	if ( type == CLIP_DRAW && g_playerHdr && cl_fpbody_moves->value != 0.0f && !MoveBusy() &&
-		 ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
+		 ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) && !( g_now < g_pickupUntil && g_now >= g_pickupUntil - 1.0f ) )
 	{
 		const char *draw = NULL;
 		if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_357" ) || Has( modelName, "v_desert_eagle" ) ||
@@ -656,6 +685,40 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 			draw = "fm_draw_rifle";
 		if ( draw && StartOverlayKind( draw, OVK_EASE, Clamp( seqDur, 0.5f, 1.0f ) ) )
 		{
+			StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
+			return;
+		}
+	}
+
+	// Left 4 Dead's reloads where a gun has one: pistols, rifles, and the pump
+	// shotgun's start / shell / end (the shotgun pump after the shells)
+	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL || type == CLIP_PUMP ) && g_bGmodModel &&
+		 cl_fpbody_gmod->value != 0.0f && cl_fpbody_l4dreload->value != 0.0f && !MoveBusy() )
+	{
+		const char *l4 = NULL;
+		if ( Has( modelName, "v_shotgun" ) )
+		{
+			if ( type == CLIP_SHELL_START )
+				l4 = "l4d_reload_shotgun_start";
+			else if ( type == CLIP_SHELL )
+				l4 = "l4d_reload_shotgun_loop";
+			else if ( type == CLIP_PUMP && g_now - g_l4dShellAt < 1.5f && g_now >= g_l4dShellAt )
+				l4 = "l4d_reload_shotgun_end";
+		}
+		else if ( type == CLIP_RELOAD )
+		{
+			if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_357" ) || Has( modelName, "v_desert_eagle" ) )
+				l4 = "l4d_reload_pistol";
+			else if ( Has( modelName, "v_9mmar" ) || Has( modelName, "v_saw" ) || Has( modelName, "v_m40a1" ) )
+				l4 = "l4d_reload_rifle";
+		}
+		if ( l4 && StartOverlay( l4, false, seqDur ) )
+		{
+			g_ovLoop = false;							// one shell per insert
+			if ( type == CLIP_SHELL_START || type == CLIP_SHELL )
+				g_l4dShellAt = g_now;
+			else
+				g_l4dShellAt = -10.0f;
 			StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
 			return;
 		}
@@ -884,6 +947,24 @@ static void EvalClip( const clip_t &c, float now, float weight, pose_t &p,
 	}
 	case CLIP_RELOAD:
 	{
+		if ( c.variant == 1 )
+		{
+			// grenade launcher: the gun tips up a little, the off hand takes a
+			// grenade from the belt, pushes it into the tube under the barrel and
+			// snaps the breech shut
+			float e = Env( t, 0.12f, 0.2f );
+			p.armsPitch -= 22.0f * e * weight;						// muzzle up, launcher toward you
+			p.armsRoll  += 10.0f * e * weight;
+			p.armsYaw   += 8.0f * e * weight;
+			MakeDir( f, r, u, 0.3f, 0.2f, -1.0f, dir );				// to the belt for a grenade
+			AddLeftAim( p, dir, 0.85f * Bump( t, 0.06f, 0.42f ) * weight );
+			// then the hand goes to the launcher's opening (ApplyGunPose) and pushes it in
+			float open = Bump( t, 0.36f, 0.92f ) * weight;
+			if ( open > g_glOpenW )
+				g_glOpenW = open;
+			p.armsPitch += 5.0f * Bump( t, 0.74f, 0.88f ) * weight;	// breech snaps shut
+			break;
+		}
 		float e = Env( t, 0.15f, 0.2f );
 		p.armsPitch += 20.0f * e * weight;
 		p.armsRoll  += 22.0f * e * weight;
@@ -996,7 +1077,6 @@ static int g_mvPrevOnGround = 1;
 static float g_mvFallStart = -1.0f;
 static float g_mvMaxFall;
 static float g_mvLastDuck = -10.0f, g_mvLastReload = -10.0f;
-static bool g_mvDuckDown, g_mvReloadDown;
 static bool g_mvEaseForced;
 static int g_mvLastHealth = -1;
 static bool g_mvDucked;
@@ -1156,6 +1236,8 @@ static int g_epaLastWeaponModel;
 static float RandF( float a, float b ) { return a + ( b - a ) * ( rand() / (float)RAND_MAX ); }
 
 static float g_adHoldUntil, g_adHoldFrac = 0.45f;		// hold the gesture at its reach while a charger is used
+static float g_useChargeUntil;							// the server says we are using a charger
+void FPAnim_OnPickup( void ) { g_pickupPending = true; }
 
 static bool StartAdditive( const char *name, float rate )
 {
@@ -1380,15 +1462,13 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 
 	// --- Contextual: doors get a push, buttons a press, chargers a reach that repeats
 	// while you hold use, anything else you +use a reach (server: what we used)
+	// (the off hand does the reaching, see EvalActions; the right-arm gestures
+	// from the GMod set were made for empty fists and bent the arm over a gun)
 	int use = ( st >> FPM_USE_SHIFT ) & 7;
 	if ( on && ctx && use && use != g_ctxLastUse && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) )
-	{
-		const char *name = use == FPM_USE_DOOR ? "fa_use_door" : use == FPM_USE_BUTTON ? "fa_use_button" : "fa_use_give";
-		if ( StartAdditive( name, 1.0f ) )
-			g_mvActivity = g_now;
-	}
-	if ( use == FPM_USE_CHARGER && g_adSeq >= 0 )
-		g_adHoldUntil = g_now + 0.25f;				// charging: the hand stays on the charger
+		g_mvActivity = g_now;
+	if ( use == FPM_USE_CHARGER )
+		g_useChargeUntil = g_now + 0.3f;			// charging: the hand stays on the charger
 	g_ctxLastUse = use;
 
 	// --- picked something up: bend down and grab
@@ -1400,14 +1480,18 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 			if ( gWR.GetWeaponSlot( s, p ) )
 				weapons++;
 	int armor = gHUD.m_Battery.GetArmor(), health = gHUD.m_Health.m_iHealth;
-	bool got = g_epaLastAmmo >= 0 && ( ammo > g_epaLastAmmo || weapons > g_epaLastWeapons || armor > g_epaLastArmor ||
-									   health >= g_epaLastHealth + 5 );
+	// only the server's pickup messages (ammo, weapons, health kits, batteries,
+	// any item): the counts also go up and down while shooting and reloading
+	// (client prediction against the server), which isn't a pickup
+	bool got = g_pickupPending;
+	g_pickupPending = false;
 	g_epaLastAmmo = ammo; g_epaLastWeapons = weapons; g_epaLastArmor = armor; g_epaLastHealth = health;
-	if ( got && on && !( in_use.state & 1 ) && g_now >= g_epaNextPickup && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) &&
+	if ( got && on && cl_fpbody_pickup->value != 0.0f && g_now >= g_epaNextPickup && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) &&
 		 ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
 	{
 		g_epaNextPickup = g_now + 0.5f;					// a crate of items is one reach
-		StartOverlayKind( "fm_pickup", OVK_EASE, 0.8f );
+		if ( StartOverlayKind( "fm_pickup", OVK_EASE, 0.8f ) )
+			g_pickupUntil = g_now + 0.8f;				// a new gun's draw waits for it
 	}
 
 	// --- ladders: hands on the ledge when climbing off the top
@@ -1526,6 +1610,33 @@ static const char *SprintAnim( const char *hold )
 	return FindSeq( g_playerHdr, "fm_sprint_unarmed" ) >= 0 ? "fm_sprint_unarmed" : "fm_sprint_hold";	// empty hands
 }
 
+// Double-taps, caught when the key goes down (input.cpp calls these before
+// KeyDown), so quick presses from a controller through Steam Input count
+// even when both fall between two frames. fresh = the button wasn't held.
+static bool DoubleTap( float &last )
+{
+	float t = gEngfuncs.GetClientTime();
+	if ( t - last < 0.4f && t >= last )
+	{
+		last = -10.0f;
+		return true;
+	}
+	last = t;
+	return false;
+}
+
+void FPBody_DuckPressed( int fresh )
+{
+	if ( fresh && cl_fpbody_doubletap && cl_fpbody_doubletap->value != 0.0f && FPBody_Active() && DoubleTap( g_mvLastDuck ) )
+		PM_ProneCmd();
+}
+
+void FPBody_ReloadPressed( int fresh )
+{
+	if ( fresh && cl_fpbody_doubletap && cl_fpbody_doubletap->value != 0.0f && FPBody_Active() && DoubleTap( g_mvLastReload ) )
+		PM_HolsterCmd();
+}
+
 static void FPMoves_Frame( struct ref_params_s *pparams )
 {
 	int st = g_fpmState;
@@ -1536,23 +1647,9 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	g_mvOnGround = onground;
 	Sprint_Frame( st );
 
-	// double-taps: duck = prone, reload = holster all
-	bool duckDown = ( in_duck.state & 1 ) != 0, reloadDown = ( in_reload.state & 1 ) != 0;
-	if ( cl_fpbody_doubletap->value != 0.0f )
-	{
-		if ( duckDown && !g_mvDuckDown )
-		{
-			if ( g_now - g_mvLastDuck < 0.3f ) { PM_ProneCmd(); g_mvLastDuck = -10.0f; }
-			else g_mvLastDuck = g_now;
-		}
-		if ( reloadDown && !g_mvReloadDown )
-		{
-			if ( g_now - g_mvLastReload < 0.3f ) { PM_HolsterCmd(); g_mvLastReload = -10.0f; }
-			else g_mvLastReload = g_now;
-		}
-	}
-	g_mvDuckDown = duckDown;
-	g_mvReloadDown = reloadDown;
+	// double-taps (duck = prone, reload = holster all) are caught as the keys go
+	// down, in FPBody_DuckPressed / FPBody_ReloadPressed (input.cpp)
+	bool reloadDown = ( in_reload.state & 1 ) != 0;
 
 	// anything that brings the gun up
 	int health = gHUD.m_Health.m_iHealth;
@@ -1673,9 +1770,12 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 		easeOk = strcmp( hold, "passive" ) && strcmp( hold, "melee" ) && strcmp( hold, "grenade" ) && strcmp( hold, "slam" );
 	}
 	bool easeWant = easeOk && ( g_mvEaseForced || g_now - g_mvActivity > cl_fpbody_atease_delay->value );
+	// one-shot moves that share the at-ease slot play out: weapon draws, the
+	// pickup reach, the blast reaction, gagging on gas
 	bool drawing = g_ovSeq >= 0 && g_ovKind == OVK_EASE &&
 				   ( OverlayIs( "fm_draw_pistol" ) || OverlayIs( "fm_draw_rifle" ) || OverlayIs( "fm_draw_rpg" ) ||
-					 OverlayIs( "fm_draw_melee" ) );
+					 OverlayIs( "fm_draw_melee" ) || OverlayIs( "fm_pickup" ) || OverlayIs( "fm_blast" ) ||
+					 OverlayIs( "fm_strangle" ) );
 	if ( easeWant && !drawing && ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
 	{
 		// Freeman: pistols and the .357 hang at the side (relaxed hands), long guns go to the passive hold
@@ -1723,6 +1823,8 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 	g_useDown = useDown;
 
 	float holdTarget = ( useDown && g_now - g_useStart > 0.3f ) ? 0.7f : 0.0f;
+	if ( useDown && g_now < g_useChargeUntil )
+		holdTarget = 0.9f;								// hand flat on the charger while it charges
 	g_useHoldW += ( holdTarget - g_useHoldW ) * Clamp01( g_frameTime * 10.0f );
 
 	// flashlight (the server tells the HUD when it toggles)
@@ -1799,6 +1901,17 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 	g_lastPitch = pitch;
 	g_haveLastAngles = true;
 
+	// grenade launcher reload, a moment after the shot
+	if ( g_glReloadAt > 0.0f && ( g_now >= g_glReloadAt || g_now < g_glReloadAt - 2.0f ) )
+	{
+		g_glReloadAt = 0.0f;
+		if ( g_ovSeq < 0 )
+		{
+			StartClip( CLIP_RELOAD, 1, 1.0f, 1.3f );
+			g_mvActivity = g_now;
+		}
+	}
+
 	FPMoves_Frame( pparams );
 }
 
@@ -1811,7 +1924,10 @@ static void EvalActions( float now, pose_t &p, const float *f, const float *r, c
 	float useW = tap > g_useHoldW ? tap : g_useHoldW;
 	if ( useW > 0.0f )
 	{
-		MakeDir( f, r, u, 1.0f, -0.05f, 0.1f, dir );
+		if ( now < g_useChargeUntil )
+			MakeDir( f, r, u, 1.0f, -0.1f, -0.05f, dir );	// charger: palm on the panel
+		else
+			MakeDir( f, r, u, 1.0f, -0.05f, 0.1f, dir );
 		AddLeftAim( p, dir, useW );
 		p.lBack     -= 3.0f * useW;
 		p.armsPitch += 8.0f * useW;
@@ -2117,7 +2233,9 @@ static void ReachArm( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], con
 	float d = (float)sqrt( Dot3( st, st ) );
 	if ( a < 0.5f || b < 0.5f || d < 0.5f )
 		return;
-	d = Clamp( d, (float)fabs( a - b ) + 0.1f, a + b - 0.1f );
+	// never all the way straight: at full stretch the bend direction is undefined
+	// and the elbow can flip backwards (the hand falls a little short instead)
+	d = Clamp( d, (float)fabs( a - b ) + 0.1f, ( a + b ) * 0.96f );
 
 	// 1. elbow bend
 	float cur = AngleAt( S, E, H );
@@ -2166,13 +2284,18 @@ struct gmhandle_t
 
 static const gmhandle_t g_gmHandles[] =
 {
-	{ "p_9mmar", "Bip01 R Hand", { 13.5f, 4.5f, 3.0f }, 0 },			// HD M16 / MP5: handguard
-	{ "p_shotgun", "Bip01 R Hand", { 19.0f, 4.2f, 2.5f }, 0 },		// pump
+	// VAPW v2 held models (Half-Life\.Mods\vapw_v2\models), told apart by their size:
+	{ "p_9mmar", "Bip01 R Hand", { 8.5f, 2.5f, 0.0f }, 72036 },			// MP5: under the grenade launcher
+	{ "p_shotgun", "Bip01 R Hand", { 14.5f, 6.0f, -0.5f }, 60840 },		// cupping the pump from below
+	{ "p_rpg", "Bip01 R Hand", { 12.0f, 4.5f, 0.5f }, 117012 },			// on the rocket tube
+	{ "p_crossbow", "Bip01 R Hand", { 11.5f, 3.0f, -3.0f }, 112276 },		// the front grip under the bow
+	{ "p_9mmar", "Bip01 R Hand", { 14.5f, 3.5f, 1.0f }, 0 },			// HD M16 / MP5: under the grenade launcher (within reach looking down)
+	{ "p_shotgun", "Bip01 R Hand", { 16.0f, 3.0f, 1.0f }, 0 },		// under the pump
 	{ "p_crossbow", "Bip01 R Hand", { 9.5f, 4.0f, 0.5f }, 0 },		// fore-stock
 	{ "p_rpg", "Bip01 R Hand", { 19.0f, 7.2f, 1.0f }, 0 },			// under the front of the tube
 	{ "p_hgun", "Bip01 R Hand", { 13.0f, 7.2f, -3.5f }, 0 },
-	{ "p_gauss", "Bip01 R Hand", { 16.0f, 6.5f, 4.0f }, 37260 },		// MMod Tau Cannon: the side handle
-	{ "p_egon", "Bip01 R Arm2", { 19.5f, -8.0f, 2.0f }, 29080 },		// HD Gluon gun (on the forearm): front handle
+	{ "p_gauss", "Bip01 R Hand", { 11.8f, 8.5f, 5.0f }, 37260 },		// MMod Tau Cannon: the side handle
+	{ "p_egon", "Bip01 R Arm2", { 19.0f, -1.5f, 3.5f }, 29080 },		// HD Gluon gun (on the forearm): under the nozzle
 	{ "p_saw", "Bip01 R Hand", { 19.0f, 4.2f, 2.5f }, 0 },
 	{ "p_m40a1", "Bip01 R Hand", { 13.0f, 3.5f, 2.5f }, 0 },
 	{ "p_shock", "Bip01 R Hand", { 16.0f, 8.0f, 1.0f }, 0 },
@@ -2214,7 +2337,8 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	bool overlay = ( g_ovSeq >= 0 );	// GMod reload: hands leave the gun
 
 	// smooth weights
-	float aimTarget = ( gun && !overlay && cl_fpbody_aimfire->value != 0.0f &&
+	float aimTarget = ( gun && !overlay && cl_fpbody_aimfire->value != 0.0f && g_glOpenW <= 0.0f &&
+						!( g_cur.type == CLIP_RELOAD && g_cur.variant == 1 && now < g_cur.start + g_cur.dur ) &&
 						( now - g_lastShot < 0.6f || g_attackHeld ) ) ? 1.0f : 0.0f;
 	float aimRate = aimTarget > g_aimW ? 14.0f : 5.0f;
 	g_aimW += ( aimTarget - g_aimW ) * Clamp01( g_frameTime * aimRate );
@@ -2232,8 +2356,20 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 		float ls[ 3 ], rs[ 3 ], target[ 3 ];
 		BoneOrigin( light, g_skel.lUpper >= 0 ? g_skel.lUpper : g_skel.lClav, ls );
 		BoneOrigin( light, g_skel.rUpper, rs );
+		// the hands follow the view up and down, but only so far: looking at your
+		// feet they stay out in front of the chest instead of going into it
+		float fh[ 3 ] = { f[ 0 ], f[ 1 ], 0.0f };
+		if ( Normalize3( fh ) <= 0.0f )
+		{
+			fh[ 0 ] = u[ 0 ]; fh[ 1 ] = u[ 1 ];			// looking straight up / down: the top of the view is forward
+			if ( Normalize3( fh ) <= 0.0f ) { fh[ 0 ] = 1.0f; fh[ 1 ] = 0.0f; }
+		}
+		float down = Clamp( (float)asin( Clamp( -f[ 2 ], -1.0f, 1.0f ) ), -1.2f, 0.55f );	// radians, + = looking down
+		float cd = (float)cos( down ), sd = (float)sin( down );
+		float fwd[ 3 ] = { fh[ 0 ] * cd, fh[ 1 ] * cd, -sd };
+		float up2[ 3 ] = { fh[ 0 ] * sd, fh[ 1 ] * sd, cd };
 		for ( int i = 0; i < 3; i++ )
-			target[ i ] = ( ls[ i ] + rs[ i ] ) * 0.5f + f[ i ] * 15.0f - u[ i ] * 4.0f + r[ i ] * 1.5f;
+			target[ i ] = ( ls[ i ] + rs[ i ] ) * 0.5f + fwd[ i ] * 15.0f - up2[ i ] * 4.0f + r[ i ] * 1.5f;
 		ReachArm( bone, light, target, g_offW, true );
 
 		float barrel[ 3 ], wrist[ 3 ];
@@ -2260,10 +2396,15 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	}
 	if ( gh && ghBone >= 0 )
 	{
-		float target[ 3 ];
+		float target[ 3 ], w[ 3 ] = { gh->wrist[ 0 ], gh->wrist[ 1 ], gh->wrist[ 2 ] };
+		// grenade launcher reload: the hand moves back to the launcher's opening
+		static const float glOpen[ 3 ] = { 10.5f, 3.5f, 1.0f };
+		if ( g_glOpenW > 0.0f && !strcmp( gh->model, "p_9mmar" ) )
+			for ( int i = 0; i < 3; i++ )
+				w[ i ] += ( glOpen[ i ] - w[ i ] ) * Smooth( g_glOpenW );
 		for ( int i = 0; i < 3; i++ )
-			target[ i ] = light[ ghBone ][ i ][ 0 ] * gh->wrist[ 0 ] + light[ ghBone ][ i ][ 1 ] * gh->wrist[ 1 ] +
-						  light[ ghBone ][ i ][ 2 ] * gh->wrist[ 2 ] + light[ ghBone ][ i ][ 3 ];
+			target[ i ] = light[ ghBone ][ i ][ 0 ] * w[ 0 ] + light[ ghBone ][ i ][ 1 ] * w[ 1 ] +
+						  light[ ghBone ][ i ][ 2 ] * w[ 2 ] + light[ ghBone ][ i ][ 3 ];
 		ReachArm( bone, light, target, g_offW );
 	}
 	else if ( g_offW > 0.001f && gun->down >= 0.0f )
@@ -2509,6 +2650,7 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 		memset( &p, 0, sizeof( p ) );
 
 		float fade = Clamp01( ( now - g_prevFadeStart ) / 0.12f );
+		g_glOpenW = 0.0f;
 		EvalClip( g_cur, now, fade, p, f, r, u );
 		EvalClip( g_prev, now, 1.0f - fade, p, f, r, u );
 		EvalActions( now, p, f, r, u );
@@ -2720,7 +2862,7 @@ static int LocalSeq( cl_entity_t *local )
 
 static bool IsUpperBodyAct( const char *label )
 {
-	return !strnicmp( label, "gm_gesture_", 11 ) || !strnicmp( label, "gm_reload_", 10 ) ||
+	return !strnicmp( label, "gm_gesture_", 11 ) || !strnicmp( label, "gm_reload_", 10 ) || !strnicmp( label, "l4d_reload_", 11 ) ||
 		   !strnicmp( label, "ref_reload_", 11 ) || !strnicmp( label, "crouch_reload_", 14 ) ||
 		   !strnicmp( label, "sv_ref_reload_", 14 ) || !strnicmp( label, "sv_crouch_reload_", 17 ) ||
 		   !strnicmp( label, "cs_ref_reload_", 14 ) || !strnicmp( label, "cs_crouch_reload_", 17 ) ||

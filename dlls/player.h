@@ -192,6 +192,9 @@ public:
 	void FPMoves_OnUse( CBaseEntity *pObject );	// Contextual Player Animations
 	float m_flFPUseUntil;
 	float m_flFPNextUse;
+	void FPMoves_Regen( void );	// health regeneration (sv_fpbody_regen)
+	float m_flFPHurtTime;
+	float m_flFPRegenLastHealth;
 	int m_iFPUseKind;
 	int			m_iClientFOV;	// client's known FOV
 	// usable player items 

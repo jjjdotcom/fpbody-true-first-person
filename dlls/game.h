@@ -45,5 +45,9 @@ extern cvar_t	*g_footsteps;
 
 extern cvar_t sv_buddha;	// fpbody: buddha mode
 extern cvar_t sv_fpbody_anims;	// fpbody: cz / cs player weapon animations
+extern cvar_t sv_fpbody_regen;			// fpbody: health regeneration
+extern cvar_t sv_fpbody_regen_delay;
+extern cvar_t sv_fpbody_regen_rate;
+extern cvar_t sv_fpbody_regen_max;
 
 #endif		// GAME_H

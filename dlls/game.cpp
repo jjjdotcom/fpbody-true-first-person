@@ -41,6 +41,10 @@ cvar_t	allowmonsters={"mp_allowmonsters","0", FCVAR_SERVER };
 
 cvar_t sv_buddha = { "sv_buddha", "0", 0 };	// fpbody: buddha mode
 cvar_t sv_fpbody_anims = { "sv_fpbody_anims", "cz", FCVAR_ARCHIVE };	// fpbody: cz / cs player weapon animations
+cvar_t sv_fpbody_regen = { "sv_fpbody_regen", "1", FCVAR_ARCHIVE };			// fpbody: health comes back by itself
+cvar_t sv_fpbody_regen_delay = { "sv_fpbody_regen_delay", "5", FCVAR_ARCHIVE };	// seconds without getting hurt first
+cvar_t sv_fpbody_regen_rate = { "sv_fpbody_regen_rate", "5", FCVAR_ARCHIVE };		// health per second
+cvar_t sv_fpbody_regen_max = { "sv_fpbody_regen_max", "100", FCVAR_ARCHIVE };		// up to this much health
 cvar_t  allow_spectators = { "allow_spectators", "0.0", FCVAR_SERVER };		// 0 prevents players from being spectators
 
 cvar_t  mp_chattime = {"mp_chattime","10", FCVAR_SERVER };
@@ -472,6 +476,10 @@ void GameDLLInit( void )
 	CVAR_REGISTER( &allow_spectators );
 	CVAR_REGISTER( &sv_buddha );
 	CVAR_REGISTER( &sv_fpbody_anims );
+	CVAR_REGISTER( &sv_fpbody_regen );
+	CVAR_REGISTER( &sv_fpbody_regen_delay );
+	CVAR_REGISTER( &sv_fpbody_regen_rate );
+	CVAR_REGISTER( &sv_fpbody_regen_max );
 
 	CVAR_REGISTER (&teamplay);
 	CVAR_REGISTER (&fraglimit);

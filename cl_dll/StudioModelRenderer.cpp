@@ -2013,6 +2013,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 #endif
 			m_pStudioHeader = (studiohdr_t *)IEngineStudio.Mod_Extradata (pweaponmodel);
 			IEngineStudio.StudioSetHeader( m_pStudioHeader );
+			IEngineStudio.SetRenderModel( pweaponmodel );	// fpbody: its own textures (a model with a separate <name>T.mdl looks them up by the render model's name)
 
 #ifdef _TFC		
 			//Do spinning stuff for the HWGuy minigun
@@ -2072,6 +2073,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 			StudioCalcAttachments( );
 
 			*m_pCurrentEntity = saveent;
+			IEngineStudio.SetRenderModel( m_pRenderModel );	// fpbody: back to the body
 		}
 
 		// fpbody: the weapons we carry, on the body (holsters)
@@ -2092,6 +2094,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 					if ( !hhdr )
 						continue;
 					m_pRenderModel = holsters[ h ].model;
+					IEngineStudio.SetRenderModel( m_pRenderModel );	// fpbody: its own textures
 					m_pStudioHeader = hhdr;
 					IEngineStudio.StudioSetHeader( m_pStudioHeader );
 					m_pCurrentEntity->curstate.sequence = 0;
@@ -2108,6 +2111,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 					StudioRenderModel( );
 				}
 				m_pRenderModel = saveRender;
+				IEngineStudio.SetRenderModel( m_pRenderModel );
 				*m_pCurrentEntity = saveent;
 			}
 		}
