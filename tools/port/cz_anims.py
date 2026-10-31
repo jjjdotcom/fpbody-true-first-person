@@ -5,15 +5,17 @@
 Sets each weapon's player animation extension (the last DefaultDeploy argument,
 used as ref_aim_<ext> / ref_shoot_<ext> / crouch_...): the classic player models
 carry Condition Zero's mp5, shotgun, onehanded, rifle, m249, knife, grenade and
-c4 sets, and "tau" (Half-Life's shotgun hold) for the Tau Cannon. Weapons not
-listed keep Half-Life's own animations.
+c4 sets, and "tau" (Half-Life's shotgun hold) for the Tau Cannon. The 9mmAR (an M16 in the HD
+weapon models) holds like a rifle; the client plays the Counter-Strike 1.6
+rifle set on it (fpbody_anim.cpp). Weapons not listed keep Half-Life's own
+animations.
 """
 import os
 import re
 import sys
 
 EXT = {
-    'p_357': 'onehanded', 'p_crossbow': 'rifle', 'p_crowbar': 'knife', 'p_grenade': 'grenade',
+    'p_357': 'onehanded', 'p_9mmar': 'rifle', 'p_crossbow': 'rifle', 'p_crowbar': 'knife', 'p_grenade': 'grenade',
     'p_squeak': 'grenade', 'p_satchel': 'c4', 'p_tripmine': 'c4', 'p_gauss': 'tau',
     'p_knife': 'knife', 'p_pipe_wrench': 'knife', 'p_saw': 'm249', 'p_m40a1': 'rifle', 'p_penguin': 'grenade',
 }

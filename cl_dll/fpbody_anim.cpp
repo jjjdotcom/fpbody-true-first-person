@@ -38,7 +38,8 @@
 //                            cs = Counter-Strike 1.6 first, sven = Sven Co-op first
 //                            (the others fill gaps), 0 = off
 //   (server) sv_fpbody_anims cz  classic mode weapon holds: cz = Condition Zero,
-//                            cs = Counter-Strike 1.6 (falls back to Condition Zero)
+//                            cs = Counter-Strike 1.6 (falls back to Condition Zero).
+//                            The 9mmAR (an M16) always uses Counter-Strike 1.6's rifle set.
 //   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK; in classic mode,
 //                            the left hand on the Tau Cannon's side bar)
 //   cl_fpbody_grip_fwd  0    move the off-hand grip forward/back along the gun (units)
@@ -582,14 +583,15 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 		else if ( !strnicmp( pref, "cs", 2 ) )
 			order[ 0 ] = 1, order[ 1 ] = 0, order[ 2 ] = 2;
 
-		struct reloadset_t { const char *view, *cz, *sv; };
+		// cs: 1 = Counter-Strike 1.6's reload first whatever cl_fpbody_reloads says
+		struct reloadset_t { const char *view, *cz, *sv; int cs; };
 		static const reloadset_t sets[] =
 		{
-			{ "v_9mmar", "mp5", "mp5" },          { "v_shotgun", "shotgun", "shotgun" },
-			{ "v_9mmhandgun", "onehanded", "onehanded" }, { "v_357", "onehanded", "python" },
-			{ "v_desert_eagle", "onehanded", "onehanded" }, { "v_crossbow", "rifle", "bow" },
-			{ "v_m40a1", "rifle", "sniper" },     { "v_saw", "m249", "saw" },
-			{ "v_rpg", NULL, "rpg" },
+			{ "v_9mmar", "rifle", "mp5", 1 },     { "v_shotgun", "shotgun", "shotgun", 0 },
+			{ "v_9mmhandgun", "onehanded", "onehanded", 0 }, { "v_357", "onehanded", "python", 0 },
+			{ "v_desert_eagle", "onehanded", "onehanded", 0 }, { "v_crossbow", "rifle", "bow", 0 },
+			{ "v_m40a1", "rifle", "sniper", 0 },  { "v_saw", "m249", "saw", 0 },
+			{ "v_rpg", NULL, "rpg", 0 },
 		};
 		const reloadset_t *rs = NULL;
 		for ( int i = 0; !off && i < (int)( sizeof( sets ) / sizeof( sets[ 0 ] ) ); i++ )
@@ -598,6 +600,9 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 				rs = &sets[ i ];
 				break;
 			}
+		// the 9mmAR is an M16: Counter-Strike 1.6's M4A1 reload
+		if ( rs && rs->cs )
+			order[ 0 ] = 1, order[ 1 ] = 0, order[ 2 ] = 2;
 
 		if ( rs )
 		{
@@ -1395,6 +1400,9 @@ static const gunhandle_t g_handles[] =
 	{ "p_gauss", "Bip01 R Hand", { 16.0f, 7.5f, 6.0f }, 125620 },
 	// Sven Co-op MP5: under the handguard (the Condition Zero hold was made for a shorter gun)
 	{ "p_9mmar", "Bip01 R Hand", { 15.5f, 5.0f, 2.0f }, 182228 },
+	// HD pack M16 (Half-Life / Blue Shift and Opposing Force builds): under the handguard
+	{ "p_9mmar", "Bip01 R Hand", { 18.5f, 5.0f, 3.0f }, 32708 },
+	{ "p_9mmar", "Bip01 R Hand", { 18.5f, 5.0f, 3.0f }, 29484 },
 };
 
 static float g_handleW;
@@ -1718,17 +1726,51 @@ static int FindSeq( const studiohdr_t *hdr, const char *name )
 // The server picks the player's sequences by number in its own player model
 // (models/player.mdl); our body may be drawn with another model (the classic /
 // outfit ones) whose numbering differs. Translate by sequence name.
+// Which weapon holds play from Counter-Strike 1.6's set (cs_<name>) instead of
+// Condition Zero's: 1 = all (sv_fpbody_anims cs), 2 = the rifle set only (the
+// local player carries the 9mmAR, an M16). The server's player.mdl has only the
+// plain names, so the choice is made here, where the name is looked up in the
+// drawn classic model.
+static int CSPreference( void )
+{
+	int pref = 0;
+	const char *set = gEngfuncs.pfnGetCvarString ? gEngfuncs.pfnGetCvarString( "sv_fpbody_anims" ) : NULL;
+	if ( set && !strnicmp( set, "cs", 2 ) )
+		pref |= 1;
+	static int cachedIndex = -1, cachedM16 = 0;
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	int wm = local ? local->curstate.weaponmodel : 0;
+	if ( wm != cachedIndex )
+	{
+		cachedIndex = wm;
+		cachedM16 = 0;
+		model_t *m = wm > 0 ? IEngineStudio.GetModelByIndex( wm ) : NULL;
+		if ( m )
+		{
+			char name[ 64 ];
+			Lower( m->name, name, sizeof( name ) );
+			cachedM16 = Has( name, "/p_9mmar.mdl" );
+		}
+	}
+	if ( cachedM16 )
+		pref |= 2;
+	return pref;
+}
+
 int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq )
 {
 	const studiohdr_t *from = (const studiohdr_t *)fromHdr, *to = (const studiohdr_t *)toHdr;
 	if ( !from || !to || from == to || seq < 0 || seq >= from->numseq )
 		return seq;
+	int pref = CSPreference();
 	static const studiohdr_t *cFrom, *cTo;
+	static int cPref = -1;
 	static short cache[ 2048 ];
-	if ( cFrom != from || cTo != to )
+	if ( cFrom != from || cTo != to || cPref != pref )
 	{
 		cFrom = from;
 		cTo = to;
+		cPref = pref;
 		for ( int i = 0; i < 2048; i++ )
 			cache[ i ] = -2;
 	}
@@ -1737,7 +1779,19 @@ int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq )
 	if ( cache[ seq ] == -2 )
 	{
 		const mstudioseqdesc_t *seqs = (const mstudioseqdesc_t *)( (const byte *)from + from->seqindex );
-		int m = FindSeq( to, seqs[ seq ].label );
+		const char *label = seqs[ seq ].label;
+		int m = -1;
+		size_t n = strlen( label );
+		bool hold = !strnicmp( label, "ref_", 4 ) || !strnicmp( label, "crouch_", 7 );
+		bool rifle = n > 6 && !stricmp( label + n - 6, "_rifle" );
+		if ( hold && ( ( pref & 1 ) || ( ( pref & 2 ) && rifle ) ) )
+		{
+			char cs[ 48 ];
+			snprintf( cs, sizeof( cs ), "cs_%s", label );
+			m = FindSeq( to, cs );
+		}
+		if ( m < 0 )
+			m = FindSeq( to, label );
 		cache[ seq ] = (short)( m >= 0 ? m : ( seq < to->numseq ? seq : 0 ) );
 	}
 	return cache[ seq ];
