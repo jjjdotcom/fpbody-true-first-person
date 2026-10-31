@@ -1378,6 +1378,8 @@ static const gunhandle_t g_handles[] =
 	{ "p_gauss", "Bip01 R Hand", { 16.3f, 8.0f, 2.5f }, 37260 },	// HD only (LD gauss has no side bar)
 	// Sven Co-op Tau Cannon: the bar over the left side
 	{ "p_gauss", "Bip01 R Hand", { 16.0f, 7.5f, 6.0f }, 125620 },
+	// Sven Co-op MP5: under the handguard (the Condition Zero hold was made for a shorter gun)
+	{ "p_9mmar", "Bip01 R Hand", { 15.5f, 5.0f, 2.0f }, 182228 },
 };
 
 static float g_handleW;
