@@ -54,6 +54,7 @@
 //   cl_fpbody_epa_fidget_idle 10   seconds standing around before fidgets can start
 //   cl_fpbody_epa_fidget_min / _max 10 / 120   wait between fidget checks (seconds)
 //   cl_fpbody_epa_fidget_chance 0.5            chance a check plays one
+//   cl_fpbody_epa_fidget_speed 1               playback speed of the fidgets (2 = twice as fast)
 //   cl_fpbody_sprint    1    sprinting (+alt1, bound to shift in autoexec.cfg): faster, with stamina
 //   cl_fpbody_sprint_time 6  seconds of sprinting on a full stamina bar
 //   cl_fpbody_sprint_recover 4  seconds to refill it (starts a second after you stop)
@@ -198,6 +199,7 @@ static cvar_t *cl_fpbody_epa_fidget_idle;
 static cvar_t *cl_fpbody_epa_fidget_min;
 static cvar_t *cl_fpbody_epa_fidget_max;
 static cvar_t *cl_fpbody_epa_fidget_chance;
+static cvar_t *cl_fpbody_epa_fidget_speed;
 static cvar_t *cl_fpbody_contextual;
 static cvar_t *cl_fpbody_sprint;
 static cvar_t *cl_fpbody_sprint_time;
@@ -434,6 +436,7 @@ void FPAnim_Init( void )
 	cl_fpbody_epa_fidget_min    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_min", "10", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_max    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_max", "120", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_chance = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_chance", "0.5", FCVAR_ARCHIVE );
+	cl_fpbody_epa_fidget_speed  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_speed", "1", FCVAR_ARCHIVE );
 	gEngfuncs.pfnAddCommand( "pm_kick", PM_KickCmd );
 	gEngfuncs.pfnAddCommand( "fp_invnext", FP_InvNextCmd );
 	gEngfuncs.pfnAddCommand( "fp_invprev", FP_InvPrevCmd );
@@ -1267,7 +1270,7 @@ static void EPA_Fidget( const char *hold, bool atEase )
 		if ( FindSeq( g_playerHdr, pool[ i ] ) >= 0 )
 			pool[ have++ ] = pool[ i ];
 	if ( have )
-		StartAdditive( pool[ rand() % have ], 1.0f );
+		StartAdditive( pool[ rand() % have ], Clamp( cl_fpbody_epa_fidget_speed->value, 0.25f, 4.0f ) );
 }
 
 static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool ducked )
