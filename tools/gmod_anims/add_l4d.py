@@ -53,12 +53,12 @@ HOLD = {
     'onehanded': ('revolver', 'range_pistol'),
     'python':    ('revolver', 'range_revolver'),
     'shotgun':   ('shotgun',  'range_shotgun'),
-    'gauss':     ('ar2',      'range_ar2'),
-    'tau':       ('ar2',      'range_ar2'),
+    'gauss':     ('gmod:physgun', 'range_physgun'),   # Tau Cannon: gravity gun hold
+    'tau':       ('gmod:physgun', 'range_physgun'),
     'mp5':       ('smg1',     'range_smg1'),
     'm249':      ('ar2',      'range_ar2'),
     'rpg':       ('rpg',      'range_rpg'),
-    'egon':      ('ar2',      'range_ar2'),
+    'egon':      ('gmod:physgun', 'range_physgun'),   # Gluon gun: gravity gun hold
     'hive':      ('ar2',      'range_ar2'),
     'bow':       ('crossbow', 'range_crossbow'),
     'rifle':     ('crossbow', 'range_crossbow'),
@@ -269,24 +269,30 @@ def l4d(M, ref, l4d_path, seqs, by):
     print('gaits done', flush=True)
 
     # weapon holds -----------------------------------------------------
+    Pref = Pose(ref)
     for ext, (hold, rng) in HOLD.items():
+        # gmod:<hold> = Garry's Mod's own animation for that hold (the gravity gun)
+        if hold.startswith('gmod:'):
+            gg, PP, RR, hold = ref, Pref, rref, hold[5:]
+        else:
+            gg, PP, RR = g, P, rt
         for crouch in (False, True):
             idle = ('cidle_' if crouch else 'idle_') + hold
-            if idle not in g.seq_by_name:
+            if idle not in gg.seq_by_name:
                 idle = ('cidle_' if crouch else 'idle_') + 'ar2'
-            a = P.grid_anim(g.seq_by_name[idle], None)
+            a = PP.grid_anim(gg.seq_by_name[idle], None)
             n = a['numframes']
             step = IDLE_STEP if n > 120 else 1
             nn = (n - 1) // step + 1
             # the attack gesture: Left 4 Dead's if it's a plain delta, else Garry's Mod's
             src, rs = g, g.seq_by_name.get(rng)
-            if rs is None or not (g.anims[rs['anims'][0]]['flags'] & ANIM_DELTA) or rs['numautolayers']:
+            if gg is ref or rs is None or not (g.anims[rs['anims'][0]]['flags'] & ANIM_DELTA) or rs['numautolayers']:
                 src, rs = ref, ref.seq_by_name.get(rng) or ref.seq_by_name['range_ar2']
             ra = src.anims[rs['anims'][0]]
             rpost = bool(rs['flags'] & SEQ_POST)
             rframes = src.frames(ra)
-            if src is not g:                # Garry's Mod's bone order -> the pack's
-                idx = [src.bone_by_name.get(b['name']) for b in g.bones]
+            if src is not gg:               # Garry's Mod's bone order -> the pack's
+                idx = [src.bone_by_name.get(b['name']) for b in gg.bones]
 
                 def remap(d):
                     pos = np.zeros((len(idx), 3)); q = np.zeros((len(idx), 4)); q[:, 3] = 1
@@ -303,10 +309,10 @@ def l4d(M, ref, l4d_path, seqs, by):
                 blends = []
                 for v in (s['blendstart'][0], s['blendend'][0]):
                     if kind == 'aim':
-                        blends.append(frames(lambda c: P(idle, c, pitch=-v), nn))
+                        blends.append(np.array([RR.pose(*PP(idle, i / max(1, nn - 1), pitch=-v)) for i in range(nn)]))
                     else:
-                        base = P(idle, 0.0, pitch=-v)
-                        blends.append(np.array([rt.pose(*apply_delta(base, d, post=rpost)) for d in rframes]))
+                        base = PP(idle, 0.0, pitch=-v)
+                        blends.append(np.array([RR.pose(*apply_delta(base, d, post=rpost)) for d in rframes]))
                 s['frames'] = blends
                 s['fps'] = a['fps'] / step if kind == 'aim' else ra['fps']
         print('hold', ext, 'done', flush=True)

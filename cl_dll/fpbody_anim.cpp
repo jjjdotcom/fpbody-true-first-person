@@ -2152,6 +2152,61 @@ static void ReachArm( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], con
 	TurnToward( bone, light, upperMask, S, sh, st, weight );
 }
 
+// GMod mode: where the left wrist goes on each two-handed gun - on the barrel /
+// handguard / front handle, in the space of the bone the gun hangs from. Found by
+// posing the body in the gun's hold and reaching the arm to each point
+// (tools/gmod_anims/lefthand_gmod.py); a point on the gun, so any hold can use it.
+struct gmhandle_t
+{
+	const char *model;
+	const char *bone;
+	float wrist[ 3 ];
+	int length;				// header length of the model it was measured on (0 = any)
+};
+
+static const gmhandle_t g_gmHandles[] =
+{
+	{ "p_9mmar", "Bip01 R Hand", { 13.5f, 4.5f, 3.0f }, 0 },			// HD M16 / MP5: handguard
+	{ "p_shotgun", "Bip01 R Hand", { 19.0f, 4.2f, 2.5f }, 0 },		// pump
+	{ "p_crossbow", "Bip01 R Hand", { 9.5f, 4.0f, 0.5f }, 0 },		// fore-stock
+	{ "p_rpg", "Bip01 R Hand", { 19.0f, 7.2f, 1.0f }, 0 },			// under the front of the tube
+	{ "p_hgun", "Bip01 R Hand", { 13.0f, 7.2f, -3.5f }, 0 },
+	{ "p_gauss", "Bip01 R Hand", { 16.0f, 6.5f, 4.0f }, 37260 },		// MMod Tau Cannon: the side handle
+	{ "p_egon", "Bip01 R Arm2", { 19.5f, -8.0f, 2.0f }, 29080 },		// HD Gluon gun (on the forearm): front handle
+	{ "p_saw", "Bip01 R Hand", { 19.0f, 4.2f, 2.5f }, 0 },
+	{ "p_m40a1", "Bip01 R Hand", { 13.0f, 3.5f, 2.5f }, 0 },
+	{ "p_shock", "Bip01 R Hand", { 16.0f, 8.0f, 1.0f }, 0 },
+	{ "p_spore_launcher", "Bip01 R Hand", { 11.5f, 6.5f, -6.5f }, 0 },
+	{ "p_displacer", "Bip01 R Hand", { 23.5f, 6.5f, 4.0f }, 0 },
+};
+
+static const gmhandle_t *GmHandleForModel( int modelindex )
+{
+	static int cachedIndex = -1;
+	static const gmhandle_t *cached = NULL;
+	if ( modelindex == cachedIndex )
+		return cached;
+	cachedIndex = modelindex;
+	cached = NULL;
+	model_t *m = modelindex > 0 ? IEngineStudio.GetModelByIndex( modelindex ) : NULL;
+	if ( !m )
+		return NULL;
+	char name[ 64 ];
+	Lower( m->name, name, sizeof( name ) );
+	const studiohdr_t *mh = (const studiohdr_t *)IEngineStudio.Mod_Extradata( m );
+	for ( int i = 0; i < (int)( sizeof( g_gmHandles ) / sizeof( g_gmHandles[ 0 ] ) ); i++ )
+	{
+		char want[ 40 ];
+		snprintf( want, sizeof( want ), "/%s.mdl", g_gmHandles[ i ].model );
+		if ( Has( name, want ) && ( !g_gmHandles[ i ].length || ( mh && mh->length == g_gmHandles[ i ].length ) ) )
+		{
+			cached = &g_gmHandles[ i ];
+			break;
+		}
+	}
+	return cached;
+}
+
 static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel,
 	const float *f, const float *r, const float *u, float now )
 {
@@ -2195,8 +2250,23 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 		TurnToward( bone, light, g_skel.rUpperMask, pivot, barrel, f, g_aimW );
 	}
 
-	// 2. off hand onto the gun
-	if ( g_offW > 0.001f && gun->down >= 0.0f )
+	// 2. off hand onto the gun: its measured handle if it has one
+	const gmhandle_t *gh = ( g_offW > 0.001f && gun->down >= 0.0f && g_skel.hdr ) ? GmHandleForModel( weaponmodel ) : NULL;
+	int ghBone = -1;
+	if ( gh )
+	{
+		const mstudiobone_t *bones = (const mstudiobone_t *)( (const byte *)g_skel.hdr + g_skel.hdr->boneindex );
+		ghBone = FindBone( bones, g_skel.numbones, gh->bone, NULL );
+	}
+	if ( gh && ghBone >= 0 )
+	{
+		float target[ 3 ];
+		for ( int i = 0; i < 3; i++ )
+			target[ i ] = light[ ghBone ][ i ][ 0 ] * gh->wrist[ 0 ] + light[ ghBone ][ i ][ 1 ] * gh->wrist[ 1 ] +
+						  light[ ghBone ][ i ][ 2 ] * gh->wrist[ 2 ] + light[ ghBone ][ i ][ 3 ];
+		ReachArm( bone, light, target, g_offW );
+	}
+	else if ( g_offW > 0.001f && gun->down >= 0.0f )
 	{
 		float grip[ 3 ], barrel[ 3 ], target[ 3 ];
 		HandToWorldDir( light, g_skel.rHand, gun->grip, grip );
