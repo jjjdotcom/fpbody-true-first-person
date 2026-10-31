@@ -32,7 +32,8 @@
 //   cl_fpbody_actcam    1    show full-body acts from behind (0 = stay in the head)
 //   cl_fpbody_gmod      1    use the GMod animations in the player model when present
 //   cl_fpbody_aimfire   1    turn the gun straight down the view while firing
-//   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK)
+//   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK; in classic mode,
+//                            the left hand on the Tau Cannon, Gluon gun and Displacer handles)
 //   cl_fpbody_grip_fwd  0    move the off-hand grip forward/back along the gun (units)
 //   cl_fpbody_grip_down 0    move the off-hand grip down/up (units)
 //
@@ -1278,6 +1279,77 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	}
 }
 
+// Classic mode keeps Half-Life's own holds, except the big guns whose world
+// model has a handle for the left hand: the left wrist is put on it by arm IK.
+// The wrist point is in the space of the bone the gun's mesh hangs from,
+// measured on the models the mods ship (tools/gmod_anims/lefthand_sim.py).
+struct gunhandle_t
+{
+	const char *model;
+	const char *bone;		// player bone the gun mesh is attached to
+	float wrist[ 3 ];		// left wrist target in that bone's space
+};
+
+static const gunhandle_t g_handles[] =
+{
+	{ "p_gauss", "Bip01 R Hand", { 16.3f, 8.0f, 2.5f } },		// Half-Life MMod Tau Cannon: side handle
+	{ "p_egon", "Bip01 R Arm2", { 20.8f, -4.7f, 8.5f } },		// VAPW Gluon gun: front grip
+	{ "p_displacer", "Bip01 R Hand", { 11.0f, 10.5f, 4.2f } },	// Displacer: side bar
+};
+
+static float g_handleW;
+static const gunhandle_t *g_lastHandle;
+
+static const gunhandle_t *HandleForModel( int modelindex )
+{
+	static int cachedIndex = -1;
+	static const gunhandle_t *cached = NULL;
+	if ( modelindex == cachedIndex )
+		return cached;
+	cachedIndex = modelindex;
+	cached = NULL;
+	model_t *m = modelindex > 0 ? IEngineStudio.GetModelByIndex( modelindex ) : NULL;
+	if ( !m )
+		return NULL;
+	char name[ 64 ];
+	Lower( m->name, name, sizeof( name ) );
+	for ( int i = 0; i < (int)( sizeof( g_handles ) / sizeof( g_handles[ 0 ] ) ); i++ )
+	{
+		char want[ 40 ];
+		snprintf( want, sizeof( want ), "/%s.mdl", g_handles[ i ].model );
+		if ( Has( name, want ) )
+		{
+			cached = &g_handles[ i ];
+			break;
+		}
+	}
+	return cached;
+}
+
+static void ApplyClassicHandle( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel )
+{
+	const gunhandle_t *h = HandleForModel( weaponmodel );
+	bool overlay = ( g_ovSeq >= 0 );
+	float want = ( h && !overlay ) ? Clamp01( cl_fpbody_offhand->value ) : 0.0f;
+	g_handleW += ( want - g_handleW ) * Clamp01( g_frameTime * 8.0f );
+	if ( h )
+		g_lastHandle = h;
+	h = g_lastHandle;
+	if ( !h || g_handleW <= 0.001f || !g_skel.hdr )
+		return;
+
+	const mstudiobone_t *bones = (const mstudiobone_t *)( (const byte *)g_skel.hdr + g_skel.hdr->boneindex );
+	int b = FindBone( bones, g_skel.numbones, h->bone, NULL );
+	if ( b < 0 )
+		return;
+
+	float target[ 3 ];
+	for ( int i = 0; i < 3; i++ )
+		target[ i ] = light[ b ][ i ][ 0 ] * h->wrist[ 0 ] + light[ b ][ i ][ 1 ] * h->wrist[ 1 ] +
+					  light[ b ][ i ][ 2 ] * h->wrist[ 2 ] + light[ b ][ i ][ 3 ];
+	ReachArm( bone, light, target, g_handleW );
+}
+
 // ---------------------------------------------------------------------------
 // Camera follows the head's rotation
 // ---------------------------------------------------------------------------
@@ -1470,6 +1542,8 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 		// (classic mode keeps Half-Life's own holds, like the original game)
 		if ( !FPBody_Classic() )
 			ApplyGunPose( bone, light, weaponmodel, f, r, u, now );
+		else
+			ApplyClassicHandle( bone, light, weaponmodel );	// left hand onto the handle of a few big guns
 
 		// 4. left arm alone (reloading, use, flashlight, ladders, pump)
 		if ( g_skel.lUpper >= 0 )
