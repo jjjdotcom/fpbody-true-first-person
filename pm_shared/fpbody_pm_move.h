@@ -306,6 +306,25 @@ static int FPM_PreDuck( int onLadder )
 static void FPM_PostDuck( void )
 {
 	int st = FPM_Get();
+
+	// sprint: forward, on the ground (keeps going through a jump), standing, dry
+	int busy = st & ( FPM_PRONE | FPM_SLIDE | FPM_VAULT | FPM_CLIMB );
+	int sprint = ( pmove->cmd.buttons & IN_ALT1 ) && pmove->cmd.forwardmove > 0.0f && !busy &&
+				 !( pmove->flags & FL_DUCKING ) && pmove->waterlevel < 2 && pmove->movetype == MOVETYPE_WALK &&
+				 ( pmove->onground != -1 || ( st & FPM_SPRINT ) );
+	if ( sprint != ( ( st & FPM_SPRINT ) != 0 ) )
+	{
+		st = sprint ? ( st | FPM_SPRINT ) : ( st & ~FPM_SPRINT );
+		FPM_Set( st );
+		FPM_Publish();
+	}
+	if ( sprint )
+	{
+		pmove->maxspeed = pmove->movevars->maxspeed * FPM_SPRINT_SCALE;
+		pmove->cmd.forwardmove *= FPM_SPRINT_SCALE;
+		pmove->cmd.sidemove *= 0.6f;		// mostly forward
+	}
+
 	if ( st & FPM_PRONE )
 	{
 		pmove->cmd.forwardmove *= FPM_PRONE_SPEED;

@@ -104,6 +104,14 @@ def player_cpp_ctx(s):
                '\n\\1FPMoves_OnUse( pObject );\t// fpbody: Contextual Player Animations\n\\1\\2')
 
 
+def input_cpp(s):
+    # the sprint button (+alt1) only goes out while there's stamina and we aren't shooting
+    s = one(s, r'(\nint\s+CL_ButtonBits\s*\([^)]*\)\s*;[^\n]*\n)',
+            r'\1int FPBody_SprintAllowed( int bits );\t// fpbody: sprint (cl_dll/fpbody_anim.cpp)\n')
+    return one(s, r'\n([ \t]*)bits \|= IN_ALT1;',
+               '\n\\1if ( FPBody_SprintAllowed( bits ) )\t// fpbody: sprint\n\\1\tbits |= IN_ALT1;')
+
+
 def player_cpp(s):
     # the implementation lives in its own file, compiled as part of player.cpp
     s = s.rstrip('\n') + '\n\n#include "fpbody_moves.inl"\t// fpbody: Freeman moves (kick, holster all)\n'
@@ -143,6 +151,7 @@ def main(sdk, src=REPO):
     edit(os.path.join(sdk, 'dlls', 'player.cpp'), player_cpp, 'fpbody_moves.inl')
     edit(os.path.join(sdk, 'dlls', 'player.h'), player_h_ctx, 'm_flFPUseUntil')
     edit(os.path.join(sdk, 'dlls', 'player.cpp'), player_cpp_ctx, 'FPMoves_OnUse')
+    edit(os.path.join(sdk, 'cl_dll', 'input.cpp'), input_cpp, 'FPBody_SprintAllowed')
     # ExtendedER: the additive gesture layer and the damage types, in the client
     import epa_hooks
     epa_hooks.main(sdk)

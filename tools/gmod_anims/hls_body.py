@@ -81,6 +81,7 @@ def resequence(P, seqs, rt, newpos):
     """Every sequence on the re-proportioned skeleton."""
     mapped = [i for i in rt.src_of if P.bones[i]['parent'] in rt.src_of]
     for s in seqs:
+        s['linearmovement'] = [v / rt.scale for v in s['linearmovement']]
         for arr in s['frames']:
             arr[:, mapped, :3] = newpos[mapped]
             r = arr[:, rt.root, :3]

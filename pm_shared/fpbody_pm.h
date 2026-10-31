@@ -13,6 +13,8 @@
 *	  impulse 210  prone on / off       (pm_prone, double-tap duck)
 *	  impulse 211  kick                 (pm_kick; damage is done by the server)
 *	  impulse 212  holster all weapons  (pm_holster, double-tap reload)
+*	Sprinting is a button (IN_ALT1, +sprint): forward on the ground, not ducked;
+*	the client stops sending it when stamina runs out or you shoot.
 *
 ****/
 #ifndef FPBODY_PM_H
@@ -28,6 +30,8 @@
 #define FPM_HOSTILE			512		// set by the server: a hostile in view (raises the gun)
 #define FPM_HITGROUP_SHIFT	10		// 3 bits, set by the server: where the last bullet hit us
 #define FPM_USE_SHIFT		13		// 3 bits, set by the server: what we just +used (FPM_USE_*)
+#define FPM_SPRINT			65536	// sprinting (+sprint = +alt1, IN_ALT1)
+#define FPM_SPRINT_SCALE	1.25f	// speed while sprinting (320 -> 400)
 
 #define FPM_USE_DOOR		1		// Contextual Player Animations
 #define FPM_USE_BUTTON		2

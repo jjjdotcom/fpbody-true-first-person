@@ -54,6 +54,9 @@
 //   cl_fpbody_epa_fidget_idle 10   seconds standing around before fidgets can start
 //   cl_fpbody_epa_fidget_min / _max 10 / 120   wait between fidget checks (seconds)
 //   cl_fpbody_epa_fidget_chance 0.5            chance a check plays one
+//   cl_fpbody_sprint    1    sprinting (+alt1, bound to shift in autoexec.cfg): faster, with stamina
+//   cl_fpbody_sprint_time 6  seconds of sprinting on a full stamina bar
+//   cl_fpbody_sprint_recover 4  seconds to refill it (starts a second after you stop)
 //   cl_fpbody_contextual 1   Contextual Player Animations: a push for doors, a press for
 //                            buttons, a reach for chargers and other things you +use,
 //                            flinching where a bullet hit, going under / coming up for air
@@ -83,6 +86,7 @@
 #include "r_studioint.h"
 #include "kbutton.h"
 #include "in_defs.h"	// PITCH YAW ROLL
+#include "in_buttons.h"
 
 #include <string.h>
 #include <math.h>
@@ -104,6 +108,7 @@ extern kbutton_t in_attack2;
 extern kbutton_t in_jump;
 extern kbutton_t in_duck;
 extern kbutton_t in_reload;
+extern kbutton_t in_alt1;
 FPBODY_DECLARE_ONLADDER	// pm_shared, set by client movement prediction (fpbody_game.h)
 
 static cvar_t *cl_fpbody_anims;
@@ -194,6 +199,9 @@ static cvar_t *cl_fpbody_epa_fidget_min;
 static cvar_t *cl_fpbody_epa_fidget_max;
 static cvar_t *cl_fpbody_epa_fidget_chance;
 static cvar_t *cl_fpbody_contextual;
+static cvar_t *cl_fpbody_sprint;
+static cvar_t *cl_fpbody_sprint_time;
+static cvar_t *cl_fpbody_sprint_recover;
 static float g_mvActivity = -100.0f;		// last time the gun was used (at ease timer)
 static void PM_KickCmd( void );
 static void PM_ProneCmd( void );
@@ -417,6 +425,9 @@ void FPAnim_Init( void )
 	cl_fpbody_doubletap = gEngfuncs.pfnRegisterVariable( "cl_fpbody_doubletap", "1", FCVAR_ARCHIVE );
 	cl_fpbody_epa       = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa", "1", FCVAR_ARCHIVE );
 	cl_fpbody_contextual = gEngfuncs.pfnRegisterVariable( "cl_fpbody_contextual", "1", FCVAR_ARCHIVE );
+	cl_fpbody_sprint    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sprint", "1", FCVAR_ARCHIVE );
+	cl_fpbody_sprint_time = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sprint_time", "6", FCVAR_ARCHIVE );
+	cl_fpbody_sprint_recover = gEngfuncs.pfnRegisterVariable( "cl_fpbody_sprint_recover", "4", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_idle   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_idle", "10", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_min    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_min", "10", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_max    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_max", "120", FCVAR_ARCHIVE );
@@ -1412,6 +1423,52 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 	}
 }
 
+// --- sprint stamina (the movement is in pm_shared/fpbody_pm_move.h)
+static float g_spStamina = 1.0f, g_spLast = -1.0f, g_spUsedAt = -100.0f;
+static bool g_spLocked;					// ran dry: no sprinting until a third is back and the key is let go
+
+// input.cpp: whether the sprint button (IN_ALT1) goes out this frame
+int FPBody_SprintAllowed( int bits )
+{
+	if ( !cl_fpbody_sprint || cl_fpbody_sprint->value == 0.0f || g_spLocked )
+		return 0;
+	return ( bits & ( IN_ATTACK | IN_ATTACK2 | IN_RELOAD ) ) ? 0 : 1;		// shooting stops it
+}
+
+static void Sprint_Frame( int st )
+{
+	float dt = g_spLast >= 0.0f ? Clamp( g_now - g_spLast, 0.0f, 0.1f ) : 0.0f;
+	g_spLast = g_now;
+	if ( ( st & FPM_SPRINT ) && g_speed2D > 150.0f )
+	{
+		g_spStamina -= dt / ( cl_fpbody_sprint_time->value > 0.5f ? cl_fpbody_sprint_time->value : 0.5f );
+		g_spUsedAt = g_now;
+		if ( g_spStamina <= 0.0f )
+		{
+			g_spStamina = 0.0f;
+			g_spLocked = true;
+		}
+	}
+	else if ( g_now - g_spUsedAt > 1.0f )
+		g_spStamina += dt / ( cl_fpbody_sprint_recover->value > 0.5f ? cl_fpbody_sprint_recover->value : 0.5f );
+	if ( g_spStamina > 1.0f )
+		g_spStamina = 1.0f;
+	if ( g_spLocked && g_spStamina >= 0.33f && !( in_alt1.state & 1 ) )
+		g_spLocked = false;
+}
+
+static const char *SprintAnim( const char *hold )
+{
+	if ( !strcmp( hold, "pistol" ) || !strcmp( hold, "revolver" ) ) return "fm_sprint_pistol";
+	if ( !strcmp( hold, "smg1" ) ) return "fm_sprint_smg";
+	if ( !strcmp( hold, "ar2" ) || !strcmp( hold, "shotgun" ) || !strcmp( hold, "crossbow" ) ) return "fm_sprint_rifle";
+	if ( !strcmp( hold, "rpg" ) ) return "fm_sprint_launcher";
+	if ( !strcmp( hold, "physgun" ) ) return "fm_sprint_lmg";
+	if ( !strcmp( hold, "melee" ) ) return "fm_sprint_melee";
+	if ( !strcmp( hold, "grenade" ) || !strcmp( hold, "slam" ) ) return "fm_sprint_grenade";
+	return "fm_sprint_hold";
+}
+
 static void FPMoves_Frame( struct ref_params_s *pparams )
 {
 	int st = g_fpmState;
@@ -1420,6 +1477,7 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	bool on = FPBody_Active() && g_playerHdr && cl_fpbody_moves->value != 0.0f;
 	g_mvDucked = ducked;
 	g_mvOnGround = onground;
+	Sprint_Frame( st );
 
 	// double-taps: duck = prone, reload = holster all
 	bool duckDown = ( in_duck.state & 1 ) != 0, reloadDown = ( in_reload.state & 1 ) != 0;
@@ -1527,6 +1585,11 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	else if ( !onground && g_mvFallStart >= 0.0f && g_now - g_mvFallStart > 0.35f && !( st & FPM_VAULT ) &&
 			  pparams->waterlevel < 2 && !g_onladder )
 		loop = "fm_fall";
+	else if ( ( st & FPM_SPRINT ) && onground && !ducked && g_speed2D > 200.0f && FindSeq( g_playerHdr, SprintAnim( HoldType() ) ) >= 0 )
+	{
+		loop = SprintAnim( HoldType() );
+		rate = Clamp( g_speed2D / 380.0f, 0.7f, 1.4f );
+	}
 
 	if ( loop && !oneShot )
 		WantLoop( loop, rate );
@@ -1534,7 +1597,7 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 		StopOverlay();
 
 	// at ease: lower the gun after a few quiet seconds
-	bool easeOk = cl_fpbody_atease->value != 0.0f && onground && !ducked && !( st & ( FPM_PRONE | FPM_SLIDE | FPM_VAULT ) ) &&
+	bool easeOk = cl_fpbody_atease->value != 0.0f && onground && !ducked && !( st & ( FPM_PRONE | FPM_SLIDE | FPM_VAULT | FPM_SPRINT ) ) &&
 				  !gHUD.m_Flash.IsOn() && pparams->waterlevel < 2 && !g_onladder;
 	if ( easeOk )
 	{

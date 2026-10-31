@@ -39,6 +39,7 @@ void IN_Shutdown( void );
 void V_Init( void );
 void VectorAngles( const float *forward, float *angles );
 int CL_ButtonBits( int );
+int FPBody_SprintAllowed( int bits );	// fpbody: sprint (cl_dll/fpbody_anim.cpp)
 
 // xxx need client dll function to get and clear impuse
 extern cvar_t *in_joystick;
@@ -857,7 +858,8 @@ int CL_ButtonBits( int bResetState )
 
 	if (in_alt1.state & 3)
 	{
-		bits |= IN_ALT1;
+		if ( FPBody_SprintAllowed( bits ) )	// fpbody: sprint
+			bits |= IN_ALT1;
 	}
 
 	if ( in_score.state & 3 )
