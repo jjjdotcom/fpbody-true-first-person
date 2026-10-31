@@ -102,6 +102,11 @@ def quantize(im, masked):
         k = 512.0 / max(w, h)
         im = im.resize((max(8, int(w * k)), max(8, int(h * k))), Image.LANCZOS)
         w, h = im.size
+    # GoldSrc uploads only textures whose sides are multiples of 4 ("GL_Upload16: s&3")
+    w4 = max(8, (w + 3) // 4 * 4); h4 = max(8, (h + 3) // 4 * 4)
+    if (w4, h4) != (w, h):
+        im = im.resize((w4, h4), Image.NEAREST if w < 8 or h < 8 else Image.LANCZOS)
+        w, h = w4, h4
     rgb = im.convert('RGB')
     if masked:
         q = rgb.quantize(255, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
