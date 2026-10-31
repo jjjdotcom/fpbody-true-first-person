@@ -80,6 +80,7 @@
 //   fp_act_stop       stop it
 //   fp_actlist        list every available animation
 
+#include <stdarg.h>
 #include "hud.h"
 #include "cl_util.h"
 #include "cvardef.h"
@@ -203,6 +204,21 @@ enum { OVK_USER = 1, OVK_RELOAD, OVK_MOVE, OVK_LOOP, OVK_EASE };
 static int g_ovKind;
 static bool MoveBusy( void ) { return g_ovSeq >= 0 && ( g_ovKind == OVK_MOVE || g_ovKind == OVK_LOOP ); }
 static bool StartOverlayKind( const char *name, int kind, float wantDur );
+static bool OverlayIs( const char *name );
+static const char *OverlayName( void );
+static cvar_t *cl_fpbody_debug;
+// cl_fpbody_debug 1: print what the body starts playing (overlays, gun clips) to the console
+static void FPDbg( const char *fmt, ... )
+{
+	if ( !cl_fpbody_debug || cl_fpbody_debug->value == 0.0f )
+		return;
+	char buf[ 256 ];
+	va_list ap;
+	va_start( ap, fmt );
+	vsnprintf( buf, sizeof( buf ), fmt, ap );
+	va_end( ap );
+	gEngfuncs.Con_Printf( "[fpanim %.2f] %s", gEngfuncs.GetClientTime(), buf );
+}
 static cvar_t *cl_fpbody_moves;
 static cvar_t *cl_fpbody_atease;
 static cvar_t *cl_fpbody_atease_delay;
@@ -227,7 +243,13 @@ static void PM_AtEaseCmd( void );
 static void PM_HolsterCmd( void );
 static float g_speed2D;
 
-static void StopOverlay( void ) { g_ovSeq = -1; g_ovRequest[ 0 ] = 0; }
+static void StopOverlay( void )
+{
+	if ( g_ovSeq >= 0 )
+		FPDbg( "stop %s\n", OverlayName() );
+	g_ovSeq = -1;
+	g_ovRequest[ 0 ] = 0;
+}
 static void FP_ActCmd( void );
 static void FP_ActList( void );
 static bool StartOverlay( const char *name, bool user, float wantDur );
@@ -434,6 +456,7 @@ void FPAnim_Init( void )
 	cl_fpbody_offhand   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand", "1", FCVAR_ARCHIVE );
 	cl_fpbody_reloads   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloads", "cz", FCVAR_ARCHIVE );
 	cl_fpbody_glreload  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_glreload", "1", FCVAR_ARCHIVE );
+	cl_fpbody_debug     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_debug", "0", 0 );
 	cl_fpbody_l4dreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_l4dreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_pickup    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pickup", "1", FCVAR_ARCHIVE );
 	cl_fpbody_gunlower  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gunlower", "20", FCVAR_ARCHIVE );
@@ -568,6 +591,8 @@ static int Classify( const char *model, const char *seq, int *variant, float *st
 static void StartClip( int type, int variant, float strength, float seqDur )
 {
 	float now = gEngfuncs.GetClientTime();
+	if ( type != CLIP_NONE )
+		FPDbg( "gun clip %d variant %d\n", type, variant );
 	clip_t c;
 	c.type = type;
 	c.variant = variant;
@@ -630,7 +655,7 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 
 	// 9mmAR grenade launcher: the kick, then a reload of the launcher after every
 	// shot (the view model has no reload for it)
-	if ( Has( modelName, "v_9mmar" ) && Has( seqName, "launch" ) )
+	if ( Has( modelName, "v_9mmar" ) && ( Has( seqName, "launch" ) || Has( seqName, "grenade" ) ) )
 	{
 		g_lastShot = gEngfuncs.GetClientTime();
 		g_mvActivity = g_now;
@@ -665,6 +690,15 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 	// the gun is in use: no lowered gun for a while
 	if ( type != CLIP_IDLE )
 		g_mvActivity = g_now;
+
+	// shooting ends a pickup reach, a blast reaction or gagging: the gun comes back up
+	if ( type != CLIP_DRAW && type != CLIP_HOLSTER && g_ovSeq >= 0 && g_ovKind == OVK_EASE &&
+		 ( OverlayIs( "fm_pickup" ) || OverlayIs( "fm_blast" ) || OverlayIs( "fm_strangle" ) ) )
+	{
+		FPDbg( "shot ends %s\n", OverlayName() );
+		StopOverlay();
+		g_pickupUntil = 0.0f;
+	}
 
 	// Freeman: draw animations (upper body) when a gun comes out
 	if ( type == CLIP_DRAW && g_playerHdr && cl_fpbody_moves->value != 0.0f && !MoveBusy() &&
@@ -1112,6 +1146,14 @@ static const char *ProneWalk( const char *hold )
 	return "onehand";
 }
 
+static const char *OverlayName( void )
+{
+	if ( g_ovSeq < 0 || !g_playerHdr || g_ovSeq >= g_playerHdr->numseq )
+		return "(none)";
+	const mstudioseqdesc_t *sd = (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) + g_ovSeq;
+	return sd->label;
+}
+
 static bool OverlayIs( const char *name )
 {
 	if ( g_ovSeq < 0 || !g_playerHdr || g_ovSeq >= g_playerHdr->numseq )
@@ -1237,7 +1279,7 @@ static float RandF( float a, float b ) { return a + ( b - a ) * ( rand() / (floa
 
 static float g_adHoldUntil, g_adHoldFrac = 0.45f;		// hold the gesture at its reach while a charger is used
 static float g_useChargeUntil;							// the server says we are using a charger
-void FPAnim_OnPickup( void ) { g_pickupPending = true; }
+void FPAnim_OnPickup( void ) { g_pickupPending = true; FPDbg( "pickup message\n" ); }
 
 static bool StartAdditive( const char *name, float rate )
 {
@@ -1328,6 +1370,7 @@ void FPAnim_OnDamage( int amount, int bits )
 {
 	if ( amount <= 0 )
 		return;
+	FPDbg( "damage %d bits %x\n", amount, bits );
 	if ( g_epaDmgPending == 0 )
 		g_epaDmgAt = g_now;
 	g_epaDmgPending += amount;
@@ -1802,7 +1845,22 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 
 void FPAnim_Frame( struct ref_params_s *pparams )
 {
+	static float s_lastNow = -1.0f;
 	g_now = gEngfuncs.GetClientTime();
+	// the client clock starts again at every map change and saved game: timers
+	// set on the last map would block pickups, flinches and draws (or fire late)
+	if ( g_now < s_lastNow - 0.5f )
+	{
+		FPDbg( "clock reset %.1f -> %.1f: timers cleared\n", s_lastNow, g_now );
+		g_pickupUntil = 0.0f; g_epaNextPickup = 0.0f; g_glReloadAt = 0.0f; g_useChargeUntil = 0.0f;
+		g_epaNextFlinch = 0.0f; g_epaNextStrangle = 0.0f; g_epaNextSpasm = 0.0f; g_epaSpasms = 0;
+		g_epaNextFidget = -1.0f; g_epaIdleSince = g_now; g_epaDmgPending = 0; g_epaDmgBits = 0;
+		g_mvActivity = g_now; g_adHoldUntil = 0.0f; g_l4dShellAt = -10.0f; g_pickupPending = false;
+		g_mvLastDuck = g_mvLastReload = -10.0f; g_epaLastHurt = -100.0f;
+		g_cur.type = CLIP_NONE; g_prev.type = CLIP_NONE;
+		StopOverlay();
+	}
+	s_lastNow = g_now;
 	g_frameTime = Clamp( pparams->frametime, 0.0f, 0.1f );
 
 	PollViewModel();
@@ -2907,6 +2965,7 @@ static bool StartOverlayKind( const char *name, int kind, float wantDur )
 	if ( !StartOverlay( name, false, wantDur ) )
 		return false;
 	g_ovKind = kind;
+	FPDbg( "overlay %s (kind %d)\n", name, kind );
 	return true;
 }
 
