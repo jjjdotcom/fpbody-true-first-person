@@ -28,6 +28,8 @@
 //   cl_fpbody_stabilize 0.85 how much of the head's fast sway the camera ignores (0 = none)
 //   cl_fpbody_runarms   1   unarmed: the arms swing with the walk / run animation
 //   cl_fpbody_classic   1   Half-Life's original player animations (models/fpbody_classic*.mdl), 0 = GMod
+//   cl_fpbody_hls       1   with the GMod animations: the Half-Life: Source style bodies
+//                            (models/fpbody_hls_*.mdl, built on Garry's Mod's skeleton) if present
 //   cl_fpbody_holster   1   weapons we carry are shown on the body (back, hips, thighs)
 
 #include "hud.h"
@@ -69,6 +71,7 @@ static cvar_t *cl_fpbody_right;
 static cvar_t *cl_fpbody_hidehead;
 static cvar_t *cl_fpbody_smooth;
 static cvar_t *cl_fpbody_outfit;
+static cvar_t *cl_fpbody_hls;
 static cvar_t *cl_fpbody_lookdown;
 static cvar_t *cl_fpbody_bodypitch;
 static cvar_t *cl_fpbody_stabilize;
@@ -105,6 +108,7 @@ void FPBody_Init( void )
 	cl_fpbody_hidehead = gEngfuncs.pfnRegisterVariable( "cl_fpbody_hidehead", "1", FCVAR_ARCHIVE );
 	cl_fpbody_smooth   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_smooth", "0", FCVAR_ARCHIVE );
 	cl_fpbody_outfit   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_outfit", "1", FCVAR_ARCHIVE );
+	cl_fpbody_hls      = gEngfuncs.pfnRegisterVariable( "cl_fpbody_hls", "1", FCVAR_ARCHIVE );
 	cl_fpbody_lookdown = gEngfuncs.pfnRegisterVariable( "cl_fpbody_lookdown", "8", FCVAR_ARCHIVE );
 	cl_fpbody_bodypitch = gEngfuncs.pfnRegisterVariable( "cl_fpbody_bodypitch", "0.5", FCVAR_ARCHIVE );
 	cl_fpbody_stabilize = gEngfuncs.pfnRegisterVariable( "cl_fpbody_stabilize", "0.85", FCVAR_ARCHIVE );
@@ -607,6 +611,9 @@ struct model_s *FPBody_GetOutfitModel( int playerNumber )
 		{ "models/fpbody_classic_suit.mdl", "models/fpbody_classic_presuit.mdl", NULL, "models/fpbody_classic.mdl" },
 	};
 	static int states[ 2 ][ 4 ];
+	// cl_fpbody_hls 1 (GMod animations only): suit, presuit
+	static const char *hlsNames[ 2 ] = { "models/fpbody_hls_suit.mdl", "models/fpbody_hls_presuit.mdl" };
+	static int hlsStates[ 2 ];
 
 	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 	if ( !local || playerNumber != local->index )
@@ -624,7 +631,17 @@ struct model_s *FPBody_GetOutfitModel( int playerNumber )
 	struct model_s *m = NULL;
 	if ( cl_fpbody_outfit && cl_fpbody_outfit->value != 0.0f )
 	{
-		if ( FPBody_IsSuited() )
+		bool hls = c == 0 && cl_fpbody_hls && cl_fpbody_hls->value != 0.0f;
+		if ( hls )
+		{
+			int k = FPBody_IsSuited() ? 0 : 1;
+			m = FPBody_TryModel( hlsNames[ k ], hlsStates[ k ] );
+			if ( m )
+				g_szOutfitReason = k == 0 ? "suited: HL:S suit outfit" : "not suited: HL:S pre-suit outfit";
+		}
+		if ( m )
+			;
+		else if ( FPBody_IsSuited() )
 		{
 			m = FPBody_TryModel( names[ c ][ 0 ], states[ c ][ 0 ] );
 			g_szOutfitReason = m ? "suited: suit outfit" : "suited, no suit outfit model";
