@@ -101,6 +101,8 @@ animation addons the Freeman mod uses; the converted models stay local).
 | Weapon draws | Drawing a gun plays a draw animation for its kind. | same |
 
 | ExtendedER Player Animations | Fidgets after standing around (head nods and shakes, stretches, arm gestures), a bend-down when you pick things up and at the top of a ladder, cowering / crouch-walking / panicked running when empty-handed near a fight, flinches by damage type (shock spasms, acid gagging, burns, crushing, blasts, bullets), and a lowered gun comes up when a hostile is in front of you. `cl_fpbody_epa 0` turns it off; `cl_fpbody_epa_fidget_*` tune the fidgets. | `cl_dll/fpbody_anim.cpp`; fights and hostiles from the server (`fpbody_moves.inl`) |
+| Contextual Player Animations | A push when you open a door, a press for buttons, a reach for anything else you +use (health and HEV chargers keep reaching while you hold use), bullet flinches where you were hit (head, chest, stomach, either arm or leg), and a flinch going under water and coming up for air. `cl_fpbody_contextual 0` turns it off. | `cl_dll/fpbody_anim.cpp`; what you used and the hit group from the server (`fpbody_moves.inl`, `PlayerUse`) |
+| COD IW idle | The empty-hands standing idle is the [xdR] COD IW Idle animation when its model is given to `add_freeman.py` (6th argument; Garry's Mod's idle otherwise). | `tools/gmod_anims/add_freeman.py` |
 
 Fidgets and flinches are *additive* layers (`fa_` sequences): the studio
 renderer adds their bone rotations on top of whatever the body is playing

@@ -191,11 +191,50 @@ void CBasePlayer::FPMoves_Scan( void )
 	}
 }
 
+// Contextual Player Animations: what we just +used, for the client's gesture
+// (a push for doors, a press for buttons, a reach for anything else; chargers
+// keep reaching while use is held). Called from PlayerUse before the Use.
+void CBasePlayer::FPMoves_OnUse( CBaseEntity *pObject )
+{
+	if ( !pObject || ( (int)pev->fuser4 & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) )
+		return;
+	const char *cls = STRING( pObject->pev->classname );
+	int kind;
+	if ( FClassnameIs( pObject->pev, "func_healthcharger" ) || FClassnameIs( pObject->pev, "func_recharge" ) )
+		kind = FPM_USE_CHARGER;
+	else if ( FClassnameIs( pObject->pev, "func_door" ) || FClassnameIs( pObject->pev, "func_door_rotating" ) ||
+			  FClassnameIs( pObject->pev, "momentary_door" ) )
+		kind = FPM_USE_DOOR;
+	else if ( strstr( cls, "button" ) )
+		kind = FPM_USE_BUTTON;
+	else if ( pObject->MyMonsterPointer() || pObject->IsPlayer() || !strncmp( cls, "func_tank", 9 ) ||
+			  FClassnameIs( pObject->pev, "func_tracktrain" ) || FClassnameIs( pObject->pev, "func_vehicle" ) ||
+			  FClassnameIs( pObject->pev, "func_pushable" ) )
+		return;		// following, mounting a gun, driving, dragging: no gesture
+	else
+		kind = FPM_USE_OTHER;
+
+	if ( kind == FPM_USE_CHARGER )
+	{
+		m_iFPUseKind = kind;
+		m_flFPUseUntil = gpGlobals->time + 0.2f;			// while it's held
+		return;
+	}
+	if ( !( m_afButtonPressed & IN_USE ) || gpGlobals->time < m_flFPNextUse )
+		return;
+	m_iFPUseKind = kind;
+	m_flFPUseUntil = gpGlobals->time + 0.3f;
+	m_flFPNextUse = gpGlobals->time + 1.0f;
+}
+
 void CBasePlayer::FPMoves_Think( void )
 {
 	if ( IsAlive() )
 		FPMoves_Scan();
-	int st = (int)pev->fuser4 & ~( FPM_PANIC | FPM_HOSTILE );
+	int st = (int)pev->fuser4 & ~( FPM_PANIC | FPM_HOSTILE | ( 7 << FPM_HITGROUP_SHIFT ) | ( 7 << FPM_USE_SHIFT ) );
+	st |= ( m_LastHitGroup & 7 ) << FPM_HITGROUP_SHIFT;
+	if ( IsAlive() && gpGlobals->time < m_flFPUseUntil )
+		st |= ( m_iFPUseKind & 7 ) << FPM_USE_SHIFT;
 	if ( IsAlive() && gpGlobals->time < m_flFPPanicUntil )
 		st |= FPM_PANIC;
 	if ( IsAlive() && gpGlobals->time < m_flFPHostileUntil )

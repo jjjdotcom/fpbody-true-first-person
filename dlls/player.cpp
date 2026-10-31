@@ -1703,6 +1703,7 @@ void CBasePlayer::PlayerUse ( void )
 			if ( caps & FCAP_CONTINUOUS_USE )
 				m_afPhysicsFlags |= PFLAG_USING;
 
+			FPMoves_OnUse( pObject );	// fpbody: Contextual Player Animations
 			pObject->Use( this, this, USE_SET, 1 );
 		}
 		// UNDONE: Send different USE codes for ON/OFF.  Cache last ONOFF_USE object to send 'off' if you turn away

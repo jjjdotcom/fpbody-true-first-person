@@ -90,6 +90,20 @@ def player_h_epa(s):
                r'\2float m_flFPHostileUntil;\n')
 
 
+def player_h_ctx(s):
+    return one(s, r'(\n([ \t]*)float m_flFPHostileUntil;[^\n]*\n)',
+               r'\1\2void FPMoves_OnUse( CBaseEntity *pObject );\t// Contextual Player Animations\n'
+               r'\2float m_flFPUseUntil;\n'
+               r'\2float m_flFPNextUse;\n'
+               r'\2int m_iFPUseKind;\n')
+
+
+def player_cpp_ctx(s):
+    # PlayerUse: tell the client what is being used, just before the Use
+    return one(s, r'\n([ \t]*)(pObject->Use\(\s*this,\s*this,\s*USE_SET,\s*1\s*\);)',
+               '\n\\1FPMoves_OnUse( pObject );\t// fpbody: Contextual Player Animations\n\\1\\2')
+
+
 def player_cpp(s):
     # the implementation lives in its own file, compiled as part of player.cpp
     s = s.rstrip('\n') + '\n\n#include "fpbody_moves.inl"\t// fpbody: Freeman moves (kick, holster all)\n'
@@ -127,6 +141,8 @@ def main(sdk, src=REPO):
     edit(os.path.join(sdk, 'dlls', 'player.h'), player_h, 'm_flFPKickTime')
     edit(os.path.join(sdk, 'dlls', 'player.h'), player_h_epa, 'm_flFPPanicUntil')
     edit(os.path.join(sdk, 'dlls', 'player.cpp'), player_cpp, 'fpbody_moves.inl')
+    edit(os.path.join(sdk, 'dlls', 'player.h'), player_h_ctx, 'm_flFPUseUntil')
+    edit(os.path.join(sdk, 'dlls', 'player.cpp'), player_cpp_ctx, 'FPMoves_OnUse')
     # ExtendedER: the additive gesture layer and the damage types, in the client
     import epa_hooks
     epa_hooks.main(sdk)

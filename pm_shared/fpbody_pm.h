@@ -26,6 +26,13 @@
 #define FPM_SLIDE			128
 #define FPM_PANIC			256		// set by the server: a fight nearby (ExtendedER panic)
 #define FPM_HOSTILE			512		// set by the server: a hostile in view (raises the gun)
+#define FPM_HITGROUP_SHIFT	10		// 3 bits, set by the server: where the last bullet hit us
+#define FPM_USE_SHIFT		13		// 3 bits, set by the server: what we just +used (FPM_USE_*)
+
+#define FPM_USE_DOOR		1		// Contextual Player Animations
+#define FPM_USE_BUTTON		2
+#define FPM_USE_OTHER		3
+#define FPM_USE_CHARGER		4		// held: the reach repeats
 
 #define FPM_VAULT_MANTLE	1
 #define FPM_VAULT_HOP		2

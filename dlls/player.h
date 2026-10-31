@@ -189,6 +189,10 @@ public:
 	float m_flFPScanTime;
 	float m_flFPPanicUntil;
 	float m_flFPHostileUntil;
+	void FPMoves_OnUse( CBaseEntity *pObject );	// Contextual Player Animations
+	float m_flFPUseUntil;
+	float m_flFPNextUse;
+	int m_iFPUseKind;
 	int			m_iClientFOV;	// client's known FOV
 	// usable player items 
 	CBasePlayerItem	*m_rgpPlayerItems[MAX_ITEM_TYPES];

@@ -54,6 +54,9 @@
 //   cl_fpbody_epa_fidget_idle 10   seconds standing around before fidgets can start
 //   cl_fpbody_epa_fidget_min / _max 10 / 120   wait between fidget checks (seconds)
 //   cl_fpbody_epa_fidget_chance 0.5            chance a check plays one
+//   cl_fpbody_contextual 1   Contextual Player Animations: a push for doors, a press for
+//                            buttons, a reach for chargers and other things you +use,
+//                            flinching where a bullet hit, going under / coming up for air
 //
 // Console commands (the Freeman mod's moves; bound in fpbody's autoexec.cfg)
 //   pm_kick           kick (look down to stomp, jump first for a drop kick)
@@ -190,6 +193,7 @@ static cvar_t *cl_fpbody_epa_fidget_idle;
 static cvar_t *cl_fpbody_epa_fidget_min;
 static cvar_t *cl_fpbody_epa_fidget_max;
 static cvar_t *cl_fpbody_epa_fidget_chance;
+static cvar_t *cl_fpbody_contextual;
 static float g_mvActivity = -100.0f;		// last time the gun was used (at ease timer)
 static void PM_KickCmd( void );
 static void PM_ProneCmd( void );
@@ -412,6 +416,7 @@ void FPAnim_Init( void )
 	cl_fpbody_atease_delay = gEngfuncs.pfnRegisterVariable( "cl_fpbody_atease_delay", "4", FCVAR_ARCHIVE );
 	cl_fpbody_doubletap = gEngfuncs.pfnRegisterVariable( "cl_fpbody_doubletap", "1", FCVAR_ARCHIVE );
 	cl_fpbody_epa       = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa", "1", FCVAR_ARCHIVE );
+	cl_fpbody_contextual = gEngfuncs.pfnRegisterVariable( "cl_fpbody_contextual", "1", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_idle   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_idle", "10", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_min    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_min", "10", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_max    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_max", "120", FCVAR_ARCHIVE );
@@ -1089,6 +1094,9 @@ static int g_epaPrevLadder;
 static float g_epaLadderVz;
 static int g_epaCower;				// 0 not cowering, 1 intro playing, 2 cowering
 static int g_epaDmgPending, g_epaDmgBits;
+static float g_epaDmgAt;
+static int g_ctxLastWater = -1, g_ctxLastUse;
+static float g_ctxNextCharger;
 static float g_epaLastHurt = -100.0f;
 static int g_epaLastWeaponModel;
 
@@ -1177,6 +1185,8 @@ void FPAnim_OnDamage( int amount, int bits )
 {
 	if ( amount <= 0 )
 		return;
+	if ( g_epaDmgPending == 0 )
+		g_epaDmgAt = g_now;
 	g_epaDmgPending += amount;
 	g_epaDmgBits |= bits;
 }
@@ -1224,8 +1234,10 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 	if ( on && ( st & FPM_HOSTILE ) )
 		g_mvActivity = g_now;
 
-	// --- flinches by damage type (the Damage message)
-	if ( g_epaDmgPending > 0 )
+	// --- flinches by damage type (the Damage message); the hit group (bullets)
+	// comes with the move state, so give it a moment to arrive
+	bool ctx = cl_fpbody_contextual->value != 0.0f;
+	if ( g_epaDmgPending > 0 && ( g_now - g_epaDmgAt >= 0.05f || g_now < g_epaDmgAt ) )
 	{
 		int bits = g_epaDmgBits;
 		g_epaDmgPending = 0;
@@ -1260,7 +1272,21 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 			{
 				static const char *hit[] = { "fa_flinch2", "fa_flinch_stomach", "fa_flinch_stomach2", "fa_flinch_shoulder_l",
 					"fa_flinch_shoulder_r", "fa_flinch_head" };
-				StartAdditive( hit[ rand() % 6 ], 1.0f );
+				// Contextual: flinch where we were hit (server: the hit group in the move state)
+				int hg = ( st >> FPM_HITGROUP_SHIFT ) & 7;
+				const char *where = NULL;
+				switch ( ctx ? hg : -1 )
+				{
+				case 0: where = rand() & 1 ? "fa_flinch_phys" : "fa_flinch_phys2"; break;		// generic
+				case 1: where = rand() & 1 ? "fa_flinch_head" : "fa_flinch_head2"; break;		// head
+				case 2: where = "fa_flinch_phys"; break;										// chest
+				case 3: where = rand() & 1 ? "fa_flinch_stomach" : "fa_flinch_stomach2"; break;	// stomach
+				case 4: where = "fa_flinch_shoulder_l"; break;									// left arm
+				case 5: where = "fa_flinch_shoulder_r"; break;									// right arm
+				case 6: where = "fa_flinch"; break;												// left leg
+				case 7: where = "fa_flinch2"; break;											// right leg
+				}
+				StartAdditive( where ? where : hit[ rand() % 6 ], 1.0f );
 			}
 			else if ( bits & DMG_FALL )
 				;											// the landing animation covers it
@@ -1279,6 +1305,30 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 		g_epaSpasms--;
 		g_epaNextSpasm = g_now + RandF( 0.1f, 0.4f );
 	}
+
+	// --- Contextual: going under, coming up
+	int wl = pparams->waterlevel;
+	if ( on && ctx && g_ctxLastWater >= 0 && wl != g_ctxLastWater && !( st & ( FPM_VAULT | FPM_PRONE ) ) )
+	{
+		if ( wl < 3 && g_ctxLastWater >= 3 )
+			StartAdditive( "fa_flinch_phys", 1.0f );
+		else if ( wl == 3 )
+			StartAdditive( "fa_flinch_stomach", 1.0f );
+	}
+	g_ctxLastWater = wl;
+
+	// --- Contextual: doors get a push, buttons a press, chargers a reach that repeats
+	// while you hold use, anything else you +use a reach (server: what we used)
+	int use = ( st >> FPM_USE_SHIFT ) & 7;
+	if ( on && ctx && use && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) &&
+		 ( use != g_ctxLastUse || ( use == FPM_USE_CHARGER && g_now >= g_ctxNextCharger ) ) )
+	{
+		const char *name = use == FPM_USE_DOOR ? "fa_use_door" : use == FPM_USE_BUTTON ? "fa_use_button" : "fa_use_give";
+		if ( StartAdditive( name, 1.0f ) )
+			g_mvActivity = g_now;
+		g_ctxNextCharger = g_now + 1.2f;
+	}
+	g_ctxLastUse = use;
 
 	// --- picked something up: bend down and grab
 	int ammo = 0, weapons = 0;

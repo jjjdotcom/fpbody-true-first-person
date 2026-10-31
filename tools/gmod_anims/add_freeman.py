@@ -1,6 +1,6 @@
 """Add the Half-Life 2: Freeman mod's player animations to an fpbody player model.
 
-  python3 -I add_freeman.py <Freeman models folder> <in.mdl> <out.mdl> [classic|gmod] [male_gestures.mdl]
+  python3 -I add_freeman.py <Freeman models folder> <in.mdl> <out.mdl> [classic|gmod] [male_gestures.mdl] [iw_idle.mdl]
 
 The Freeman mod (Source) plays kicks, vaults, wall climbing, prone, falls,
 hard landings, rolls, a lowered ("at ease") weapon, empty hands, weapon draws
@@ -23,6 +23,9 @@ third-party animation data):
   freeman_eli.mdl + .ani                    Episode Two's Eli gestures (fidgets)
   male_gestures.mdl + .ani                  Half-Life 2's male gestures (fidgets; from
                                             hl2/hl2_misc_dir.vpk, optional 5th argument)
+  xdreanims/m_anm_slot_030.mdl + .ani       [xdR] COD IW Idle (Workshop 2791673215): the
+                                            empty-hands standing idle (optional 6th argument;
+                                            without it Garry's Mod's idle is used)
 
 fa_<name> sequences are additive: each frame holds the rotation to add to
 whatever the body is doing (the client layers them in StudioSetupBones),
@@ -135,6 +138,10 @@ ADDITIVE = {
     'fa_flinch_shoulder_r': ('gmod', 'flinch_shoulder_r'),
     'fa_flinch_stomach':    ('gmod', 'flinch_stomach_01'),
     'fa_flinch_stomach2':   ('gmod', 'flinch_stomach_02'),
+    # Contextual Player Animations: doors, buttons, chargers and other things you +use
+    'fa_use_door':      ('gmod', 'range_slam'),
+    'fa_use_button':    ('gmod', 'range_fists_r'),
+    'fa_use_give':      ('gmod', 'gesture_item_give'),
 }
 
 # the empty-hands weapon hold, looked up by the server as <stance>_<part>_unarmed
@@ -267,7 +274,7 @@ def gesture_poses(g, sq, base):
     return out
 
 
-def main(folder, in_path, out_path, kind='classic', male=None):
+def main(folder, in_path, out_path, kind='classic', male=None, iw=None):
     folder = folder.rstrip('/') + '/'
     M = GoldSrcModel(in_path)
     seqs = [s for s in existing_sequences(M) if not s['label'].startswith(('fm_', 'fa_')) and not s['label'].endswith('_unarmed')]
@@ -281,7 +288,9 @@ def main(folder, in_path, out_path, kind='classic', male=None):
     def build(label, pack, name, ducked, loop):
         if pack not in packs:
             m, a = PACKS[pack]
-            packs[pack] = ref if pack == 'gmod' else SourceModel(folder + m, folder + a if a else None)
+            mp = m if m.startswith('/') else folder + m
+            ap = a if (a and a.startswith('/')) else (folder + a if a else None)
+            packs[pack] = ref if pack == 'gmod' else SourceModel(mp, ap)
             rts[pack] = PackRetargeter(packs[pack], M, ref)
         g = packs[pack]
         a = source_anim(g, name)
@@ -290,12 +299,17 @@ def main(folder, in_path, out_path, kind='classic', male=None):
 
     for label, (pack, name, ducked, loop) in SEQS.items():
         build(label, pack, name, ducked, loop)
-    for label, (pack, name, ducked) in UNARMED.items():
+    unarmed = dict(UNARMED)
+    if iw and iw != '-':
+        PACKS['iw'] = (iw, iw[:-4] + '.ani')
+        for k in ('ref_aim_unarmed', 'ref_shoot_unarmed'):
+            unarmed[k] = ('iw', 'idle_all_01', False)
+    for label, (pack, name, ducked) in unarmed.items():
         build(label, pack, name, ducked, True)
 
     # additive layers: the retargeted (base + delta) pose's rotation relative to the
     # retargeted base pose, bone by bone; positions stay at the rest pose
-    if male and 'male' not in PACKS:
+    if male and male != '-' and 'male' not in PACKS:
         PACKS['male'] = (male, male[:-4] + '.ani')
     base_src = ref.frame_pose(ref.anim_by_name['@idle_all_01'], 0)
     rest = M.rest_local()
@@ -343,4 +357,4 @@ def main(folder, in_path, out_path, kind='classic', male=None):
 
 
 if __name__ == '__main__':
-    print(main(*sys.argv[1:6]))
+    print(main(*sys.argv[1:7]))
