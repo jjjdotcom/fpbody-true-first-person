@@ -38,6 +38,11 @@ void FPAnim_GetViewAngleOffset( float *ofs );
 int FPAnim_GetOverlay( int playerNumber, void *studiohdr, int *seq, float *animtime,
 	float *framerate, int *fullbody );
 
+// Sequence number in one studio model -> the sequence of the same name in another
+int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq );
+// 1 while the renderer has the local entity's sequence translated into the drawn model
+extern int g_fpSeqRemapped;
+
 // True while a full-body act (taunt, pose, sit...) is shown with the chase camera
 int FPAnim_ActCamActive( void );
 

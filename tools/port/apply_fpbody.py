@@ -225,6 +225,10 @@ def main():
     import anim_sets
     anim_sets.main(sdk)
 
+    # body models with their own sequence order: play sequences by name
+    import seq_remap
+    seq_remap.main(sdk)
+
 
 if __name__ == '__main__':
     main()

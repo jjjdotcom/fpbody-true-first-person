@@ -159,6 +159,7 @@ static void FP_ActCmd( void );
 static void FP_ActList( void );
 static bool StartOverlay( const char *name, bool user, float wantDur );
 static int FindSeq( const studiohdr_t *hdr, const char *name );
+static int LocalSeq( cl_entity_t *local );
 
 // ---------------------------------------------------------------------------
 // Small math helpers
@@ -602,10 +603,11 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 		{
 			bool crouch = false;
 			cl_entity_t *local = gEngfuncs.GetLocalPlayer();
-			if ( local && local->curstate.sequence >= 0 && local->curstate.sequence < g_playerHdr->numseq )
+			int curSeq = LocalSeq( local );
+			if ( curSeq >= 0 && curSeq < g_playerHdr->numseq )
 			{
 				const mstudioseqdesc_t *cur = (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) +
-											  local->curstate.sequence;
+											  curSeq;
 				const char *lab = cur->label;
 				if ( !strnicmp( lab, "cs_", 3 ) || !strnicmp( lab, "sv_", 3 ) )
 					lab += 3;
@@ -1603,11 +1605,12 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 		{
 			float want = 0.0f;
 			cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+			int curSeq = LocalSeq( local );
 			if ( FPBody_Classic() && g_ovSeq < 0 && local && g_playerHdr &&
-				 local->curstate.sequence >= 0 && local->curstate.sequence < g_playerHdr->numseq )
+				 curSeq >= 0 && curSeq < g_playerHdr->numseq )
 			{
 				const char *lab = ( (const mstudioseqdesc_t *)( (const byte *)g_playerHdr + g_playerHdr->seqindex ) +
-									local->curstate.sequence )->label;
+									curSeq )->label;
 				static const char *raised[] = { "_mp5", "_shotgun", "_onehanded", "_rifle", "_m249" };
 				if ( !strnicmp( lab, "cs_", 3 ) )		// Counter-Strike 1.6 set: same holds
 					lab += 3;
@@ -1710,6 +1713,49 @@ static int FindSeq( const studiohdr_t *hdr, const char *name )
 		if ( !stricmp( seqs[ i ].label, name ) )
 			return i;
 	return -1;
+}
+
+// The server picks the player's sequences by number in its own player model
+// (models/player.mdl); our body may be drawn with another model (the classic /
+// outfit ones) whose numbering differs. Translate by sequence name.
+int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq )
+{
+	const studiohdr_t *from = (const studiohdr_t *)fromHdr, *to = (const studiohdr_t *)toHdr;
+	if ( !from || !to || from == to || seq < 0 || seq >= from->numseq )
+		return seq;
+	static const studiohdr_t *cFrom, *cTo;
+	static short cache[ 2048 ];
+	if ( cFrom != from || cTo != to )
+	{
+		cFrom = from;
+		cTo = to;
+		for ( int i = 0; i < 2048; i++ )
+			cache[ i ] = -2;
+	}
+	if ( seq >= 2048 )
+		return seq;
+	if ( cache[ seq ] == -2 )
+	{
+		const mstudioseqdesc_t *seqs = (const mstudioseqdesc_t *)( (const byte *)from + from->seqindex );
+		int m = FindSeq( to, seqs[ seq ].label );
+		cache[ seq ] = (short)( m >= 0 ? m : ( seq < to->numseq ? seq : 0 ) );
+	}
+	return cache[ seq ];
+}
+
+// set by the studio renderer while the local entity's sequence is already
+// translated into the drawn model (see StudioDrawPlayer)
+int g_fpSeqRemapped;
+
+// the local player's current sequence in the model our body is drawn with
+static int LocalSeq( cl_entity_t *local )
+{
+	if ( !local || !g_playerHdr )
+		return -1;
+	if ( g_fpSeqRemapped )
+		return local->curstate.sequence;
+	const void *srv = ( local->model && local->model->type == mod_studio ) ? IEngineStudio.Mod_Extradata( local->model ) : NULL;
+	return FPAnim_MapSeq( srv, g_playerHdr, local->curstate.sequence );
 }
 
 static bool IsUpperBodyAct( const char *label )

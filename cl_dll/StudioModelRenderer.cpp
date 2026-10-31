@@ -26,6 +26,27 @@
 
 // fpbody: restores the entity fields an overlay animation changed, on any
 // return path out of StudioDrawPlayer
+// marks the local entity's sequence as already translated into the drawn model
+struct FPSeqRemap
+{
+	bool on;
+	cl_entity_t *ent;
+	int prevsequence;
+	FPSeqRemap() : on( false ), ent( NULL ), prevsequence( 0 ) {}
+	void Begin( cl_entity_t *e, int mappedPrev )
+	{
+		on = true; ent = e; prevsequence = e->latched.prevsequence;
+		e->latched.prevsequence = mappedPrev;
+		g_fpSeqRemapped = 1;
+	}
+	~FPSeqRemap()
+	{
+		if ( !on ) return;
+		ent->latched.prevsequence = prevsequence;
+		g_fpSeqRemapped = 0;
+	}
+};
+
 struct FPOverlayRestore
 {
 	cl_entity_t *ent;
@@ -1726,10 +1747,14 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 #endif
 
 	// fpbody: lab coat until the HEV suit is picked up
+	bool fpOutfit = false;
 	{
 		model_t *outfit = FPBody_GetOutfitModel( pplayer->number );
 		if ( outfit )
+		{
 			m_pRenderModel = outfit;
+			fpOutfit = true;
+		}
 	}
 
 	if (m_pRenderModel == NULL)
@@ -1739,8 +1764,27 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 	IEngineStudio.StudioSetHeader( m_pStudioHeader );
 	IEngineStudio.SetRenderModel( m_pRenderModel );
 
-	// fpbody: GMod gestures / taunts / reloads on the local player
+	// fpbody: the server numbers our sequences in its own player model
+	// (models/player.mdl); when the body is drawn with another model, play the
+	// sequences of the same name in it
 	entity_state_t fpState;
+	FPOverlayRestore fpSeqRestore;
+	FPSeqRemap fpRemap;
+	if ( fpOutfit && m_pRenderModel != m_pCurrentEntity->model && m_pCurrentEntity->model && m_pCurrentEntity->model->type == mod_studio )
+	{
+		const void *srvHdr = IEngineStudio.Mod_Extradata( m_pCurrentEntity->model );
+		int seq = FPAnim_MapSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->curstate.sequence );
+		int gait = FPAnim_MapSeq( srvHdr, m_pStudioHeader, pplayer->gaitsequence );
+		fpSeqRestore.Save( m_pCurrentEntity );
+		fpRemap.Begin( m_pCurrentEntity, FPAnim_MapSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->latched.prevsequence ) );
+		fpState = *pplayer;
+		fpState.sequence = seq;
+		fpState.gaitsequence = gait;
+		m_pCurrentEntity->curstate.sequence = seq;
+		pplayer = &fpState;
+	}
+
+	// fpbody: GMod gestures / taunts / reloads on the local player
 	FPOverlayRestore fpRestore;
 	{
 		int ovSeq, ovFull;
