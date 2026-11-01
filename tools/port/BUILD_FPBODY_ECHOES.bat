@@ -10,7 +10,7 @@ set "MOD=%HL%\fpbody_echoes"
 set "GAME=%HL%\echoes"
 rem everything is also written to this log (send it to Claude if something fails)
 set "LOG=%HL%\fpbody_echoes_build.log"
-echo Echoes: True First Person build, %DATE% %TIME% > "%LOG%"
+echo Echoes: True First Person build, %DATE% %TIME% >> "%LOG%"
 
 if not exist "%GAME%\liblist.gam" (
   call :say Half-Life: Echoes is not installed in %GAME%
