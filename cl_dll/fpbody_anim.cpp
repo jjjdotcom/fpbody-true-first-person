@@ -208,6 +208,7 @@ static bool OverlayIs( const char *name );
 static const char *OverlayName( void );
 static cvar_t *cl_fpbody_debug;
 static cvar_t *cl_fpbody_elbowdown;
+static cvar_t *cl_fpbody_reloadset;
 // cl_fpbody_debug 1: print what the body starts playing (overlays, gun clips) to the console
 static void FPDbg( const char *fmt, ... )
 {
@@ -459,6 +460,7 @@ void FPAnim_Init( void )
 	cl_fpbody_glreload  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_glreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_debug     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_debug", "0", 0 );
 	cl_fpbody_elbowdown = gEngfuncs.pfnRegisterVariable( "cl_fpbody_elbowdown", "0.7", FCVAR_ARCHIVE );
+	cl_fpbody_reloadset = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloadset", "css", FCVAR_ARCHIVE );
 	cl_fpbody_l4dreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_l4dreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_pickup    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pickup", "1", FCVAR_ARCHIVE );
 	cl_fpbody_gunlower  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gunlower", "20", FCVAR_ARCHIVE );
@@ -731,23 +733,36 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL || type == CLIP_PUMP ) && g_bGmodModel &&
 		 cl_fpbody_gmod->value != 0.0f && cl_fpbody_l4dreload->value != 0.0f && !MoveBusy() )
 	{
-		const char *l4 = NULL;
+		// cl_fpbody_reloadset: "css" Counter-Strike: Source's reloads (css_reload_*),
+		// "l4d" Left 4 Dead's (l4d_reload_*); a model without the set falls back to the other
+		const char *l4 = NULL, *css = NULL;
 		if ( Has( modelName, "v_shotgun" ) )
 		{
 			if ( type == CLIP_SHELL_START )
-				l4 = "l4d_reload_shotgun_start";
+				l4 = "l4d_reload_shotgun_start", css = "css_reload_shotgun_start";
 			else if ( type == CLIP_SHELL )
-				l4 = "l4d_reload_shotgun_loop";
+				l4 = "l4d_reload_shotgun_loop", css = "css_reload_shotgun_loop";
 			else if ( type == CLIP_PUMP && g_now - g_l4dShellAt < 1.5f && g_now >= g_l4dShellAt )
-				l4 = "l4d_reload_shotgun_end";
+				l4 = "l4d_reload_shotgun_end", css = "css_reload_shotgun_end";
 		}
 		else if ( type == CLIP_RELOAD )
 		{
 			if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_357" ) || Has( modelName, "v_desert_eagle" ) )
-				l4 = "l4d_reload_pistol";
-			else if ( Has( modelName, "v_9mmar" ) || Has( modelName, "v_saw" ) || Has( modelName, "v_m40a1" ) )
-				l4 = "l4d_reload_rifle";
+				l4 = "l4d_reload_pistol", css = "css_reload_pistol";
+			else if ( Has( modelName, "v_9mmar" ) )
+				l4 = "l4d_reload_rifle", css = "css_reload_smg";
+			else if ( Has( modelName, "v_saw" ) )
+				l4 = "l4d_reload_rifle", css = "css_reload_m249";
+			else if ( Has( modelName, "v_m40a1" ) || Has( modelName, "v_crossbow" ) )
+				l4 = Has( modelName, "v_m40a1" ) ? "l4d_reload_rifle" : NULL, css = "css_reload_sniper";
 		}
+		bool useCss = cl_fpbody_reloadset && !stricmp( cl_fpbody_reloadset->string, "css" );
+		const char *first = useCss ? css : l4, *second = useCss ? l4 : css;
+		if ( first && FindSeq( g_playerHdr, first ) < 0 )
+			first = NULL;
+		if ( !first )
+			first = second;
+		l4 = first;
 		if ( l4 && StartOverlay( l4, false, seqDur ) )
 		{
 			g_ovLoop = false;							// one shell per insert
@@ -3013,7 +3028,7 @@ static int LocalSeq( cl_entity_t *local )
 
 static bool IsUpperBodyAct( const char *label )
 {
-	return !strnicmp( label, "gm_gesture_", 11 ) || !strnicmp( label, "gm_reload_", 10 ) || !strnicmp( label, "l4d_reload_", 11 ) ||
+	return !strnicmp( label, "gm_gesture_", 11 ) || !strnicmp( label, "gm_reload_", 10 ) || !strnicmp( label, "l4d_reload_", 11 ) || !strnicmp( label, "css_reload_", 11 ) ||
 		   !strnicmp( label, "ref_reload_", 11 ) || !strnicmp( label, "crouch_reload_", 14 ) ||
 		   !strnicmp( label, "sv_ref_reload_", 14 ) || !strnicmp( label, "sv_crouch_reload_", 17 ) ||
 		   !strnicmp( label, "cs_ref_reload_", 14 ) || !strnicmp( label, "cs_crouch_reload_", 17 ) ||
