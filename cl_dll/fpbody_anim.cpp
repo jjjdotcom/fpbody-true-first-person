@@ -783,7 +783,9 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 		}
 		else if ( type == CLIP_RELOAD )
 		{
-			if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_357" ) || Has( modelName, "v_desert_eagle" ) )
+			// (the .357 has none: it gets Garry's Mod's revolver reload below, the cylinder
+			// swung out and reloaded, instead of a magazine)
+			if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_desert_eagle" ) )
 				l4 = "l4d_reload_pistol", css = "css_reload_pistol";
 			else if ( Has( modelName, "v_9mmar" ) )
 				l4 = "l4d_reload_rifle", css = "css_reload_smg";
