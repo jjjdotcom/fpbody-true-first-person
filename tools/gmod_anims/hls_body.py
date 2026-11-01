@@ -205,10 +205,14 @@ def is_head_tri(S, hb, t):
     return n >= 2
 
 
-def build_mesh(S, P, W, X, rt, choose, keep='all', matoff=0, partnames=None):
+def build_mesh(S, P, W, X, rt, choose, keep='all', matoff=0, partnames=None, anchor=None):
     """GoldSrc body parts: [(name, vertices, vertex bones, normals, normal bones, meshes)]
     keep: 'all', 'nohead' (drop the triangles skinned to the head) or 'head' (only those),
-    or a function (S, triangle) -> keep it."""
+    or a function (S, triangle) -> keep it.
+    anchor: {Source bone: Source joint} - those bones' vertices keep their offset
+    from that joint (another bone's) instead of their own: the wrist ring of
+    hands taken from another model stays tight against the hand, whatever that
+    model's forearm length."""
     hb = head_bones(S)
     Rs, Ts = S.bind_world()
     tgt_by_srcname = {retarget.VB + sn: P.bone_by_name[tn] for tn, sn in retarget.MAP}
@@ -258,6 +262,10 @@ def build_mesh(S, P, W, X, rt, choose, keep='all', matoff=0, partnames=None):
                         gb, anc = bmap[sb]
                         # offset from the joint the vertex hangs from, in that bone's bind frame
                         off = sv['pos'] - Ts[anc]
+                        if anchor and anc in anchor:
+                            j = anchor[anc]
+                            jt = tgt_by_srcname[S.bones[j]['name']]
+                            off = sv['pos'] - Ts[j] + (X[jt] - X[gb])
                         verts.append(W[gb].T @ off)
                         vbones.append(gb)
                         norms.append(W[gb].T @ sv['normal'])
@@ -380,11 +388,11 @@ def main():
     roots = [r for r in a.roots.split(',') if r]
     if a.head or a.hands:
         # the main model, minus the head and / or hands taken from other models
-        def region(Mdl, bones):
-            return lambda _S, t: sum(1 for v in t if max(_S.vertices[v]['bones'], key=lambda bw: bw[1])[0] in bones) >= 2
+        def region(Mdl, bones, n=2):
+            return lambda _S, t: sum(1 for v in t if max(_S.vertices[v]['bones'], key=lambda bw: bw[1])[0] in bones) >= n
         sh = head_bones(S) if a.head else set()
         sg = subtree_bones(S, HAND_ROOTS) if a.hands else set()
-        parts = build_mesh(S, P, W, X, rt, choose, keep=lambda _S, t: not region(S, sh)(_S, t) and not region(S, sg)(_S, t))
+        parts = build_mesh(S, P, W, X, rt, choose, keep=lambda _S, t: not region(S, sh)(_S, t) and not region(S, sg, 1)(_S, t))
         srcs = [(S, parts, a.tint)]
         matoff = len(S.materials)
         if a.head:
@@ -394,7 +402,13 @@ def main():
         if a.hands:
             G = SourceMesh(a.hands, roots)
             gb = subtree_bones(G, HAND_ROOTS)
-            gparts = build_mesh(G, P, W, X, rt, parse(a.hands_body), keep=region(G, gb), matoff=matoff, partnames='hands')
+            # every triangle touching the hand, the wrist too (its forearm side
+            # anchored to the hand joint), and none of the main model's there:
+            # one closed wrist instead of two open ends with a gap between
+            anchor = {G.bone_by_name[retarget.VB + s + '_Forearm']: G.bone_by_name[retarget.VB + s + '_Hand']
+                      for s in 'LR' if retarget.VB + s + '_Forearm' in G.bone_by_name}
+            gparts = build_mesh(G, P, W, X, rt, parse(a.hands_body), keep=region(G, gb, 1), matoff=matoff,
+                                partnames='hands', anchor=anchor)
             srcs.append((G, gparts, a.tint)); matoff += len(G.materials)
         textures = []
         parts = []

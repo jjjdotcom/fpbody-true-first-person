@@ -211,6 +211,7 @@ static bool OverlayIs( const char *name );
 static const char *OverlayName( void );
 static cvar_t *cl_fpbody_debug;
 static cvar_t *cl_fpbody_elbowdown;
+static cvar_t *cl_fpbody_wristtwist;
 static cvar_t *cl_fpbody_grip_side;
 static cvar_t *cl_fpbody_swimhold;
 static cvar_t *cl_fpbody_fingers;
@@ -479,6 +480,7 @@ void FPAnim_Init( void )
 	cl_fpbody_glreload  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_glreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_debug     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_debug", "0", 0 );
 	cl_fpbody_elbowdown = gEngfuncs.pfnRegisterVariable( "cl_fpbody_elbowdown", "0.7", FCVAR_ARCHIVE );
+	cl_fpbody_wristtwist = gEngfuncs.pfnRegisterVariable( "cl_fpbody_wristtwist", "0.65", FCVAR_ARCHIVE );
 	cl_fpbody_reloadset = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloadset", "css", FCVAR_ARCHIVE );
 	cl_fpbody_l4dreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_l4dreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_pickup    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pickup", "1", FCVAR_ARCHIVE );
@@ -3151,6 +3153,71 @@ static void ApplyFingers( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	CurlChain( bone, light, lt, 1, -1.0f, curl[ 3 ] * g_fingerLW );
 }
 
+// The playermodels' animations roll the hand up to ~130 degrees about the
+// forearm (gun holds); in Source the forearm's twist bones roll the wrist half
+// of the forearm with it. Half-Life binds every vertex to one bone, so the
+// forearm stayed put and the wrist looked wrung, flattened to a spike. Roll the
+// forearm (that bone alone, about its own length) by a share of the hand's roll:
+// the twist is split between the wrist and the elbow.
+static void ShareWristTwist( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int fore, int hand, float share )
+{
+	if ( fore < 0 || hand < 0 || share <= 0.0f || !g_skel.hdr )
+		return;
+	const mstudiobone_t *bones = (const mstudiobone_t *)( (const byte *)g_skel.hdr + g_skel.hdr->boneindex );
+	if ( bones[ hand ].parent != fore )
+		return;
+	// the hand's rest rotation in the forearm's frame (Rz * Ry * Rx of its angles)
+	const float *v = bones[ hand ].value;
+	float ca = (float)cos( v[ 3 ] ), sa = (float)sin( v[ 3 ] ), cb = (float)cos( v[ 4 ] ), sb = (float)sin( v[ 4 ] );
+	float cc = (float)cos( v[ 5 ] ), sc = (float)sin( v[ 5 ] );
+	mat3_t rest = {
+		{ cc * cb, cc * sb * sa - sc * ca, cc * sb * ca + sc * sa },
+		{ sc * cb, sc * sb * sa + cc * ca, sc * sb * ca - cc * sa },
+		{ -sb, cb * sa, cb * ca } };
+	float ax[ 3 ] = { v[ 0 ], v[ 1 ], v[ 2 ] };	// the forearm's length, in its frame
+	if ( Normalize3( ax ) < 1e-3f )
+		return;
+	// now: the hand in the forearm's frame, against its rest: d = (Rf^T Rh) rest^T
+	mat3_t rel, d;
+	for ( int i = 0; i < 3; i++ )
+		for ( int j = 0; j < 3; j++ )
+			rel[ i ][ j ] = light[ fore ][ 0 ][ i ] * light[ hand ][ 0 ][ j ] + light[ fore ][ 1 ][ i ] * light[ hand ][ 1 ][ j ] +
+							light[ fore ][ 2 ][ i ] * light[ hand ][ 2 ][ j ];
+	for ( int i = 0; i < 3; i++ )
+		for ( int j = 0; j < 3; j++ )
+			d[ i ][ j ] = rel[ i ][ 0 ] * rest[ j ][ 0 ] + rel[ i ][ 1 ] * rest[ j ][ 1 ] + rel[ i ][ 2 ] * rest[ j ][ 2 ];
+	// its roll about the forearm: how far a line across the forearm turns
+	float pp[ 3 ] = { 0.0f, 0.0f, 0.0f };
+	pp[ fabs( ax[ 0 ] ) < 0.8f ? 0 : 1 ] = 1.0f;
+	float k = Dot3( pp, ax );
+	for ( int i = 0; i < 3; i++ )
+		pp[ i ] -= ax[ i ] * k;
+	Normalize3( pp );
+	float q[ 3 ];
+	for ( int i = 0; i < 3; i++ )
+		q[ i ] = d[ i ][ 0 ] * pp[ 0 ] + d[ i ][ 1 ] * pp[ 1 ] + d[ i ][ 2 ] * pp[ 2 ];
+	k = Dot3( q, ax );
+	for ( int i = 0; i < 3; i++ )
+		q[ i ] -= ax[ i ] * k;
+	if ( Normalize3( q ) < 1e-3f )
+		return;
+	float cr[ 3 ];
+	Cross( pp, q, cr );
+	float twist = (float)( atan2( Dot3( cr, ax ), Dot3( pp, q ) ) * 180.0 / M_PI );
+	float wax[ 3 ], pivot[ 3 ];
+	for ( int i = 0; i < 3; i++ )
+		wax[ i ] = light[ fore ][ i ][ 0 ] * ax[ 0 ] + light[ fore ][ i ][ 1 ] * ax[ 1 ] + light[ fore ][ i ][ 2 ] * ax[ 2 ];
+	if ( Normalize3( wax ) < 1e-3f )
+		return;
+	BoneOrigin( light, fore, pivot );
+	static bool mask[ MAXSTUDIOBONES ];
+	memset( mask, 0, sizeof( mask ) );
+	mask[ fore ] = true;
+	mat3_t W;
+	AxisAngle( wax, twist * Clamp01( share ), W );
+	TransformBones( bone, light, mask, W, pivot, NULL );
+}
+
 static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel,
 	const float *f, const float *r, const float *u, float now )
 {
@@ -3609,6 +3676,13 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 			if ( p.lAimW > 0.001f && Normalize3( p.lAimDir ) > 0.0f )
 				AimArm( bone, light, g_skel.lUpper, g_skel.lHand, g_skel.lUpperMask, p.lAimDir, p.lAimW );
 		}
+	}
+
+	// the forearms roll with the hands (one bone per vertex: see ShareWristTwist)
+	if ( !FPBody_Classic() && cl_fpbody_wristtwist && cl_fpbody_wristtwist->value > 0.0f )
+	{
+		ShareWristTwist( bone, light, g_skel.lFore, g_skel.lHand, cl_fpbody_wristtwist->value );
+		ShareWristTwist( bone, light, g_skel.rFore, g_skel.rHand, cl_fpbody_wristtwist->value );
 	}
 
 	// Camera rotation from the final head pose
