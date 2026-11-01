@@ -1796,6 +1796,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 		const void *srvHdr = IEngineStudio.Mod_Extradata( m_pCurrentEntity->model );
 		int seq = FPAnim_MapSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->curstate.sequence );
 		int gait = FPAnim_MapSeq( srvHdr, m_pStudioHeader, pplayer->gaitsequence );
+		FPAnim_DebugSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->curstate.sequence, pplayer->gaitsequence, seq, gait );
 		fpSeqRestore.Save( m_pCurrentEntity );
 		fpRemap.Begin( m_pCurrentEntity, FPAnim_MapSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->latched.prevsequence ) );
 		fpState = *pplayer;

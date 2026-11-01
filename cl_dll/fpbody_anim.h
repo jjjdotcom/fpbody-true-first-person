@@ -40,6 +40,7 @@ int FPAnim_GetOverlay( int playerNumber, void *studiohdr, int *seq, float *animt
 
 // Sequence number in one studio model -> the sequence of the same name in another
 int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq );
+void FPAnim_DebugSeq( const void *fromHdr, const void *toHdr, int seq, int gait, int mseq, int mgait );
 // 1 while the renderer has the local entity's sequence translated into the drawn model
 extern int g_fpSeqRemapped;
 

@@ -2889,6 +2889,21 @@ static int CSPreference( void )
 	return pref;
 }
 
+// cl_fpbody_debug: which sequence the server plays on us and which one the body draws
+void FPAnim_DebugSeq( const void *fromHdr, const void *toHdr, int seq, int gait, int mseq, int mgait )
+{
+	static int ls = -9, lg = -9, lms = -9, lmg = -9;
+	if ( !cl_fpbody_debug || cl_fpbody_debug->value == 0.0f || ( seq == ls && gait == lg && mseq == lms && mgait == lmg ) )
+		return;
+	ls = seq; lg = gait; lms = mseq; lmg = mgait;
+	const studiohdr_t *from = (const studiohdr_t *)fromHdr, *to = (const studiohdr_t *)toHdr;
+	const mstudioseqdesc_t *fs = (const mstudioseqdesc_t *)( (const byte *)from + from->seqindex );
+	const mstudioseqdesc_t *ts = (const mstudioseqdesc_t *)( (const byte *)to + to->seqindex );
+	FPDbg( "server seq %s / gait %s -> body %s / %s\n",
+		seq >= 0 && seq < from->numseq ? fs[ seq ].label : "?", gait >= 0 && gait < from->numseq ? fs[ gait ].label : "?",
+		mseq >= 0 && mseq < to->numseq ? ts[ mseq ].label : "?", mgait >= 0 && mgait < to->numseq ? ts[ mgait ].label : "?" );
+}
+
 int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq )
 {
 	const studiohdr_t *from = (const studiohdr_t *)fromHdr, *to = (const studiohdr_t *)toHdr;
