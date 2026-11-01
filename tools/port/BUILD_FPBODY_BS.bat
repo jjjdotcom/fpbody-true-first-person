@@ -55,17 +55,32 @@ if not exist "%MOD%\dlls\hl.dll" (
 rem Blue Shift's maps store their first two BSP lumps in swapped order, which
 rem only the original bshift folder understands. Copy them into the mod with
 rem the standard order (the same change as Blue Shift Updated's installer).
+rem Each copy keeps the original map's date and is only redone when that
+rem changes: a map newer than its node graph (maps\graphs\*.nod) makes the game
+rem rebuild the graph, which fails in a level restored from a save (its path
+rem nodes are gone) and leaves followers like Rosenberg unable to find a way.
 echo.
 echo Converting Blue Shift maps ...
 if not exist "%MOD%\maps" mkdir "%MOD%\maps"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$src = Join-Path $env:GAME 'maps'; $dst = Join-Path $env:MOD 'maps'; $n = 0;" ^
   "Get-ChildItem -Path $src -Filter *.bsp | ForEach-Object {" ^
+  "  $out = Join-Path $dst $_.Name;" ^
+  "  if ((Test-Path $out) -and ((Get-Item $out).LastWriteTimeUtc -eq $_.LastWriteTimeUtc)) { return };" ^
   "  $b = [IO.File]::ReadAllBytes($_.FullName);" ^
   "  $off1 = [BitConverter]::ToInt32($b, 12);" ^
   "  if ($b[$off1] -eq 123) { $t = New-Object byte[] 8; [Array]::Copy($b, 4, $t, 0, 8); [Array]::Copy($b, 12, $b, 4, 8); [Array]::Copy($t, 0, $b, 12, 8) }" ^
-  "  [IO.File]::WriteAllBytes((Join-Path $dst $_.Name), $b); $n++ };" ^
+  "  [IO.File]::WriteAllBytes($out, $b); (Get-Item $out).LastWriteTimeUtc = $_.LastWriteTimeUtc; $n++ };" ^
   "Write-Host ([string]$n + ' maps converted')"
+rem Maps in the addon folder (fpbody_bs_addon) are loaded first: convert
+rem Blue Shift-order ones there too, in place (a swapped map crashes the engine)
+if exist "%MOD%_addon\maps" powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$dst = Join-Path ($env:MOD + '_addon') 'maps'; $n = 0;" ^
+  "Get-ChildItem -Path $dst -Filter *.bsp | ForEach-Object {" ^
+  "  $b = [IO.File]::ReadAllBytes($_.FullName);" ^
+  "  $off1 = [BitConverter]::ToInt32($b, 12);" ^
+  "  if ($b[$off1] -eq 123) { $w = $_.LastWriteTimeUtc; $t = New-Object byte[] 8; [Array]::Copy($b, 4, $t, 0, 8); [Array]::Copy($b, 12, $b, 4, 8); [Array]::Copy($t, 0, $b, 12, 8); [IO.File]::WriteAllBytes($_.FullName, $b); (Get-Item $_.FullName).LastWriteTimeUtc = $w; $n++ } };" ^
+  "Write-Host ([string]$n + ' addon maps converted')"
 if errorlevel 1 (
   echo Map conversion failed.
   goto :end
