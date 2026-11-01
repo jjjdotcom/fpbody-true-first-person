@@ -39,7 +39,7 @@ cvar_t	teamoverride = {"mp_teamoverride","1" };
 cvar_t	defaultteam = {"mp_defaultteam","0" };
 cvar_t	allowmonsters={"mp_allowmonsters","0", FCVAR_SERVER };
 
-cvar_t sv_buddha = { "sv_buddha", "0", 0 };	// fpbody: buddha mode
+cvar_t sv_buddha = { "sv_buddha", "1", FCVAR_ARCHIVE };	// fpbody: buddha mode (on by default; "buddha" toggles)
 cvar_t sv_fpbody_anims = { "sv_fpbody_anims", "cz", FCVAR_ARCHIVE };	// fpbody: cz / cs player weapon animations
 cvar_t sv_fpbody_regen = { "sv_fpbody_regen", "1", FCVAR_ARCHIVE };			// fpbody: health comes back by itself
 cvar_t sv_fpbody_regen_delay = { "sv_fpbody_regen_delay", "5", FCVAR_ARCHIVE };	// seconds without getting hurt first
