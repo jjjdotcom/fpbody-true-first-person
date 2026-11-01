@@ -81,6 +81,9 @@
 //   fp_actlist        list every available animation
 
 #include <stdarg.h>
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include "hud.h"
 #include "cl_util.h"
 #include "cvardef.h"
@@ -208,6 +211,9 @@ static bool OverlayIs( const char *name );
 static const char *OverlayName( void );
 static cvar_t *cl_fpbody_debug;
 static cvar_t *cl_fpbody_elbowdown;
+static cvar_t *cl_fpbody_grip_side;
+static void FP_GripCmd( void );
+static void FP_GripSetCmd( void );
 static cvar_t *cl_fpbody_reloadset;
 // cl_fpbody_debug 1: print what the body starts playing (overlays, gun clips) to the console
 static void FPDbg( const char *fmt, ... )
@@ -466,6 +472,7 @@ void FPAnim_Init( void )
 	cl_fpbody_gunlower  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gunlower", "20", FCVAR_ARCHIVE );
 	cl_fpbody_grip_fwd  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_fwd", "0", FCVAR_ARCHIVE );
 	cl_fpbody_grip_down = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_down", "0", FCVAR_ARCHIVE );
+	cl_fpbody_grip_side = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_side", "0", FCVAR_ARCHIVE );
 
 	cl_fpbody_moves     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_moves", "1", FCVAR_ARCHIVE );
 	cl_fpbody_atease    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_atease", "1", FCVAR_ARCHIVE );
@@ -487,6 +494,8 @@ void FPAnim_Init( void )
 	gEngfuncs.pfnAddCommand( "fp_invprev", FP_InvPrevCmd );
 	gEngfuncs.pfnAddCommand( "pm_prone", PM_ProneCmd );
 	gEngfuncs.pfnAddCommand( "pm_atease", PM_AtEaseCmd );
+	gEngfuncs.pfnAddCommand( "fp_grip", FP_GripCmd );
+	gEngfuncs.pfnAddCommand( "fp_grip_set", FP_GripSetCmd );
 	gEngfuncs.pfnAddCommand( "pm_holster", PM_HolsterCmd );
 
 	gEngfuncs.pfnAddCommand( "fp_act", FP_ActCmd );
@@ -2480,9 +2489,136 @@ static const gmhandle_t *GmHandleForModel( int modelindex )
 	return cached;
 }
 
+// Left-hand tuning per gun (fp_grip): forward along the barrel, left (+) / right (-)
+// across it, up (+) / down (-); saved in <game>/fpbody_grips.cfg. The cl_fpbody_grip_*
+// cvars add to every gun.
+struct gripofs_t { char model[ 32 ]; float ofs[ 3 ]; };
+static gripofs_t g_gripOfs[ 48 ];
+static int g_numGripOfs;
+static bool g_gripCfgRun;
+
+static void GunShortName( int weaponmodel, char *out, int size )
+{
+	out[ 0 ] = 0;
+	model_t *m = weaponmodel > 0 ? IEngineStudio.GetModelByIndex( weaponmodel ) : NULL;
+	if ( !m )
+		return;
+	const char *n = m->name, *sl = strrchr( n, '/' );
+	if ( sl )
+		n = sl + 1;
+	int i = 0;
+	for ( ; n[ i ] && n[ i ] != '.' && i < size - 1; i++ )
+		out[ i ] = (char)tolower( (unsigned char)n[ i ] );
+	out[ i ] = 0;
+}
+
+static gripofs_t *GripOfsFor( const char *name, bool create )
+{
+	for ( int i = 0; i < g_numGripOfs; i++ )
+		if ( !stricmp( g_gripOfs[ i ].model, name ) )
+			return &g_gripOfs[ i ];
+	if ( !create || g_numGripOfs >= 48 || !name[ 0 ] )
+		return NULL;
+	gripofs_t *g = &g_gripOfs[ g_numGripOfs++ ];
+	snprintf( g->model, sizeof( g->model ), "%s", name );
+	g->ofs[ 0 ] = g->ofs[ 1 ] = g->ofs[ 2 ] = 0.0f;
+	return g;
+}
+
+static void GripAdjust( float ( *light )[ 3 ][ 4 ], const gun_t *gun, int weaponmodel, float *target )
+{
+	char name[ 32 ];
+	GunShortName( weaponmodel, name, sizeof( name ) );
+	const gripofs_t *g = GripOfsFor( name, false );
+	float a = cl_fpbody_grip_fwd->value + ( g ? g->ofs[ 0 ] : 0.0f );
+	float b = cl_fpbody_grip_side->value + ( g ? g->ofs[ 1 ] : 0.0f );
+	float c = -cl_fpbody_grip_down->value + ( g ? g->ofs[ 2 ] : 0.0f );
+	if ( a == 0.0f && b == 0.0f && c == 0.0f )
+		return;
+	float fw[ 3 ], up[ 3 ] = { 0.0f, 0.0f, 1.0f }, left[ 3 ];
+	HandToWorldDir( light, g_skel.rHand, gun->axis, fw );
+	if ( Normalize3( fw ) < 1e-3f )
+		return;
+	float d = Dot3( up, fw );
+	for ( int i = 0; i < 3; i++ )
+		up[ i ] -= fw[ i ] * d;
+	if ( Normalize3( up ) < 1e-3f )
+		return;
+	Cross( up, fw, left );
+	for ( int i = 0; i < 3; i++ )
+		target[ i ] += fw[ i ] * a + left[ i ] * b + up[ i ] * c;
+}
+
+static void GripSave( void )
+{
+	char path[ 256 ];
+	snprintf( path, sizeof( path ), "%s/fpbody_grips.cfg", gEngfuncs.pfnGetGameDirectory() );
+	FILE *fp = fopen( path, "w" );
+	if ( !fp )
+	{
+		gEngfuncs.Con_Printf( "fp_grip: couldn't write %s\n", path );
+		return;
+	}
+	fprintf( fp, "// fpbody left-hand tuning per gun (fp_grip): forward, left, up\n" );
+	for ( int i = 0; i < g_numGripOfs; i++ )
+		fprintf( fp, "fp_grip_set %s %g %g %g\n", g_gripOfs[ i ].model, g_gripOfs[ i ].ofs[ 0 ],
+				 g_gripOfs[ i ].ofs[ 1 ], g_gripOfs[ i ].ofs[ 2 ] );
+	fclose( fp );
+}
+
+static void FP_GripSetCmd( void )
+{
+	if ( gEngfuncs.Cmd_Argc() < 5 )
+		return;
+	gripofs_t *g = GripOfsFor( gEngfuncs.Cmd_Argv( 1 ), true );
+	if ( g )
+		for ( int i = 0; i < 3; i++ )
+			g->ofs[ i ] = (float)atof( gEngfuncs.Cmd_Argv( 2 + i ) );
+}
+
+static void FP_GripCmd( void )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	char name[ 32 ];
+	GunShortName( local ? local->curstate.weaponmodel : 0, name, sizeof( name ) );
+	if ( !name[ 0 ] )
+	{
+		gEngfuncs.Con_Printf( "fp_grip: no gun in your hands\n" );
+		return;
+	}
+	int argc = gEngfuncs.Cmd_Argc();
+	if ( argc >= 2 && !stricmp( gEngfuncs.Cmd_Argv( 1 ), "reset" ) )
+	{
+		gripofs_t *g = GripOfsFor( name, false );
+		if ( g )
+			g->ofs[ 0 ] = g->ofs[ 1 ] = g->ofs[ 2 ] = 0.0f;
+		GripSave();
+		gEngfuncs.Con_Printf( "fp_grip: %s back to its default\n", name );
+		return;
+	}
+	if ( argc >= 2 )
+	{
+		gripofs_t *g = GripOfsFor( name, true );
+		if ( g )
+		{
+			for ( int i = 0; i < 3; i++ )
+				g->ofs[ i ] = argc > 1 + i ? (float)atof( gEngfuncs.Cmd_Argv( 1 + i ) ) : 0.0f;
+			GripSave();
+		}
+	}
+	const gripofs_t *g = GripOfsFor( name, false );
+	gEngfuncs.Con_Printf( "fp_grip %s: forward %g  left %g  up %g   (usage: fp_grip <forward> <left> <up>, negatives go back / right / down; fp_grip reset)\n",
+		name, g ? g->ofs[ 0 ] : 0.0f, g ? g->ofs[ 1 ] : 0.0f, g ? g->ofs[ 2 ] : 0.0f );
+}
+
 static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel,
 	const float *f, const float *r, const float *u, float now )
 {
+	if ( !g_gripCfgRun )
+	{
+		g_gripCfgRun = true;
+		gEngfuncs.pfnClientCmd( "exec fpbody_grips.cfg\n" );
+	}
 	const gun_t *gun = GunForModel( weaponmodel );
 	bool overlay = ( g_ovSeq >= 0 );	// GMod reload: hands leave the gun
 
@@ -2569,11 +2705,10 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 		if ( g_glOpenW > 0.0f && !strcmp( gh->model, "p_9mmar" ) )
 			for ( int i = 0; i < 3; i++ )
 				w[ i ] += ( glOpen[ i ] - w[ i ] ) * Smooth( g_glOpenW );
-		w[ 0 ] += cl_fpbody_grip_fwd->value;		// tuning: along the gun / under it
-		w[ 2 ] -= cl_fpbody_grip_down->value;
 		for ( int i = 0; i < 3; i++ )
 			target[ i ] = light[ ghBone ][ i ][ 0 ] * w[ 0 ] + light[ ghBone ][ i ][ 1 ] * w[ 1 ] +
 						  light[ ghBone ][ i ][ 2 ] * w[ 2 ] + light[ ghBone ][ i ][ 3 ];
+		GripAdjust( light, gun, weaponmodel, target );
 		ReachArm( bone, light, target, g_offW, false, cl_fpbody_elbowdown->value );
 	}
 	else if ( g_offW > 0.001f && gun->down >= 0.0f && haveRel )
@@ -2584,6 +2719,7 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 		for ( int i = 0; i < 3; i++ )
 			target[ i ] = light[ g_skel.rHand ][ i ][ 0 ] * lRel[ 0 ] + light[ g_skel.rHand ][ i ][ 1 ] * lRel[ 1 ] +
 						  light[ g_skel.rHand ][ i ][ 2 ] * lRel[ 2 ] + light[ g_skel.rHand ][ i ][ 3 ];
+		GripAdjust( light, gun, weaponmodel, target );
 		ReachArm( bone, light, target, g_offW, false, cl_fpbody_elbowdown->value );
 	}
 	else if ( g_offW > 0.001f && gun->down >= 0.0f )
@@ -2592,10 +2728,10 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 		HandToWorldDir( light, g_skel.rHand, gun->grip, grip );
 		HandToWorldDir( light, g_skel.rHand, gun->axis, barrel );
 		Normalize3( barrel );
-		float drop = gun->down + cl_fpbody_grip_down->value;
 		for ( int i = 0; i < 3; i++ )
-			target[ i ] = light[ g_skel.rHand ][ i ][ 3 ] + grip[ i ] + barrel[ i ] * cl_fpbody_grip_fwd->value;
-		target[ 2 ] -= drop;
+			target[ i ] = light[ g_skel.rHand ][ i ][ 3 ] + grip[ i ];
+		target[ 2 ] -= gun->down;
+		GripAdjust( light, gun, weaponmodel, target );
 		ReachArm( bone, light, target, g_offW, false, cl_fpbody_elbowdown->value );
 	}
 }
