@@ -46,7 +46,7 @@ extern "C"
 
 // fpbody: firing animations are played here (events), not through HUD_SendWeaponAnim:
 // tell the body about them too
-void FPAnim_OnWeaponAnim( int iAnim, int viewmodelIndex );
+extern "C++" void FPAnim_OnWeaponAnim( int iAnim, int viewmodelIndex );	// C++ linkage, whatever block this sits in
 static void FP_EV_WeaponAnimation( int sequence, int body )
 {
 	FPAnim_OnWeaponAnim( sequence, 0 );
