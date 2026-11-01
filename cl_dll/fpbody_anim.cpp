@@ -1833,7 +1833,17 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	// looping states
 	const char *loop = NULL;
 	float rate = 0.0f;
-	if ( st & FPM_PRONE )
+	if ( st & FPM_BARNACLE )
+	{
+		// caught by a barnacle: hands at the tongue round the neck, legs kicking;
+		// while you shoot at it the arms are yours (the gun aims)
+		bool shooting = ( in_attack.state & 1 ) || ( in_attack2.state & 1 ) || g_now - g_lastShot < 0.5f;
+		cl_entity_t *me = gEngfuncs.GetLocalPlayer();
+		bool armed = me && me->curstate.weaponmodel > 0;
+		if ( !( shooting && armed ) )
+			loop = "fm_strangle";
+	}
+	else if ( st & FPM_PRONE )
 	{
 		const char *hold = HoldType();
 		static char name[ 48 ];

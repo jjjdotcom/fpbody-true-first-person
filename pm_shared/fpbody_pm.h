@@ -31,6 +31,7 @@
 #define FPM_HITGROUP_SHIFT	10		// 3 bits, set by the server: where the last bullet hit us
 #define FPM_USE_SHIFT		13		// 3 bits, set by the server: what we just +used (FPM_USE_*)
 #define FPM_SPRINT			65536	// sprinting (+sprint = +alt1, IN_ALT1)
+#define FPM_BARNACLE		131072	// set by the server: a barnacle has us
 #define FPM_SPRINT_SCALE	1.25f	// speed while sprinting (320 -> 400)
 
 #define FPM_USE_DOOR		1		// Contextual Player Animations
