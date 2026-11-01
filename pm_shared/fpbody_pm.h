@@ -34,6 +34,11 @@
 #define FPM_BARNACLE		131072	// set by the server: a barnacle has us (fuser4 needs 24 bits in delta.lst)
 #define FPM_SPRINT_SCALE	1.25f	// speed while sprinting (320 -> 400)
 
+// Moves that are switched off (1 = on): prone (pm_prone, double-tap duck) and
+// sprinting (+alt1). Shift / LB walks instead (+speed, autoexec.cfg).
+#define FPM_ENABLE_PRONE	0
+#define FPM_ENABLE_SPRINT	0
+
 #define FPM_USE_DOOR		1		// Contextual Player Animations
 #define FPM_USE_BUTTON		2
 #define FPM_USE_OTHER		3

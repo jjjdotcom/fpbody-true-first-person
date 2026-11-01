@@ -509,7 +509,8 @@ void FPAnim_Init( void )
 	gEngfuncs.pfnAddCommand( "pm_kick", PM_KickCmd );
 	gEngfuncs.pfnAddCommand( "fp_invnext", FP_InvNextCmd );
 	gEngfuncs.pfnAddCommand( "fp_invprev", FP_InvPrevCmd );
-	gEngfuncs.pfnAddCommand( "pm_prone", PM_ProneCmd );
+	if ( FPM_ENABLE_PRONE )
+		gEngfuncs.pfnAddCommand( "pm_prone", PM_ProneCmd );
 	gEngfuncs.pfnAddCommand( "pm_atease", PM_AtEaseCmd );
 	gEngfuncs.pfnAddCommand( "fp_grip", FP_GripCmd );
 	gEngfuncs.pfnAddCommand( "fp_grip_set", FP_GripSetCmd );
@@ -1695,7 +1696,7 @@ float FPAnim_GaitScale( void )
 // input.cpp: whether the sprint button (IN_ALT1) goes out this frame
 int FPBody_SprintAllowed( int bits )
 {
-	if ( !cl_fpbody_sprint || cl_fpbody_sprint->value == 0.0f || g_spLocked )
+	if ( !FPM_ENABLE_SPRINT || !cl_fpbody_sprint || cl_fpbody_sprint->value == 0.0f || g_spLocked )
 		return 0;
 	return ( bits & ( IN_ATTACK | IN_ATTACK2 | IN_RELOAD ) ) ? 0 : 1;		// shooting stops it
 }
@@ -1751,7 +1752,8 @@ static bool DoubleTap( float &last )
 
 void FPBody_DuckPressed( int fresh )
 {
-	if ( fresh && cl_fpbody_doubletap && cl_fpbody_doubletap->value != 0.0f && FPBody_Active() && DoubleTap( g_mvLastDuck ) )
+	if ( FPM_ENABLE_PRONE && fresh && cl_fpbody_doubletap && cl_fpbody_doubletap->value != 0.0f && FPBody_Active() &&
+		 DoubleTap( g_mvLastDuck ) )
 		PM_ProneCmd();
 }
 

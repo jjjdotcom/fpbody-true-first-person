@@ -203,8 +203,10 @@ static int FPM_PreDuck( int onLadder )
 		st = FPM_Get();
 	}
 
-	// prone on / off
-	if ( pmove->cmd.impulse == FPM_IMP_PRONE )
+	// prone on / off (switched off: FPM_ENABLE_PRONE; a save made lying down gets up)
+	if ( !FPM_ENABLE_PRONE )
+		st &= ~FPM_PRONE;
+	else if ( pmove->cmd.impulse == FPM_IMP_PRONE )
 	{
 		if ( st & FPM_PRONE )
 			st &= ~FPM_PRONE;
@@ -309,7 +311,7 @@ static void FPM_PostDuck( void )
 
 	// sprint: forward, on the ground (keeps going through a jump), standing, dry
 	int busy = st & ( FPM_PRONE | FPM_SLIDE | FPM_VAULT | FPM_CLIMB );
-	int sprint = ( pmove->cmd.buttons & IN_ALT1 ) && pmove->cmd.forwardmove > 0.0f && !busy &&
+	int sprint = FPM_ENABLE_SPRINT && ( pmove->cmd.buttons & IN_ALT1 ) && pmove->cmd.forwardmove > 0.0f && !busy &&
 				 !( pmove->flags & FL_DUCKING ) && pmove->waterlevel < 2 && pmove->movetype == MOVETYPE_WALK &&
 				 ( pmove->onground != -1 || ( st & FPM_SPRINT ) );
 	if ( sprint != ( ( st & FPM_SPRINT ) != 0 ) )
