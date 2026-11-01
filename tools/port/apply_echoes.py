@@ -293,8 +293,7 @@ rep('cl_dll/input.cpp', [
 ])
 
 rep('cl_dll/view.cpp', [
-    ('#include "view.h"\n', '#include "view.h"\n#include "fpbody.h"\n#include "fpbody_anim.h"\n'),
-    ('	int CL_IsThirdPerson( void );\n	void CL_CameraOffset( float *ofs );\n', '	int CL_IsThirdPerson( void );\n	int CAM_IsRealThirdPerson( void );\n	void CL_CameraOffset( float *ofs );\n'),
+    ('#include "view.h"\n', '#include "view.h"\n#include "fpbody.h"\n#include "fpbody_anim.h"\n\nint CAM_IsRealThirdPerson( void );	// fpbody: in_camera.cpp (C++ linkage, like fpbody.cpp)\n'),
     ('''	pparams->vieworg[2] += bob ;
 	VectorAdd( pparams->vieworg, pparams->viewheight, pparams->vieworg );
 ''', '''	pparams->vieworg[2] += bob ;
