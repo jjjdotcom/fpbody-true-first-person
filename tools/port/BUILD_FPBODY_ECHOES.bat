@@ -4,8 +4,10 @@ rem Builds "Echoes: True First Person" (client.dll + echoes.dll, Release | Win32
 rem with your installed Visual Studio and CMake, and sets up the fpbody_echoes
 rem mod folder. Put this SDK folder (fpbody_echoes_sdk) in your Half-Life folder,
 rem next to the echoes folder (Half-Life: Echoes must be installed there).
+rem the Half-Life folder is the one this SDK folder sits in
+cd /d "%~dp0.."
+set "HL=%CD%"
 cd /d "%~dp0"
-for %%d in ("%~dp0..") do set "HL=%%~fd"
 set "MOD=%HL%\fpbody_echoes"
 set "GAME=%HL%\echoes"
 rem everything is also written to this log (send it to Claude if something fails)
