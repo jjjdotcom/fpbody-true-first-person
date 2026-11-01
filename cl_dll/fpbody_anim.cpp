@@ -2499,6 +2499,23 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	if ( !gun || g_skel.rUpper < 0 || g_skel.rHand < 0 )
 		return;
 
+	// pistols: where the animation has the left hand, in the gun hand's space
+	// (two-handed holds like Counter-Strike's wrap it round the grip), to keep it
+	// there when the arms are moved below
+	float lRel[ 3 ] = { 0, 0, 0 };
+	bool haveRel = false;
+	if ( gun->pistol && g_skel.lHand >= 0 )
+	{
+		float d[ 3 ];
+		for ( int i = 0; i < 3; i++ )
+			d[ i ] = light[ g_skel.lHand ][ i ][ 3 ] - light[ g_skel.rHand ][ i ][ 3 ];
+		for ( int c = 0; c < 3; c++ )
+			lRel[ c ] = light[ g_skel.rHand ][ 0 ][ c ] * d[ 0 ] + light[ g_skel.rHand ][ 1 ][ c ] * d[ 1 ] +
+						light[ g_skel.rHand ][ 2 ][ c ] * d[ 2 ];
+		// only if it is on the gun: within a hand's length of the gun hand
+		haveRel = Dot3( lRel, lRel ) < 8.0f * 8.0f;
+	}
+
 	// 1a. pistols: two-handed hold, shooting hand in front of the chest and
 	//     the pistol pointed down the view by the wrist
 	if ( gun->pistol && g_offW > 0.001f && g_skel.lClav >= 0 && g_skel.rClav >= 0 )
@@ -2557,6 +2574,16 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 		for ( int i = 0; i < 3; i++ )
 			target[ i ] = light[ ghBone ][ i ][ 0 ] * w[ 0 ] + light[ ghBone ][ i ][ 1 ] * w[ 1 ] +
 						  light[ ghBone ][ i ][ 2 ] * w[ 2 ] + light[ ghBone ][ i ][ 3 ];
+		ReachArm( bone, light, target, g_offW, false, cl_fpbody_elbowdown->value );
+	}
+	else if ( g_offW > 0.001f && gun->down >= 0.0f && haveRel )
+	{
+		// pistol in the animation's two-handed grip: the left hand stays where the
+		// animation put it on the gun, wherever the gun hand has been moved to
+		float target[ 3 ];
+		for ( int i = 0; i < 3; i++ )
+			target[ i ] = light[ g_skel.rHand ][ i ][ 0 ] * lRel[ 0 ] + light[ g_skel.rHand ][ i ][ 1 ] * lRel[ 1 ] +
+						  light[ g_skel.rHand ][ i ][ 2 ] * lRel[ 2 ] + light[ g_skel.rHand ][ i ][ 3 ];
 		ReachArm( bone, light, target, g_offW, false, cl_fpbody_elbowdown->value );
 	}
 	else if ( g_offW > 0.001f && gun->down >= 0.0f )
