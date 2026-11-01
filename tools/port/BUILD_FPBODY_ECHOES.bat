@@ -8,47 +8,52 @@ cd /d "%~dp0"
 for %%d in ("%~dp0..") do set "HL=%%~fd"
 set "MOD=%HL%\fpbody_echoes"
 set "GAME=%HL%\echoes"
+rem everything is also written to this log (send it to Claude if something fails)
+set "LOG=%HL%\fpbody_echoes_build.log"
+echo Echoes: True First Person build, %DATE% %TIME% > "%LOG%"
 
 if not exist "%GAME%\liblist.gam" (
-  echo Half-Life: Echoes is not installed in %GAME%
-  echo Install Echoes there first ^(its folder must be called "echoes"^), then run this again.
+  call :say Half-Life: Echoes is not installed in %GAME%
+  call :say Install Echoes there first - its folder must be called echoes - then run this again.
   goto :end
 )
 
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not exist "%VSWHERE%" (
-  echo Could not find vswhere.exe. Is Visual Studio installed?
+  call :say Could not find vswhere.exe. Is Visual Studio installed?
   goto :end
 )
 
-rem CMake: the one that comes with Visual Studio, else one on the PATH
+rem CMake: one that comes with any installed Visual Studio (newest last), else one on the PATH
 set "CMAKE="
-for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -latest -products * -find Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`) do set "CMAKE=%%i"
+for /f "usebackq tokens=*" %%i in (`"%VSWHERE%" -all -prerelease -products * -sort -find Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`) do if not defined CMAKE set "CMAKE=%%i"
 if not defined CMAKE for /f "delims=" %%i in ('where cmake 2^>nul') do if not defined CMAKE set "CMAKE=%%i"
 if not defined CMAKE (
-  echo Could not find CMake. In Visual Studio Installer, modify your Visual Studio and tick
-  echo "C++ CMake tools for Windows" ^(under Desktop development with C++^), then run this again.
+  call :say Could not find CMake. In Visual Studio Installer, modify your Visual Studio and tick
+  call :say "C++ CMake tools for Windows" under Desktop development with C++, then run this again.
   goto :end
 )
-echo Using: %CMAKE%
+call :say Using: %CMAKE%
 echo.
 
-"%CMAKE%" -A Win32 -B build -DCMAKE_INSTALL_PREFIX="%HL%"
+call :say Configuring ...
+"%CMAKE%" -A Win32 -B build -DCMAKE_INSTALL_PREFIX="%HL%" >> "%LOG%" 2>&1
 if errorlevel 1 goto :failed
-"%CMAKE%" --build build --config Release --parallel
+call :say Building - this takes a few minutes ...
+"%CMAKE%" --build build --config Release --parallel >> "%LOG%" 2>&1
 if errorlevel 1 goto :failed
-"%CMAKE%" --install build --config Release
+"%CMAKE%" --install build --config Release >> "%LOG%" 2>&1
 if errorlevel 1 goto :failed
 
 if not exist "%MOD%\cl_dlls\client.dll" (
-  echo Build finished, but client.dll was not copied to %MOD%\cl_dlls
+  call :say Build finished, but client.dll was not copied to %MOD%\cl_dlls
   goto :end
 )
 
 rem The mod folder: Echoes' own liblist.gam with our DLL and Echoes as the fallback
 rem (its maps, sounds and models come from the echoes folder)
 echo.
-echo Setting up %MOD% ...
+call :say Setting up %MOD% ...
 if not exist "%MOD%" mkdir "%MOD%"
 (
   echo game "Echoes: True First Person"
@@ -59,11 +64,11 @@ if not exist "%MOD%" mkdir "%MOD%"
   echo cldll "1"
 ) > "%MOD%\liblist.gam"
 findstr /v /i /r /c:"^game " /c:"^gamedir" /c:"^fallback_dir" /c:"^gamedll" /c:"^cldll" "%GAME%\liblist.gam" >> "%MOD%\liblist.gam"
-echo liblist.gam written
+call :say liblist.gam written
 
 rem The body models and the network settings come from the Half-Life mod (fpbody)
 if not exist "%HL%\fpbody\models\player.mdl" (
-  echo The fpbody folder ^(Half-Life: True First Person^) is missing its models - install that first.
+  call :say The fpbody folder - Half-Life: True First Person - is missing its models. Install that first.
   goto :end
 )
 if not exist "%MOD%\models" mkdir "%MOD%\models"
@@ -77,14 +82,21 @@ if not exist "%MOD%\fpbody_grips.cfg" if exist "%HL%\fpbody\fpbody_grips.cfg" co
 if not exist "%MOD%\fpbody_guns.cfg" if exist "%HL%\fpbody\fpbody_guns.cfg" copy /y "%HL%\fpbody\fpbody_guns.cfg" "%MOD%\" >nul
 
 echo.
-echo SUCCESS: Echoes: True First Person is in %MOD%
-echo Restart Steam and launch "Echoes: True First Person", or run hl.exe -game fpbody_echoes
+call :say SUCCESS: Echoes: True First Person is in %MOD%
+call :say Restart Steam and launch "Echoes: True First Person", or run hl.exe -game fpbody_echoes
 goto :end
 
 :failed
 echo.
-echo BUILD FAILED. Copy the error lines above and paste them to Claude.
+type "%LOG%" | findstr /i /c:"error" /c:"CMake Error" /c:"failed"
+call :say BUILD FAILED. The full log is %LOG% - tell Claude.
 
 :end
 echo.
 pause
+exit /b
+
+:say
+echo %*
+echo %* >> "%LOG%"
+exit /b
