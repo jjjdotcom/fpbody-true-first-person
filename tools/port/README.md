@@ -57,3 +57,19 @@ writes its liblist.gam from Echoes' own (with `fallback_dir "echoes"`, so the
 maps, sounds and models come from Echoes) and copies the body models,
 delta.lst and settings from the Half-Life mod (`..\fpbody`). Echoes keeps its
 own weapon and ammo balance.
+
+## Half-Life: Field Intensity
+
+Field Intensity's code is the `field_intensity_1.7` branch of FreeSlave's
+[Half-Life Featureful SDK](https://github.com/FreeSlave/halflife-featureful)
+(hlsdk-portable based, CMake):
+
+    git clone -b field_intensity_1.7 --recursive https://github.com/FreeSlave/halflife-featureful fpbody_fi_sdk
+    python3 tools/port/apply_fi.py fpbody_fi_sdk
+    copy tools\port\BUILD_FPBODY_FI.bat fpbody_fi_sdk\
+
+`BUILD_FPBODY_FI.bat` builds into `..\fpbody_fi` with `fallback_dir
+"field_intensity"`. Its weapons take their player animation extension from
+templates, so `DefaultDeploy` maps them by the gun's p_ model to the fpbody
+holds. delta.lst is Field Intensity's own, with fuser4 widened to 24 bits; the
+Half-Life p_ models are copied only where Field Intensity has none of its own.
