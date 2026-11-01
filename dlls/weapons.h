@@ -117,7 +117,7 @@ public:
 #define SATCHEL_MAX_CARRY		5
 #define TRIPMINE_MAX_CARRY		5
 #define SNARK_MAX_CARRY			15
-#define HORNET_MAX_CARRY		8
+#define HORNET_MAX_CARRY		25
 #define M203_GRENADE_MAX_CARRY	10
 
 // the maximum amount of ammo each weapon's clip can hold
