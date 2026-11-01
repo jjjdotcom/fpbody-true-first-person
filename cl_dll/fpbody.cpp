@@ -783,6 +783,8 @@ int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr
 		lenOk[ i ] = mh && mh->length == d->length;
 	}
 
+	// the Half-Life: Source style bodies get the guns pulled in to touch them
+	bool hlsBody = !strnicmp( hdr->name, "fpbody_hls", 10 ) || strstr( hdr->name, "/fpbody_hls" ) != NULL;
 	int n = 0;
 	for ( int i = 0; i < NUM_HOLSTER_DEFS && n < max; i++ )
 	{
@@ -810,6 +812,15 @@ int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr
 		out[ n ].anchor = anchorOf[ i ];
 		out[ n ].local = d->local;
 		out[ n ].keep = d->keep;
+		out[ n ].shift[ 0 ] = out[ n ].shift[ 1 ] = out[ n ].shift[ 2 ] = 0.0f;
+		if ( hlsBody && lenOk[ i ] )
+			for ( int k = 0; k < (int)( sizeof( g_holsterShiftHLS ) / sizeof( g_holsterShiftHLS[ 0 ] ) ); k++ )
+				if ( g_holsterShiftHLS[ k ].length == d->length && !stricmp( g_holsterShiftHLS[ k ].bone, d->bone ) )
+				{
+					for ( int c = 0; c < 3; c++ )
+						out[ n ].shift[ c ] = g_holsterShiftHLS[ k ].shift[ c ];
+					break;
+				}
 		n++;
 	}
 	return n;
@@ -823,7 +834,8 @@ void FPBody_HolsterMatrix( const fpholster_t *h, const float ( *playerLight )[ 3
 	{
 		for ( int c = 0; c < 3; c++ )
 			out[ r ][ c ] = A[ r ][ 0 ] * L[ 0 ][ c ] + A[ r ][ 1 ] * L[ 1 ][ c ] + A[ r ][ 2 ] * L[ 2 ][ c ];
-		out[ r ][ 3 ] = A[ r ][ 0 ] * L[ 0 ][ 3 ] + A[ r ][ 1 ] * L[ 1 ][ 3 ] + A[ r ][ 2 ] * L[ 2 ][ 3 ] + A[ r ][ 3 ];
+		out[ r ][ 3 ] = A[ r ][ 0 ] * ( L[ 0 ][ 3 ] + h->shift[ 0 ] ) + A[ r ][ 1 ] * ( L[ 1 ][ 3 ] + h->shift[ 1 ] ) +
+						A[ r ][ 2 ] * ( L[ 2 ][ 3 ] + h->shift[ 2 ] ) + A[ r ][ 3 ];
 	}
 }
 
