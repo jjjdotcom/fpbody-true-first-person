@@ -184,6 +184,22 @@ def head_bones(S):
     return out
 
 
+def subtree_bones(S, names):
+    """bones at or under any of the named ValveBiped bones"""
+    roots = {S.bone_by_name[retarget.VB + n] for n in names if retarget.VB + n in S.bone_by_name}
+    out = set()
+    for i in range(len(S.bones)):
+        j = i
+        while j >= 0 and j not in roots:
+            j = S.bones[j]['parent']
+        if j >= 0:
+            out.add(i)
+    return out
+
+
+HAND_ROOTS = ('L_Hand', 'R_Hand')
+
+
 def is_head_tri(S, hb, t):
     n = sum(1 for v in t if max(S.vertices[v]['bones'], key=lambda bw: bw[1])[0] in hb)
     return n >= 2
@@ -191,13 +207,25 @@ def is_head_tri(S, hb, t):
 
 def build_mesh(S, P, W, X, rt, choose, keep='all', matoff=0, partnames=None):
     """GoldSrc body parts: [(name, vertices, vertex bones, normals, normal bones, meshes)]
-    keep: 'all', 'nohead' (drop the triangles skinned to the head) or 'head' (only those)."""
+    keep: 'all', 'nohead' (drop the triangles skinned to the head) or 'head' (only those),
+    or a function (S, triangle) -> keep it."""
     hb = head_bones(S)
     Rs, Ts = S.bind_world()
     tgt_by_srcname = {retarget.VB + sn: P.bone_by_name[tn] for tn, sn in retarget.MAP}
     # Source bone -> (GoldSrc bone, the Source bone whose joint it hangs from)
     bmap = {}
+    # Half-Life's hands have a thumb and one finger: the index, ring and little
+    # fingers bend with it (the middle finger's joints), instead of staying stiff
+    alias = {}
+    for side in ('L', 'R'):
+        for f in ('1', '3', '4'):
+            for k in ('', '1', '2'):
+                alias[retarget.VB + '%s_Finger%s%s' % (side, f, k)] = retarget.VB + '%s_Finger2%s' % (side, k)
     for i, b in enumerate(S.bones):
+        al = alias.get(b['name'])
+        if al and al in tgt_by_srcname and al in S.bone_by_name:
+            bmap[i] = (tgt_by_srcname[al], S.bone_by_name[al])
+            continue
         j = i
         while j >= 0 and S.bones[j]['name'] not in tgt_by_srcname:
             j = S.bones[j]['parent']
@@ -207,7 +235,10 @@ def build_mesh(S, P, W, X, rt, choose, keep='all', matoff=0, partnames=None):
     for bp, (bpname, nm) in enumerate(S.bodyparts):
         sub = choose.get(bpname.lower(), 0)
         meshes = [(mat, tris) for mat, tris, b, m in S.meshes if b == bp and m == sub and tris]
-        if keep != 'all':
+        if callable(keep):
+            meshes = [(mat, [t for t in tris if keep(S, t)]) for mat, tris in meshes]
+            meshes = [(mat, tris) for mat, tris in meshes if tris]
+        elif keep != 'all':
             want = keep == 'head'
             meshes = [(mat, [t for t in tris if is_head_tri(S, hb, t) == want]) for mat, tris in meshes]
             meshes = [(mat, tris) for mat, tris in meshes if tris]
@@ -324,6 +355,8 @@ def main():
     ap.add_argument('--body', default='')
     ap.add_argument('--head', default='')
     ap.add_argument('--head-body', default='')
+    ap.add_argument('--hands', default='')
+    ap.add_argument('--hands-body', default='')
     ap.add_argument('--tint', type=float, default=None)
     ap.add_argument('--sat', type=float, default=1.0)
     a = ap.parse_args()
@@ -345,15 +378,32 @@ def main():
     tmp = a.out + '.tmp'
     P.write(tmp, seqs)
     roots = [r for r in a.roots.split(',') if r]
-    if a.head:
-        H = SourceMesh(a.head, roots)
-        parts = build_mesh(S, P, W, X, rt, choose, keep='nohead')
-        hparts = build_mesh(H, P, W, X, rt, parse(a.head_body), keep='head', matoff=len(S.materials), partnames='head')
-        used = {m for p in parts for m, _ in p[5]}
-        hused = {m - len(S.materials) for p in hparts for m, _ in p[5]}
-        textures = (convert_textures(S, a.tint, a.sat, skip=set(range(len(S.materials))) - used) +
-                    convert_textures(H, skip=set(range(len(H.materials))) - hused))
-        parts += hparts
+    if a.head or a.hands:
+        # the main model, minus the head and / or hands taken from other models
+        def region(Mdl, bones):
+            return lambda _S, t: sum(1 for v in t if max(_S.vertices[v]['bones'], key=lambda bw: bw[1])[0] in bones) >= 2
+        sh = head_bones(S) if a.head else set()
+        sg = subtree_bones(S, HAND_ROOTS) if a.hands else set()
+        parts = build_mesh(S, P, W, X, rt, choose, keep=lambda _S, t: not region(S, sh)(_S, t) and not region(S, sg)(_S, t))
+        srcs = [(S, parts, a.tint)]
+        matoff = len(S.materials)
+        if a.head:
+            H = SourceMesh(a.head, roots)
+            hparts = build_mesh(H, P, W, X, rt, parse(a.head_body), keep='head', matoff=matoff, partnames='head')
+            srcs.append((H, hparts, None)); matoff += len(H.materials)
+        if a.hands:
+            G = SourceMesh(a.hands, roots)
+            gb = subtree_bones(G, HAND_ROOTS)
+            gparts = build_mesh(G, P, W, X, rt, parse(a.hands_body), keep=region(G, gb), matoff=matoff, partnames='hands')
+            srcs.append((G, gparts, a.tint)); matoff += len(G.materials)
+        textures = []
+        parts = []
+        off = 0
+        for Mdl, ps, tn in srcs:
+            used = {m - off for p in ps for m, _ in p[5]}
+            textures += convert_textures(Mdl, tn, a.sat if tn is not None else 1.0, skip=set(range(len(Mdl.materials))) - used)
+            parts += ps
+            off += len(Mdl.materials)
         skins = [list(range(len(textures)))]
     else:
         parts = build_mesh(S, P, W, X, rt, choose)
