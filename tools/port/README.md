@@ -39,3 +39,21 @@ without the PCV vest (his player model's second body), `fpbody_suit.mdl` a
 green HEV suit with his helmet and gas mask, shown once he has the PCV
 (the suit item). The player model also gets `*_penguin` sequences (held like
 the snark), which Opposing Force's penguin asks for.
+
+## Half-Life: Echoes
+
+Echoes' code is public as the `echoes` branch of FWGS's
+[hlsdk-portable](https://github.com/FWGS/hlsdk-portable/tree/echoes) (Spirit of
+Half-Life based, built with CMake):
+
+    git clone -b echoes --recursive https://github.com/FWGS/hlsdk-portable fpbody_echoes_sdk
+    python3 tools/port/apply_echoes.py fpbody_echoes_sdk
+    copy tools\port\BUILD_FPBODY_ECHOES.bat fpbody_echoes_sdk\
+
+Put `fpbody_echoes_sdk` in the Half-Life folder, next to an installed `echoes`
+folder, and run `BUILD_FPBODY_ECHOES.bat` (it needs Visual Studio's "C++ CMake
+tools for Windows"). It builds client.dll and echoes.dll into `..\fpbody_echoes`,
+writes its liblist.gam from Echoes' own (with `fallback_dir "echoes"`, so the
+maps, sounds and models come from Echoes) and copies the body models,
+delta.lst and settings from the Half-Life mod (`..\fpbody`). Echoes keeps its
+own weapon and ammo balance.
