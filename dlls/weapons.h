@@ -109,10 +109,10 @@ public:
 // weapon clip/carry ammo capacities
 #define URANIUM_MAX_CARRY		500	// fpbody: was 100
 #define	_9MM_MAX_CARRY			350	// fpbody: was 250
-#define _357_MAX_CARRY			36
-#define BUCKSHOT_MAX_CARRY		125
+#define _357_MAX_CARRY			60
+#define BUCKSHOT_MAX_CARRY		136
 #define BOLT_MAX_CARRY			50
-#define ROCKET_MAX_CARRY		5
+#define ROCKET_MAX_CARRY		15
 #define HANDGRENADE_MAX_CARRY	10
 #define SATCHEL_MAX_CARRY		5
 #define TRIPMINE_MAX_CARRY		5
