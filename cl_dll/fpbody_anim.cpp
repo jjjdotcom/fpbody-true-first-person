@@ -213,6 +213,7 @@ static cvar_t *cl_fpbody_debug;
 static cvar_t *cl_fpbody_elbowdown;
 static cvar_t *cl_fpbody_grip_side;
 static cvar_t *cl_fpbody_swimhold;
+static cvar_t *cl_fpbody_fingers;
 static float g_relaxW;			// how far the at-ease hold is in (0..1), for fp_gun_relax
 static void FP_GripCmd( void );
 static void FP_GripSetCmd( void );
@@ -224,6 +225,8 @@ static void FP_RelaxHandCmd( void );
 static void FP_RelaxLHandCmd( void );
 static void FP_RelaxHandSetCmd( void );
 static void FP_RelaxLHandSetCmd( void );
+static void FP_FingersCmd( void );
+static void FP_FingersSetCmd( void );
 static cvar_t *cl_fpbody_reloadset;
 // cl_fpbody_debug 1: print what the body starts playing (overlays, gun clips) to the console
 static void FPDbg( const char *fmt, ... )
@@ -484,6 +487,7 @@ void FPAnim_Init( void )
 	cl_fpbody_grip_down = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_down", "0", FCVAR_ARCHIVE );
 	cl_fpbody_grip_side = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_side", "0", FCVAR_ARCHIVE );
 	cl_fpbody_swimhold  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_swimhold", "1", FCVAR_ARCHIVE );
+	cl_fpbody_fingers   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_fingers", "1", FCVAR_ARCHIVE );
 
 	cl_fpbody_moves     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_moves", "1", FCVAR_ARCHIVE );
 	cl_fpbody_atease    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_atease", "1", FCVAR_ARCHIVE );
@@ -515,6 +519,8 @@ void FPAnim_Init( void )
 	gEngfuncs.pfnAddCommand( "fp_relax_lhand", FP_RelaxLHandCmd );
 	gEngfuncs.pfnAddCommand( "fp_relax_hand_set", FP_RelaxHandSetCmd );
 	gEngfuncs.pfnAddCommand( "fp_relax_lhand_set", FP_RelaxLHandSetCmd );
+	gEngfuncs.pfnAddCommand( "fp_fingers", FP_FingersCmd );
+	gEngfuncs.pfnAddCommand( "fp_fingers_set", FP_FingersSetCmd );
 	gEngfuncs.pfnAddCommand( "pm_holster", PM_HolsterCmd );
 
 	gEngfuncs.pfnAddCommand( "fp_act", FP_ActCmd );
@@ -2663,7 +2669,7 @@ static void FP_GripCmd( void )
 // barrel). fp_gun_relax is used instead while the gun is lowered (at ease),
 // blended in and out with it. Saved per gun in <game>/fpbody_guns.cfg.
 // ---------------------------------------------------------------------------
-struct gunofs_t { char model[ 32 ]; float ofs[ 6 ]; float rel[ 6 ]; bool hasRel; float hand[ 6 ]; bool hasHand; float lhand[ 3 ]; bool hasLHand; };
+struct gunofs_t { char model[ 32 ]; float ofs[ 6 ]; float rel[ 6 ]; bool hasRel; float hand[ 6 ]; bool hasHand; float lhand[ 3 ]; bool hasLHand; float fingers[ 4 ]; bool hasFingers; };
 static gunofs_t g_gunOfs[ 48 ];
 static int g_numGunOfs;
 
@@ -2702,6 +2708,9 @@ static void GunSave( void )
 			fprintf( fp, "fp_relax_hand_set %s %g %g %g %g %g %g\n", g_gunOfs[ i ].model, h[ 0 ], h[ 1 ], h[ 2 ], h[ 3 ], h[ 4 ], h[ 5 ] );
 		if ( g_gunOfs[ i ].hasLHand )
 			fprintf( fp, "fp_relax_lhand_set %s %g %g %g\n", g_gunOfs[ i ].model, l[ 0 ], l[ 1 ], l[ 2 ] );
+		const float *fg = g_gunOfs[ i ].fingers;
+		if ( g_gunOfs[ i ].hasFingers )
+			fprintf( fp, "fp_fingers_set %s %g %g %g %g\n", g_gunOfs[ i ].model, fg[ 0 ], fg[ 1 ], fg[ 2 ], fg[ 3 ] );
 	}
 	fclose( fp );
 }
@@ -3001,6 +3010,145 @@ static void ApplyRelaxHands( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4
 			target[ i ] = H[ i ] + ( fh[ i ] * g->lhand[ 0 ] + lf[ i ] * g->lhand[ 1 ] + up[ i ] * g->lhand[ 2 ] ) * w;
 		ReachArm( bone, light, target, 1.0f, false, 0.0f );
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Fingers round the gun: extra curl of the fingers / thumbs, in degrees per
+// joint (+ = closed tighter, - = opened), on top of the hold's own. Built-in
+// defaults per gun (the left hand that goes onto barrels and pumps closes round
+// them), plus fp_fingers per gun: right fingers, left fingers, right thumb,
+// left thumb.
+// ---------------------------------------------------------------------------
+struct fingerdef_t { const char *model; float curl[ 4 ]; };
+static const fingerdef_t g_fingerDefs[] =
+{
+	// two-handed guns: the left hand wraps the barrel / pump / handle
+	{ "p_9mmar",          { 0.0f, 25.0f, 0.0f, 15.0f } },
+	{ "p_shotgun",        { 0.0f, 25.0f, 0.0f, 15.0f } },
+	{ "p_crossbow",       { 0.0f, 25.0f, 0.0f, 15.0f } },
+	{ "p_rpg",            { 0.0f, 25.0f, 0.0f, 15.0f } },
+	{ "p_gauss",          { 0.0f, 30.0f, 0.0f, 15.0f } },
+	{ "p_egon",           { 0.0f, 30.0f, 0.0f, 15.0f } },
+	{ "p_hgun",           { 0.0f, 15.0f, 0.0f, 10.0f } },
+	{ "p_saw",            { 0.0f, 25.0f, 0.0f, 15.0f } },
+	{ "p_m40a1",          { 0.0f, 25.0f, 0.0f, 15.0f } },
+	{ "p_shock",          { 0.0f, 25.0f, 0.0f, 15.0f } },
+	{ "p_spore_launcher", { 0.0f, 25.0f, 0.0f, 15.0f } },
+	{ "p_displacer",      { 0.0f, 30.0f, 0.0f, 15.0f } },
+};
+static float g_fingerRW, g_fingerLW;
+
+static void FP_FingersSetCmd( void )
+{
+	if ( gEngfuncs.Cmd_Argc() < 3 )
+		return;
+	gunofs_t *g = GunOfsFor( gEngfuncs.Cmd_Argv( 1 ), true );
+	if ( !g )
+		return;
+	float t[ 6 ];
+	GunSetFrom( t, 2 );
+	memcpy( g->fingers, t, sizeof( g->fingers ) );
+	g->hasFingers = true;
+}
+
+static void FP_FingersCmd( void )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	char name[ 32 ];
+	GunShortName( local ? local->curstate.weaponmodel : 0, name, sizeof( name ) );
+	if ( !name[ 0 ] )
+	{
+		gEngfuncs.Con_Printf( "fp_fingers: nothing in your hands\n" );
+		return;
+	}
+	if ( gEngfuncs.Cmd_Argc() >= 2 )
+	{
+		gunofs_t *g = GunOfsFor( name, true );
+		if ( g && !stricmp( gEngfuncs.Cmd_Argv( 1 ), "reset" ) )
+		{
+			memset( g->fingers, 0, sizeof( g->fingers ) );
+			g->hasFingers = false;
+		}
+		else if ( g )
+		{
+			float t[ 6 ];
+			GunSetFrom( t, 1 );
+			memcpy( g->fingers, t, sizeof( g->fingers ) );
+			g->hasFingers = true;
+		}
+		GunSave();
+	}
+	const gunofs_t *g = GunOfsFor( name, false );
+	float def[ 4 ] = { 0, 0, 0, 0 };
+	for ( int i = 0; i < (int)( sizeof( g_fingerDefs ) / sizeof( g_fingerDefs[ 0 ] ) ); i++ )
+		if ( !stricmp( g_fingerDefs[ i ].model, name ) )
+			memcpy( def, g_fingerDefs[ i ].curl, sizeof( def ) );
+	const float *o = g && g->hasFingers ? g->fingers : NULL;
+	gEngfuncs.Con_Printf( "fp_fingers %s: right fingers %g  left fingers %g  right thumb %g  left thumb %g   (built in: %g %g %g %g, yours add to them)\n",
+		name, o ? o[ 0 ] : 0.0f, o ? o[ 1 ] : 0.0f, o ? o[ 2 ] : 0.0f, o ? o[ 3 ] : 0.0f, def[ 0 ], def[ 1 ], def[ 2 ], def[ 3 ] );
+	gEngfuncs.Con_Printf( "  usage: fp_fingers <right> <left> [right thumb] [left thumb]   (degrees per joint: + closes, - opens); fp_fingers reset\n" );
+}
+
+static void CurlChain( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], const char *const *names, int axisCol, float axisSign, float deg )
+{
+	if ( deg == 0.0f || !g_skel.hdr )
+		return;
+	const mstudiobone_t *bones = (const mstudiobone_t *)( (const byte *)g_skel.hdr + g_skel.hdr->boneindex );
+	int num = g_skel.numbones;
+	for ( int k = 0; k < 3; k++ )
+	{
+		int b = FindBone( bones, num, names[ k ], NULL );
+		if ( b < 0 )
+			return;
+		static bool mask[ MAXSTUDIOBONES ];
+		for ( int i = 0; i < num; i++ )
+		{
+			int j = i;
+			while ( j >= 0 && j != b )
+				j = bones[ j ].parent;
+			mask[ i ] = ( j == b );
+		}
+		float axis[ 3 ] = { light[ b ][ 0 ][ axisCol ] * axisSign, light[ b ][ 1 ][ axisCol ] * axisSign, light[ b ][ 2 ][ axisCol ] * axisSign };
+		if ( Normalize3( axis ) < 1e-3f )
+			return;
+		float pivot[ 3 ];
+		BoneOrigin( light, b, pivot );
+		mat3_t W;
+		AxisAngle( axis, deg, W );
+		TransformBones( bone, light, mask, W, pivot, NULL );
+	}
+}
+
+static void ApplyFingers( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel )
+{
+	char name[ 32 ];
+	GunShortName( weaponmodel, name, sizeof( name ) );
+	float curl[ 4 ] = { 0, 0, 0, 0 };
+	if ( name[ 0 ] && ( !cl_fpbody_fingers || cl_fpbody_fingers->value != 0.0f ) )
+	{
+		for ( int i = 0; i < (int)( sizeof( g_fingerDefs ) / sizeof( g_fingerDefs[ 0 ] ) ); i++ )
+			if ( !stricmp( g_fingerDefs[ i ].model, name ) )
+				for ( int k = 0; k < 4; k++ )
+					curl[ k ] = g_fingerDefs[ i ].curl[ k ];
+		const gunofs_t *g = GunOfsFor( name, false );
+		if ( g && g->hasFingers )
+			for ( int k = 0; k < 4; k++ )
+				curl[ k ] += g->fingers[ k ];
+	}
+	// the gun hand: while holding the gun (not in a move or reload); the other
+	// hand: as far as it is on the gun
+	float rTarget = ( name[ 0 ] && g_ovSeq < 0 ) ? 1.0f : 0.0f;
+	g_fingerRW += ( rTarget - g_fingerRW ) * Clamp01( g_frameTime * 8.0f );
+	g_fingerLW = Clamp01( g_offW );
+	static const char *rf[] = { "Bip01 R Finger1", "Bip01 R Finger11", "Bip01 R Finger12" };
+	static const char *lf[] = { "Bip01 L Finger1", "Bip01 L Finger11", "Bip01 L Finger12" };
+	static const char *rt[] = { "Bip01 R Finger0", "Bip01 R Finger01", "Bip01 R Finger02" };
+	static const char *lt[] = { "Bip01 L Finger0", "Bip01 L Finger01", "Bip01 L Finger02" };
+	// fingers bend about their bone's z axis; the thumbs about y (mirrored)
+	CurlChain( bone, light, rf, 2, 1.0f, curl[ 0 ] * g_fingerRW );
+	CurlChain( bone, light, lf, 2, 1.0f, curl[ 1 ] * g_fingerLW );
+	CurlChain( bone, light, rt, 1, 1.0f, curl[ 2 ] * g_fingerRW );
+	CurlChain( bone, light, lt, 1, -1.0f, curl[ 3 ] * g_fingerLW );
 }
 
 static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel,
@@ -3442,6 +3590,8 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 		else
 			ApplyClassicHandle( bone, light, weaponmodel );	// left hand onto the handle of a few big guns
 		ApplyRelaxHands( bone, light, weaponmodel, f );		// fp_relax_hand / fp_relax_lhand
+		if ( !FPBody_Classic() )
+			ApplyFingers( bone, light, weaponmodel );			// fingers round the gun (fp_fingers)
 
 		// 4. left arm alone (reloading, use, flashlight, ladders, pump)
 		if ( g_skel.lUpper >= 0 )
