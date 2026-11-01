@@ -207,6 +207,7 @@ static bool StartOverlayKind( const char *name, int kind, float wantDur );
 static bool OverlayIs( const char *name );
 static const char *OverlayName( void );
 static cvar_t *cl_fpbody_debug;
+static cvar_t *cl_fpbody_elbowdown;
 // cl_fpbody_debug 1: print what the body starts playing (overlays, gun clips) to the console
 static void FPDbg( const char *fmt, ... )
 {
@@ -457,6 +458,7 @@ void FPAnim_Init( void )
 	cl_fpbody_reloads   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloads", "cz", FCVAR_ARCHIVE );
 	cl_fpbody_glreload  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_glreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_debug     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_debug", "0", 0 );
+	cl_fpbody_elbowdown = gEngfuncs.pfnRegisterVariable( "cl_fpbody_elbowdown", "0.7", FCVAR_ARCHIVE );
 	cl_fpbody_l4dreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_l4dreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_pickup    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pickup", "1", FCVAR_ARCHIVE );
 	cl_fpbody_gunlower  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gunlower", "20", FCVAR_ARCHIVE );
@@ -2293,7 +2295,7 @@ static float AngleAt( const float *a, const float *corner, const float *b )
 // target, then swing the arm so the hand lands on it. The elbow stays in its
 // current bend plane, so it keeps pointing the way the animation had it.
 static void ReachArm( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], const float *target, float weight,
-	bool rightArm = false )
+	bool rightArm = false, float elbowDown = 0.0f )
 {
 	int upper = rightArm ? g_skel.rUpper : g_skel.lUpper;
 	int fore  = rightArm ? g_skel.rFore  : g_skel.lFore;
@@ -2352,6 +2354,54 @@ static void ReachArm( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], con
 	float sh[ 3 ];
 	VectorSubtract( H, S, sh );
 	TurnToward( bone, light, upperMask, S, sh, st, weight );
+
+	// 3. elbow down: turn the arm about the shoulder-to-hand line (the hand stays
+	// put) so the elbow hangs under the gun and a little out from the body,
+	// instead of folding in across the chest or up toward the face
+	if ( elbowDown > 0.0f )
+	{
+		BoneOrigin( light, fore, E );
+		BoneOrigin( light, hand, H );
+		float ax[ 3 ], e[ 3 ], pole[ 3 ] = { 0.0f, 0.0f, -1.0f };
+		VectorSubtract( H, S, ax );
+		VectorSubtract( E, S, e );
+		if ( g_skel.lClav >= 0 && g_skel.rClav >= 0 )
+		{
+			float lc[ 3 ], rc[ 3 ], out[ 3 ];
+			BoneOrigin( light, g_skel.lClav, lc );
+			BoneOrigin( light, g_skel.rClav, rc );
+			VectorSubtract( rightArm ? rc : lc, rightArm ? lc : rc, out );
+			out[ 2 ] = 0.0f;
+			if ( Normalize3( out ) > 1e-3f )
+				for ( int i = 0; i < 3; i++ )
+					pole[ i ] += out[ i ] * 0.45f;
+		}
+		if ( Normalize3( ax ) > 1e-3f )
+		{
+			float de = Dot3( e, ax ), dp = Dot3( pole, ax ), pe[ 3 ], pp[ 3 ];
+			for ( int i = 0; i < 3; i++ )
+			{
+				pe[ i ] = e[ i ] - ax[ i ] * de;
+				pp[ i ] = pole[ i ] - ax[ i ] * dp;
+			}
+			if ( Normalize3( pe ) > 1e-3f && Normalize3( pp ) > 1e-3f )
+			{
+				float ang = (float)( acos( Clamp( Dot3( pe, pp ), -1.0f, 1.0f ) ) * 180.0 / M_PI ) * Clamp01( elbowDown ) * Clamp01( weight );
+				if ( ang > 0.5f )
+				{
+					// try one way; if the elbow ends up further from the pole, the other
+					mat3_t W;
+					AxisAngle( ax, ang, W );
+					float e1[ 3 ];
+					for ( int r = 0; r < 3; r++ )
+						e1[ r ] = W[ r ][ 0 ] * pe[ 0 ] + W[ r ][ 1 ] * pe[ 1 ] + W[ r ][ 2 ] * pe[ 2 ];
+					if ( Dot3( e1, pp ) < Dot3( pe, pp ) )
+						AxisAngle( ax, -ang, W );
+					TransformBones( bone, light, upperMask, W, S, NULL );
+				}
+			}
+		}
+	}
 }
 
 // GMod mode: where the left wrist goes on each two-handed gun - on the barrel /
@@ -2486,10 +2536,12 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 		if ( g_glOpenW > 0.0f && !strcmp( gh->model, "p_9mmar" ) )
 			for ( int i = 0; i < 3; i++ )
 				w[ i ] += ( glOpen[ i ] - w[ i ] ) * Smooth( g_glOpenW );
+		w[ 0 ] += cl_fpbody_grip_fwd->value;		// tuning: along the gun / under it
+		w[ 2 ] -= cl_fpbody_grip_down->value;
 		for ( int i = 0; i < 3; i++ )
 			target[ i ] = light[ ghBone ][ i ][ 0 ] * w[ 0 ] + light[ ghBone ][ i ][ 1 ] * w[ 1 ] +
 						  light[ ghBone ][ i ][ 2 ] * w[ 2 ] + light[ ghBone ][ i ][ 3 ];
-		ReachArm( bone, light, target, g_offW );
+		ReachArm( bone, light, target, g_offW, false, cl_fpbody_elbowdown->value );
 	}
 	else if ( g_offW > 0.001f && gun->down >= 0.0f )
 	{
@@ -2501,7 +2553,7 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 		for ( int i = 0; i < 3; i++ )
 			target[ i ] = light[ g_skel.rHand ][ i ][ 3 ] + grip[ i ] + barrel[ i ] * cl_fpbody_grip_fwd->value;
 		target[ 2 ] -= drop;
-		ReachArm( bone, light, target, g_offW );
+		ReachArm( bone, light, target, g_offW, false, cl_fpbody_elbowdown->value );
 	}
 }
 
