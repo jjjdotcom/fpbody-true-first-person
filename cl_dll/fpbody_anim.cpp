@@ -212,6 +212,7 @@ static const char *OverlayName( void );
 static cvar_t *cl_fpbody_debug;
 static cvar_t *cl_fpbody_elbowdown;
 static cvar_t *cl_fpbody_wristtwist;
+static cvar_t *cl_fpbody_pump;
 static cvar_t *cl_fpbody_grip_side;
 static cvar_t *cl_fpbody_swimhold;
 static cvar_t *cl_fpbody_fingers;
@@ -481,6 +482,7 @@ void FPAnim_Init( void )
 	cl_fpbody_debug     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_debug", "0", 0 );
 	cl_fpbody_elbowdown = gEngfuncs.pfnRegisterVariable( "cl_fpbody_elbowdown", "0.7", FCVAR_ARCHIVE );
 	cl_fpbody_wristtwist = gEngfuncs.pfnRegisterVariable( "cl_fpbody_wristtwist", "0.65", FCVAR_ARCHIVE );
+	cl_fpbody_pump = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pump", "4", FCVAR_ARCHIVE );
 	cl_fpbody_reloadset = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloadset", "css", FCVAR_ARCHIVE );
 	cl_fpbody_l4dreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_l4dreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_pickup    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pickup", "1", FCVAR_ARCHIVE );
@@ -779,8 +781,8 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 				l4 = "l4d_reload_shotgun_start", css = "css_reload_shotgun_start";
 			else if ( type == CLIP_SHELL )
 				l4 = "l4d_reload_shotgun_loop", css = "css_reload_shotgun_loop";
-			else if ( type == CLIP_PUMP && g_now - g_l4dShellAt < 1.5f && g_now >= g_l4dShellAt )
-				l4 = "l4d_reload_shotgun_end", css = "css_reload_shotgun_end";
+			// the pump after the last shell: Garry's Mod's own pump instead (the left
+			// hand racks the pump back along the barrel and forward: ApplyGunPose)
 		}
 		else if ( type == CLIP_RELOAD )
 		{
@@ -1110,8 +1112,11 @@ static void EvalClip( const clip_t &c, float now, float weight, pose_t &p,
 		break;
 	}
 	case CLIP_PUMP:
-		p.lBack     += 4.5f * Bump( t, 0.05f, 0.7f ) * weight;
-		p.armsPitch -= 3.0f * Bump( t, 0.0f, 0.5f ) * weight;
+		if ( FPBody_Classic() )		// GMod mode racks the pump with the hand on it (ApplyGunPose)
+		{
+			p.lBack     += 4.5f * Bump( t, 0.05f, 0.7f ) * weight;
+			p.armsPitch -= 3.0f * Bump( t, 0.0f, 0.5f ) * weight;
+		}
 		break;
 	case CLIP_FIDDLE:
 	{
@@ -3222,6 +3227,27 @@ static void ShareWristTwist( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4
 	TransformBones( bone, light, mask, W, pivot, NULL );
 }
 
+// Garry's Mod's shotgun pump (its "shotgun_pump" layer: the left hand slides
+// back along the barrel and forward again), on the pump after a reload
+static void PumpStroke( float ( *light )[ 3 ][ 4 ], const gun_t *gun, float now, float *target )
+{
+	if ( g_cur.type != CLIP_PUMP || g_cur.dur <= 0.0f || now < g_cur.start || now > g_cur.start + g_cur.dur ||
+		 g_skel.rHand < 0 || ( cl_fpbody_pump && cl_fpbody_pump->value <= 0.0f ) )
+		return;
+	float t = ( now - g_cur.start ) / g_cur.dur;
+	// back quickly, a moment at the end of the stroke, forward again
+	float k = t < 0.4f ? Smooth( t / 0.4f ) : t < 0.55f ? 1.0f : 1.0f - Smooth( ( t - 0.55f ) / 0.4f );
+	if ( k <= 0.0f )
+		return;
+	float barrel[ 3 ];
+	HandToWorldDir( light, g_skel.rHand, gun->axis, barrel );
+	if ( Normalize3( barrel ) < 1e-3f )
+		return;
+	float stroke = ( cl_fpbody_pump ? cl_fpbody_pump->value : 4.0f ) * k;
+	for ( int i = 0; i < 3; i++ )
+		target[ i ] -= barrel[ i ] * stroke;
+}
+
 static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel,
 	const float *f, const float *r, const float *u, float now )
 {
@@ -3321,6 +3347,7 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 			target[ i ] = light[ ghBone ][ i ][ 0 ] * w[ 0 ] + light[ ghBone ][ i ][ 1 ] * w[ 1 ] +
 						  light[ ghBone ][ i ][ 2 ] * w[ 2 ] + light[ ghBone ][ i ][ 3 ];
 		GripAdjust( light, gun, weaponmodel, target );
+		PumpStroke( light, gun, now, target );
 		ReachArm( bone, light, target, g_offW, false, cl_fpbody_elbowdown->value );
 	}
 	else if ( g_offW > 0.001f && gun->down >= 0.0f && haveRel )
