@@ -1797,6 +1797,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 		int seq = FPAnim_MapSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->curstate.sequence );
 		int gait = FPAnim_MapSeq( srvHdr, m_pStudioHeader, pplayer->gaitsequence );
 		FPAnim_DebugSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->curstate.sequence, pplayer->gaitsequence, seq, gait );
+		FPAnim_SwimHold( srvHdr, m_pStudioHeader, m_pCurrentEntity->curstate.sequence, pplayer->weaponmodel, m_pCurrentEntity->index, &seq, &gait );	// fpbody: swimming with a gun
 		fpSeqRestore.Save( m_pCurrentEntity );
 		fpRemap.Begin( m_pCurrentEntity, FPAnim_MapSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->latched.prevsequence ) );
 		fpState = *pplayer;

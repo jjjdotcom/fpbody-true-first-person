@@ -212,6 +212,7 @@ static const char *OverlayName( void );
 static cvar_t *cl_fpbody_debug;
 static cvar_t *cl_fpbody_elbowdown;
 static cvar_t *cl_fpbody_grip_side;
+static cvar_t *cl_fpbody_swimhold;
 static float g_relaxW;			// how far the at-ease hold is in (0..1), for fp_gun_relax
 static void FP_GripCmd( void );
 static void FP_GripSetCmd( void );
@@ -482,6 +483,7 @@ void FPAnim_Init( void )
 	cl_fpbody_grip_fwd  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_fwd", "0", FCVAR_ARCHIVE );
 	cl_fpbody_grip_down = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_down", "0", FCVAR_ARCHIVE );
 	cl_fpbody_grip_side = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_side", "0", FCVAR_ARCHIVE );
+	cl_fpbody_swimhold  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_swimhold", "1", FCVAR_ARCHIVE );
 
 	cl_fpbody_moves     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_moves", "1", FCVAR_ARCHIVE );
 	cl_fpbody_atease    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_atease", "1", FCVAR_ARCHIVE );
@@ -3517,6 +3519,41 @@ void FPAnim_DebugSeq( const void *fromHdr, const void *toHdr, int seq, int gait,
 	FPDbg( "server seq %s / gait %s -> body %s / %s\n",
 		seq >= 0 && seq < from->numseq ? fs[ seq ].label : "?", gait >= 0 && gait < from->numseq ? fs[ gait ].label : "?",
 		mseq >= 0 && mseq < to->numseq ? ts[ mseq ].label : "?", mgait >= 0 && mgait < to->numseq ? ts[ mgait ].label : "?" );
+}
+
+// Swimming with a gun: the server plays the whole-body swim (arms doing the strokes,
+// the gun flailing in the hand). Keep the arms in the gun's hold (the last
+// ref_aim_ / ref_shoot_ hold the server played) and let the legs swim: the hold
+// as the sequence, the swim as the gait.
+static char g_lastHoldExt[ 32 ];
+void FPAnim_SwimHold( const void *fromHdr, const void *toHdr, int srvSeq, int weaponmodel, int entindex, int *seq, int *gait )
+{
+	const studiohdr_t *from = (const studiohdr_t *)fromHdr, *to = (const studiohdr_t *)toHdr;
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( !from || !to || !local || entindex != local->index || srvSeq < 0 || srvSeq >= from->numseq )
+		return;
+	const char *label = ( (const mstudioseqdesc_t *)( (const byte *)from + from->seqindex ) )[ srvSeq ].label;
+	static const char *holds[] = { "ref_aim_", "ref_shoot_", "crouch_aim_", "crouch_shoot_" };
+	for ( int i = 0; i < 4; i++ )
+	{
+		size_t n = strlen( holds[ i ] );
+		if ( !strnicmp( label, holds[ i ], n ) )
+		{
+			snprintf( g_lastHoldExt, sizeof( g_lastHoldExt ), "%s", label + n );
+			return;
+		}
+	}
+	if ( weaponmodel <= 0 || !g_lastHoldExt[ 0 ] || !cl_fpbody_swimhold || cl_fpbody_swimhold->value == 0.0f )
+		return;
+	if ( stricmp( label, "swim" ) && stricmp( label, "treadwater" ) )
+		return;
+	char want[ 48 ];
+	snprintf( want, sizeof( want ), "ref_aim_%s", g_lastHoldExt );
+	int m = FindSeq( to, want );
+	if ( m < 0 )
+		return;
+	*gait = *seq;			// the swim kicks the legs
+	*seq = m;				// the arms hold the gun
 }
 
 int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq )

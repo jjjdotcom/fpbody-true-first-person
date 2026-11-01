@@ -40,6 +40,7 @@ int FPAnim_GetOverlay( int playerNumber, void *studiohdr, int *seq, float *animt
 
 // Sequence number in one studio model -> the sequence of the same name in another
 int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq );
+void FPAnim_SwimHold( const void *fromHdr, const void *toHdr, int srvSeq, int weaponmodel, int entindex, int *seq, int *gait );
 void FPAnim_DebugSeq( const void *fromHdr, const void *toHdr, int seq, int gait, int mseq, int mgait );
 void FPAnim_AdjustWeapon( void *studiohdr, float ( *bt )[ 3 ][ 4 ], float ( *lt )[ 3 ][ 4 ], struct model_s *weapon, int entindex );
 // 1 while the renderer has the local entity's sequence translated into the drawn model
