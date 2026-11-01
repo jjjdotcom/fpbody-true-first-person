@@ -285,6 +285,22 @@ void FPBody_ProcessPlayerBones( int playerNumber, struct cl_entity_s *ent, void 
 
 	CacheHeadBone( hdr );
 
+	// Ducked, Half-Life's hull is half as tall and the origin is 18 units lower
+	// (its centre). Half-Life's own crouch animations allow for that; the
+	// Garry's Mod ones keep the feet where they stand (GMod's origin is at the
+	// feet), so they sank into the floor: lift the body back up. The camera
+	// follows the head, so the eyes come up with it.
+	if ( !FPBody_Classic() && gEngfuncs.pEventAPI->EV_LocalPlayerDucking() )
+	{
+		const float lift = 18.0f;		// VEC_HULL_MIN - VEC_DUCK_HULL_MIN
+		for ( int i = 0; i < hdr->numbones; i++ )
+		{
+			bonetransform[ i ][ 2 ][ 3 ] += lift;
+			if ( lighttransform != bonetransform )
+				lighttransform[ i ][ 2 ][ 3 ] += lift;
+		}
+	}
+
 	// Procedural animations (reload, draw, use, ...) pose the arms and body
 	// first, so the camera and the weapon in the hands follow them.
 	FPAnim_ApplyBones( studiohdr, bonetransform, lighttransform, g_iHeadBone, weaponmodel );
