@@ -212,8 +212,13 @@ static const char *OverlayName( void );
 static cvar_t *cl_fpbody_debug;
 static cvar_t *cl_fpbody_elbowdown;
 static cvar_t *cl_fpbody_grip_side;
+static float g_relaxW;			// how far the at-ease hold is in (0..1), for fp_gun_relax
 static void FP_GripCmd( void );
 static void FP_GripSetCmd( void );
+static void FP_GunCmd( void );
+static void FP_GunRelaxCmd( void );
+static void FP_GunSetCmd( void );
+static void FP_GunRelaxSetCmd( void );
 static cvar_t *cl_fpbody_reloadset;
 // cl_fpbody_debug 1: print what the body starts playing (overlays, gun clips) to the console
 static void FPDbg( const char *fmt, ... )
@@ -496,6 +501,10 @@ void FPAnim_Init( void )
 	gEngfuncs.pfnAddCommand( "pm_atease", PM_AtEaseCmd );
 	gEngfuncs.pfnAddCommand( "fp_grip", FP_GripCmd );
 	gEngfuncs.pfnAddCommand( "fp_grip_set", FP_GripSetCmd );
+	gEngfuncs.pfnAddCommand( "fp_gun", FP_GunCmd );
+	gEngfuncs.pfnAddCommand( "fp_gun_relax", FP_GunRelaxCmd );
+	gEngfuncs.pfnAddCommand( "fp_gun_set", FP_GunSetCmd );
+	gEngfuncs.pfnAddCommand( "fp_gun_relax_set", FP_GunRelaxSetCmd );
 	gEngfuncs.pfnAddCommand( "pm_holster", PM_HolsterCmd );
 
 	gEngfuncs.pfnAddCommand( "fp_act", FP_ActCmd );
@@ -1884,6 +1893,14 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	else if ( !easeWant && !drawing && g_ovSeq >= 0 && g_ovKind == OVK_EASE )
 		StopOverlay();
 
+	// how far the lowered hold is in, for fp_gun_relax
+	{
+		bool relaxed = g_ovSeq >= 0 && g_ovKind == OVK_EASE &&
+					   ( OverlayIs( "fm_relax_idle" ) || OverlayIs( "fm_relax_walk" ) || OverlayIs( "fm_relax_run" ) ||
+						 OverlayIs( "fm_passive_idle" ) || OverlayIs( "fm_passive_walk" ) || OverlayIs( "fm_passive_run" ) );
+		g_relaxW += ( ( relaxed ? 1.0f : 0.0f ) - g_relaxW ) * Clamp01( g_frameTime * 6.0f );
+	}
+
 	EPA_Frame( pparams, st, onground, ducked );
 
 	g_mvPrevState = st;
@@ -2611,6 +2628,231 @@ static void FP_GripCmd( void )
 		name, g ? g->ofs[ 0 ] : 0.0f, g ? g->ofs[ 1 ] : 0.0f, g ? g->ofs[ 2 ] : 0.0f );
 }
 
+// ---------------------------------------------------------------------------
+// The gun in the hand (fp_gun / fp_gun_relax): moves and turns the held weapon
+// model about the gun hand - forward along the barrel, left, up, then pitch
+// (muzzle up +), yaw (muzzle left +), roll (+ = clockwise as you look down the
+// barrel). fp_gun_relax is used instead while the gun is lowered (at ease),
+// blended in and out with it. Saved per gun in <game>/fpbody_guns.cfg.
+// ---------------------------------------------------------------------------
+struct gunofs_t { char model[ 32 ]; float ofs[ 6 ]; float rel[ 6 ]; bool hasRel; };
+static gunofs_t g_gunOfs[ 48 ];
+static int g_numGunOfs;
+
+static gunofs_t *GunOfsFor( const char *name, bool create )
+{
+	for ( int i = 0; i < g_numGunOfs; i++ )
+		if ( !stricmp( g_gunOfs[ i ].model, name ) )
+			return &g_gunOfs[ i ];
+	if ( !create || g_numGunOfs >= 48 || !name[ 0 ] )
+		return NULL;
+	gunofs_t *g = &g_gunOfs[ g_numGunOfs++ ];
+	memset( g, 0, sizeof( *g ) );
+	snprintf( g->model, sizeof( g->model ), "%s", name );
+	return g;
+}
+
+static void GunSave( void )
+{
+	char path[ 256 ];
+	snprintf( path, sizeof( path ), "%s/fpbody_guns.cfg", gEngfuncs.pfnGetGameDirectory() );
+	FILE *fp = fopen( path, "w" );
+	if ( !fp )
+	{
+		gEngfuncs.Con_Printf( "fp_gun: couldn't write %s\n", path );
+		return;
+	}
+	fprintf( fp, "// fpbody gun-in-hand tuning (fp_gun / fp_gun_relax): forward left up pitch yaw roll\n" );
+	for ( int i = 0; i < g_numGunOfs; i++ )
+	{
+		const float *o = g_gunOfs[ i ].ofs, *r = g_gunOfs[ i ].rel;
+		fprintf( fp, "fp_gun_set %s %g %g %g %g %g %g\n", g_gunOfs[ i ].model, o[ 0 ], o[ 1 ], o[ 2 ], o[ 3 ], o[ 4 ], o[ 5 ] );
+		if ( g_gunOfs[ i ].hasRel )
+			fprintf( fp, "fp_gun_relax_set %s %g %g %g %g %g %g\n", g_gunOfs[ i ].model, r[ 0 ], r[ 1 ], r[ 2 ], r[ 3 ], r[ 4 ], r[ 5 ] );
+	}
+	fclose( fp );
+}
+
+static void GunSetFrom( float *dst, int first )
+{
+	int argc = gEngfuncs.Cmd_Argc();
+	for ( int i = 0; i < 6; i++ )
+		dst[ i ] = argc > first + i ? (float)atof( gEngfuncs.Cmd_Argv( first + i ) ) : 0.0f;
+}
+
+static void FP_GunSetCmd( void )
+{
+	if ( gEngfuncs.Cmd_Argc() < 3 )
+		return;
+	gunofs_t *g = GunOfsFor( gEngfuncs.Cmd_Argv( 1 ), true );
+	if ( g )
+		GunSetFrom( g->ofs, 2 );
+}
+
+static void FP_GunRelaxSetCmd( void )
+{
+	if ( gEngfuncs.Cmd_Argc() < 3 )
+		return;
+	gunofs_t *g = GunOfsFor( gEngfuncs.Cmd_Argv( 1 ), true );
+	if ( g )
+	{
+		GunSetFrom( g->rel, 2 );
+		g->hasRel = true;
+	}
+}
+
+static void GunCmd( bool relax )
+{
+	const char *cmd = relax ? "fp_gun_relax" : "fp_gun";
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	char name[ 32 ];
+	GunShortName( local ? local->curstate.weaponmodel : 0, name, sizeof( name ) );
+	if ( !name[ 0 ] )
+	{
+		gEngfuncs.Con_Printf( "%s: nothing in your hands\n", cmd );
+		return;
+	}
+	int argc = gEngfuncs.Cmd_Argc();
+	if ( argc >= 2 )
+	{
+		gunofs_t *g = GunOfsFor( name, true );
+		if ( g && !stricmp( gEngfuncs.Cmd_Argv( 1 ), "reset" ) )
+		{
+			if ( relax )
+			{
+				memset( g->rel, 0, sizeof( g->rel ) );
+				g->hasRel = false;
+			}
+			else
+				memset( g->ofs, 0, sizeof( g->ofs ) );
+		}
+		else if ( g )
+		{
+			GunSetFrom( relax ? g->rel : g->ofs, 1 );
+			if ( relax )
+				g->hasRel = true;
+		}
+		GunSave();
+	}
+	const gunofs_t *g = GunOfsFor( name, false );
+	const float *o = g ? ( relax ? g->rel : g->ofs ) : NULL;
+	gEngfuncs.Con_Printf( "%s %s: forward %g left %g up %g  pitch %g yaw %g roll %g%s\n", cmd, name,
+		o ? o[ 0 ] : 0.0f, o ? o[ 1 ] : 0.0f, o ? o[ 2 ] : 0.0f, o ? o[ 3 ] : 0.0f, o ? o[ 4 ] : 0.0f, o ? o[ 5 ] : 0.0f,
+		relax && g && !g->hasRel ? " (not set: the normal fp_gun values are used)" : "" );
+	gEngfuncs.Con_Printf( "  usage: %s <forward> <left> <up> [pitch yaw roll]   (negatives: back / right / down); %s reset\n", cmd, cmd );
+}
+static void FP_GunCmd( void ) { GunCmd( false ); }
+static void FP_GunRelaxCmd( void ) { GunCmd( true ); }
+
+void FPAnim_AdjustWeapon( void *studiohdr, float ( *bt )[ 3 ][ 4 ], float ( *lt )[ 3 ][ 4 ], struct model_s *weapon, int entindex )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( !studiohdr || !weapon || !local || entindex != local->index || !FPBody_Active() )
+		return;
+	char name[ 32 ];
+	{
+		const char *n = weapon->name, *sl = strrchr( n, '/' );
+		if ( sl )
+			n = sl + 1;
+		int i = 0;
+		for ( ; n[ i ] && n[ i ] != '.' && i < 31; i++ )
+			name[ i ] = (char)tolower( (unsigned char)n[ i ] );
+		name[ i ] = 0;
+	}
+	const gunofs_t *g = GunOfsFor( name, false );
+	if ( !g )
+		return;
+	float o[ 6 ];
+	float w = g->hasRel ? Clamp01( g_relaxW ) : 0.0f;
+	bool any = false;
+	for ( int i = 0; i < 6; i++ )
+	{
+		o[ i ] = g->ofs[ i ] * ( 1.0f - w ) + g->rel[ i ] * w;
+		if ( o[ i ] != 0.0f )
+			any = true;
+	}
+	if ( !any )
+		return;
+
+	// the gun hand, as merged from the body
+	const studiohdr_t *hdr = (const studiohdr_t *)studiohdr;
+	const mstudiobone_t *bones = (const mstudiobone_t *)( (const byte *)hdr + hdr->boneindex );
+	int hand = -1;
+	for ( int i = 0; i < hdr->numbones; i++ )
+		if ( !stricmp( bones[ i ].name, "Bip01 R Hand" ) )
+		{
+			hand = i;
+			break;
+		}
+	if ( hand < 0 )
+		return;
+
+	// frame: forward = the barrel (or the hand's length for melee), left, up
+	float fw[ 3 ], ax[ 3 ] = { 1.0f, 0.0f, 0.0f };
+	char want[ 40 ];
+	for ( int i = 0; i < (int)( sizeof( g_guns ) / sizeof( g_guns[ 0 ] ) ); i++ )
+	{
+		snprintf( want, sizeof( want ), "%s", g_guns[ i ].model );
+		if ( !stricmp( want, name ) )
+		{
+			ax[ 0 ] = g_guns[ i ].axis[ 0 ]; ax[ 1 ] = g_guns[ i ].axis[ 1 ]; ax[ 2 ] = g_guns[ i ].axis[ 2 ];
+			break;
+		}
+	}
+	for ( int r = 0; r < 3; r++ )
+		fw[ r ] = bt[ hand ][ r ][ 0 ] * ax[ 0 ] + bt[ hand ][ r ][ 1 ] * ax[ 1 ] + bt[ hand ][ r ][ 2 ] * ax[ 2 ];
+	if ( Normalize3( fw ) < 1e-3f )
+		return;
+	float up[ 3 ] = { 0.0f, 0.0f, 1.0f }, left[ 3 ];
+	float d = Dot3( up, fw );
+	for ( int i = 0; i < 3; i++ )
+		up[ i ] -= fw[ i ] * d;
+	if ( Normalize3( up ) < 1e-3f )
+	{
+		up[ 0 ] = 1.0f; up[ 1 ] = 0.0f; up[ 2 ] = 0.0f;
+		d = Dot3( up, fw );
+		for ( int i = 0; i < 3; i++ )
+			up[ i ] -= fw[ i ] * d;
+		Normalize3( up );
+	}
+	Cross( up, fw, left );
+
+	// rotation: roll about the barrel, then pitch about left (muzzle up), yaw about up
+	mat3_t Rr, Rp, Ry, T1, R;
+	AxisAngle( fw, o[ 5 ], Rr );
+	AxisAngle( left, -o[ 3 ], Rp );
+	AxisAngle( up, o[ 4 ], Ry );
+	for ( int a = 0; a < 3; a++ )
+		for ( int b = 0; b < 3; b++ )
+			T1[ a ][ b ] = Rp[ a ][ 0 ] * Rr[ 0 ][ b ] + Rp[ a ][ 1 ] * Rr[ 1 ][ b ] + Rp[ a ][ 2 ] * Rr[ 2 ][ b ];
+	for ( int a = 0; a < 3; a++ )
+		for ( int b = 0; b < 3; b++ )
+			R[ a ][ b ] = Ry[ a ][ 0 ] * T1[ 0 ][ b ] + Ry[ a ][ 1 ] * T1[ 1 ][ b ] + Ry[ a ][ 2 ] * T1[ 2 ][ b ];
+	float pivot[ 3 ] = { bt[ hand ][ 0 ][ 3 ], bt[ hand ][ 1 ][ 3 ], bt[ hand ][ 2 ][ 3 ] };
+	float t[ 3 ];
+	for ( int i = 0; i < 3; i++ )
+		t[ i ] = fw[ i ] * o[ 0 ] + left[ i ] * o[ 1 ] + up[ i ] * o[ 2 ];
+
+	for ( int pass = 0; pass < 2; pass++ )
+	{
+		float ( *m )[ 3 ][ 4 ] = pass ? lt : bt;
+		if ( pass && lt == bt )
+			break;
+		for ( int bi = 0; bi < hdr->numbones; bi++ )
+		{
+			float n[ 3 ][ 4 ];
+			for ( int a = 0; a < 3; a++ )
+			{
+				for ( int b = 0; b < 3; b++ )
+					n[ a ][ b ] = R[ a ][ 0 ] * m[ bi ][ 0 ][ b ] + R[ a ][ 1 ] * m[ bi ][ 1 ][ b ] + R[ a ][ 2 ] * m[ bi ][ 2 ][ b ];
+				float pa = m[ bi ][ 0 ][ 3 ] - pivot[ 0 ], pb = m[ bi ][ 1 ][ 3 ] - pivot[ 1 ], pc = m[ bi ][ 2 ][ 3 ] - pivot[ 2 ];
+				n[ a ][ 3 ] = R[ a ][ 0 ] * pa + R[ a ][ 1 ] * pb + R[ a ][ 2 ] * pc + pivot[ a ] + t[ a ];
+			}
+			memcpy( m[ bi ], n, sizeof( n ) );
+		}
+	}
+}
+
 static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel,
 	const float *f, const float *r, const float *u, float now )
 {
@@ -2618,6 +2860,7 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	{
 		g_gripCfgRun = true;
 		gEngfuncs.pfnClientCmd( "exec fpbody_grips.cfg\n" );
+		gEngfuncs.pfnClientCmd( "exec fpbody_guns.cfg\n" );
 	}
 	const gun_t *gun = GunForModel( weaponmodel );
 	bool overlay = ( g_ovSeq >= 0 );	// GMod reload: hands leave the gun

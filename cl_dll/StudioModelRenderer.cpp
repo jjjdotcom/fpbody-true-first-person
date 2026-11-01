@@ -2066,6 +2066,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 #endif
 
 			StudioMergeBones( pweaponmodel );
+			FPAnim_AdjustWeapon( m_pStudioHeader, *m_pbonetransform, *m_plighttransform, pweaponmodel, m_pCurrentEntity->index );	// fpbody: fp_gun
 
 			IEngineStudio.StudioSetupLighting (&lighting);
 
