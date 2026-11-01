@@ -42,6 +42,7 @@ static int tracerCount[ 32 ];
 extern "C"
 {
 #include "pm_shared.h"
+}
 
 // fpbody: firing animations are played here (events), not through HUD_SendWeaponAnim:
 // tell the body about them too
@@ -50,7 +51,6 @@ static void FP_EV_WeaponAnimation( int sequence, int body )
 {
 	FPAnim_OnWeaponAnim( sequence, 0 );
 	gEngfuncs.pEventAPI->EV_WeaponAnimation( sequence, body );
-}
 }
 
 void V_PunchAxis( int axis, float punch );
