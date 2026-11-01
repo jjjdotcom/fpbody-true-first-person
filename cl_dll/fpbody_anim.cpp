@@ -2323,32 +2323,32 @@ static void ReachArm( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], con
 	// and the elbow can flip backwards (the hand falls a little short instead)
 	d = Clamp( d, (float)fabs( a - b ) + 0.1f, ( a + b ) * 0.96f );
 
-	// 1. elbow bend
-	float cur = AngleAt( S, E, H );
+	// 1. elbow bend: the forearm turns in the plane it bends in now, on the side
+	// it bends to now, to the angle that puts the hand at the target's distance.
+	// (Picking the turn by the resulting angle alone can't tell bending from
+	// over-straightening past 180, so the elbow could flip backwards and twist.)
 	float des = (float)acos( Clamp( ( a * a + b * b - d * d ) / ( 2.0f * a * b ), -1.0f, 1.0f ) );
-	float n[ 3 ];
-	Cross( se, eh, n );
-	if ( Normalize3( n ) < 1e-3f )
+	float uu[ 3 ] = { se[ 0 ] / a, se[ 1 ] / a, se[ 2 ] / a };	// along the upper arm
+	float vv[ 3 ];													// the side the elbow bends to
+	float de = Dot3( eh, uu );
+	for ( int i = 0; i < 3; i++ )
+		vv[ i ] = eh[ i ] - uu[ i ] * de;
+	if ( Normalize3( vv ) < 0.05f * b )
 	{
-		float down[ 3 ] = { 0, 0, -1 };
-		Cross( se, down, n );
-		if ( Normalize3( n ) < 1e-3f )
+		// arm (nearly) straight: bend toward the body's front-down
+		float hint[ 3 ] = { 0.0f, 0.0f, -1.0f };
+		float dh = Dot3( hint, uu );
+		for ( int i = 0; i < 3; i++ )
+			vv[ i ] = hint[ i ] - uu[ i ] * dh;
+		if ( Normalize3( vv ) < 1e-3f )
 			return;
 	}
-	float delta = ( des - cur ) * (float)( 180.0 / M_PI ) * Clamp01( weight );
-	if ( fabs( delta ) > 0.01f )
-	{
-		// pick the rotation direction that opens/closes the elbow the right way
-		mat3_t W;
-		AxisAngle( n, delta, W );
-		float h1[ 3 ];
-		for ( int r = 0; r < 3; r++ )
-			h1[ r ] = W[ r ][ 0 ] * eh[ 0 ] + W[ r ][ 1 ] * eh[ 1 ] + W[ r ][ 2 ] * eh[ 2 ] + E[ r ];
-		if ( fabs( AngleAt( S, E, h1 ) - des ) > fabs( cur - des ) )
-			AxisAngle( n, -delta, W );
-		TransformBones( bone, light, foreMask, W, E, NULL );
-		BoneOrigin( light, hand, H );
-	}
+	// interior angle des between the upper arm (back toward the shoulder) and the forearm
+	float want[ 3 ];
+	for ( int i = 0; i < 3; i++ )
+		want[ i ] = -uu[ i ] * (float)cos( des ) + vv[ i ] * (float)sin( des );
+	TurnToward( bone, light, foreMask, E, eh, want, weight );
+	BoneOrigin( light, hand, H );
 
 	// 2. swing the arm at the shoulder
 	float sh[ 3 ];
