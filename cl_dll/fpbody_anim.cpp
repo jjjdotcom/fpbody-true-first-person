@@ -1845,9 +1845,12 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 		bool armed = me && me->curstate.weaponmodel > 0;
 		if ( !( shooting && armed ) )
 		{
-			loop = armed ? "fm_barnacle_armed" : "fm_barnacle_unarmed";
+			// armed: the left hand pulls at the tongue, the right holds the gun
+			loop = armed ? "fm_barnacle_mixed" : "fm_barnacle_unarmed";
 			if ( FindSeq( g_playerHdr, loop ) < 0 )
-				loop = "fm_strangle";			// older models
+				loop = armed ? "fm_barnacle_armed" : "fm_strangle";		// older models
+			if ( FindSeq( g_playerHdr, loop ) < 0 )
+				loop = "fm_strangle";
 		}
 	}
 	else if ( st & FPM_PRONE )

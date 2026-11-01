@@ -112,6 +112,7 @@ SEQS.update({
     'fm_blast':       ('draw', 'react_blast_base_layer', False, False),
     'fm_barnacle_unarmed': ('draw', 'barnacle_unarmed', False, True),   # held up by a barnacle
     'fm_barnacle_armed':   ('draw', 'barnacle_armed', False, True),
+    # (fm_barnacle_mixed is made from these two below)
 })
 
 # additive layers (fa_<name>): ExtendedER fidgets and the flinches
@@ -305,6 +306,26 @@ def main(folder, in_path, out_path, kind='classic', male=None, iw=None):
 
     for label, (pack, name, ducked, loop) in SEQS.items():
         build(label, pack, name, ducked, loop)
+
+    # held by a barnacle with a gun: the armed animation, with the left arm from the
+    # unarmed one (that hand pulls at the tongue round the neck, the right one holds the gun)
+    bys = {s['label']: s for s in added}
+    if 'fm_barnacle_armed' in bys and 'fm_barnacle_unarmed' in bys:
+        arm, una = bys['fm_barnacle_armed'], bys['fm_barnacle_unarmed']
+        left = set()
+        for i, bone in enumerate(M.bones):
+            j = i
+            while j >= 0:
+                if M.bones[j]['name'] in ('Bip01 L Arm', 'Bip01 L Clavicle'):
+                    left.add(i)
+                    break
+                j = M.bones[j]['parent']
+        A = np.array(arm['frames'][0]); U = np.array(una['frames'][0])
+        mixed = A.copy()
+        for f in range(len(mixed)):
+            for i in left:
+                mixed[f, i] = U[f % len(U), i]
+        added.append(make_seq('fm_barnacle_mixed', mixed, arm['fps'], True, template))
     unarmed = dict(UNARMED)
     if iw and iw != '-':
         PACKS['iw'] = (iw, iw[:-4] + '.ani')
