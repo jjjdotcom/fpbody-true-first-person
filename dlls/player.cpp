@@ -107,6 +107,7 @@ TYPEDESCRIPTION	CBasePlayer::m_playerSaveData[] =
 
 	DEFINE_FIELD( CBasePlayer, m_iTrain, FIELD_INTEGER ),
 	DEFINE_FIELD( CBasePlayer, m_bitsHUDDamage, FIELD_INTEGER ),
+	DEFINE_ARRAY( CBasePlayer, m_szAnimExtention, FIELD_CHARACTER, 32 ),	// fpbody: the hold type (ref_aim_<ext>) survives saved games
 	DEFINE_FIELD( CBasePlayer, m_flFallVelocity, FIELD_FLOAT ),
 	DEFINE_FIELD( CBasePlayer, m_iTargetVolume, FIELD_INTEGER ),
 	DEFINE_FIELD( CBasePlayer, m_iWeaponVolume, FIELD_INTEGER ),

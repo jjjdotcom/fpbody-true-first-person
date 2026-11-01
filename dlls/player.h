@@ -181,6 +181,7 @@ public:
 	float m_flFPNextKick;
 	int m_iFPKickAir;
 	EHANDLE m_hFPHolstered;		// the gun put away with pm_holster
+	bool m_bFPAnimExtChecked;	// fpbody: hold type checked after a load (not saved)
 	void FPMoves_Impulse( int iImpulse );
 	void FPMoves_Think( void );
 	void FPMoves_DoKick( void );

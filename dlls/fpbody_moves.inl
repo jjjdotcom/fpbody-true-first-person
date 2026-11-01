@@ -257,6 +257,14 @@ void CBasePlayer::FPMoves_Regen( void )
 
 void CBasePlayer::FPMoves_Think( void )
 {
+	// saved games made before the hold type was saved come back with none, so
+	// the body held every gun like empty hands (ref_aim_unarmed): deploy it again
+	if ( !m_bFPAnimExtChecked && IsAlive() )
+	{
+		m_bFPAnimExtChecked = true;
+		if ( m_pActiveItem && !m_szAnimExtention[ 0 ] )
+			m_pActiveItem->Deploy();
+	}
 	FPMoves_Regen();
 	if ( IsAlive() )
 		FPMoves_Scan();
