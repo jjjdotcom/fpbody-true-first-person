@@ -110,6 +110,8 @@ SEQS.update({
     'fm_panic_walk':  ('gmod', 'a_CwalkN', False, True),
     'fm_strangle':    ('draw', 'react_puke_base_layer', False, False),
     'fm_blast':       ('draw', 'react_blast_base_layer', False, False),
+    'fm_barnacle_unarmed': ('draw', 'barnacle_unarmed', False, True),   # held up by a barnacle
+    'fm_barnacle_armed':   ('draw', 'barnacle_armed', False, True),
 })
 
 # additive layers (fa_<name>): ExtendedER fidgets and the flinches

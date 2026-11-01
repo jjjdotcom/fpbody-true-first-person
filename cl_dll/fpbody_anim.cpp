@@ -1837,13 +1837,18 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	float rate = 0.0f;
 	if ( st & FPM_BARNACLE )
 	{
-		// caught by a barnacle: hands at the tongue round the neck, legs kicking;
-		// while you shoot at it the arms are yours (the gun aims)
+		// caught by a barnacle (Extended Player Animations' barnacle_unarmed /
+		// _armed): legs kicking, hands at the tongue or the gun held ready; while
+		// you shoot at it the arms are yours (the gun aims up at it)
 		bool shooting = ( in_attack.state & 1 ) || ( in_attack2.state & 1 ) || g_now - g_lastShot < 0.5f;
 		cl_entity_t *me = gEngfuncs.GetLocalPlayer();
 		bool armed = me && me->curstate.weaponmodel > 0;
 		if ( !( shooting && armed ) )
-			loop = "fm_strangle";
+		{
+			loop = armed ? "fm_barnacle_armed" : "fm_barnacle_unarmed";
+			if ( FindSeq( g_playerHdr, loop ) < 0 )
+				loop = "fm_strangle";			// older models
+		}
 	}
 	else if ( st & FPM_PRONE )
 	{
