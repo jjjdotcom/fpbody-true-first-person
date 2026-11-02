@@ -3936,10 +3936,23 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 				GunShortName( weaponmodel, name, sizeof( name ) );
 				const gunofs_t *go = GunOfsFor( name, false );
 				float hd[ 3 ] = { cl_fpbody_holdlower ? cl_fpbody_holdlower->value : 0.0f, 0.0f, 0.0f };
+				// big guns held in front of the chest: out in front instead of lower
+				// (the Displacer otherwise sits right under the eye)
+				static const struct { const char *model; float hold[ 3 ]; } holdDefs[] = {
+					{ "p_displacer", { 0.0f, 3.0f, -9.0f } },
+				};
+				bool keepAim = false;		// held out there while firing too (no jump back)
+				for ( int i = 0; i < (int)( sizeof( holdDefs ) / sizeof( holdDefs[ 0 ] ) ); i++ )
+					if ( !stricmp( name, holdDefs[ i ].model ) )
+					{
+						for ( int k = 0; k < 3; k++ )
+							hd[ k ] = holdDefs[ i ].hold[ k ];
+						keepAim = true;
+					}
 				if ( go && go->hasHold )
 					for ( int i = 0; i < 3; i++ )
 						hd[ i ] = go->hold[ i ];
-				float w = ( 1.0f - Clamp01( g_aimW ) ) * ( 1.0f - Clamp01( g_relaxW ) ) * ( g_ovSeq >= 0 ? 0.0f : 1.0f );
+				float w = ( keepAim ? 1.0f : 1.0f - Clamp01( g_aimW ) ) * ( 1.0f - Clamp01( g_relaxW ) ) * ( g_ovSeq >= 0 ? 0.0f : 1.0f );
 				static float s_holdW;
 				s_holdW += ( w - s_holdW ) * Clamp01( g_frameTime * 8.0f );
 				p.armsPitch += hd[ 0 ] * s_holdW;
