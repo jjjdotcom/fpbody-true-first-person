@@ -62,5 +62,6 @@ void FPAnim_OnDamage( int amount, int bits );
 
 // True while a full-body act (taunt, pose, sit...) is shown with the chase camera
 int FPAnim_ActCamActive( void );
+float FPAnim_HunchWeight( void );	// 0..1 while a landing / roll / slide folds the body forward
 
 #endif // FPBODY_ANIM_H

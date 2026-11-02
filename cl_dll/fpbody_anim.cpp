@@ -4211,6 +4211,20 @@ int FPAnim_GetOverlay( int playerNumber, void *studiohdr, int *seq, float *animt
 	return 1;
 }
 
+// A landing / roll / slide is playing: the body folds forward round the
+// head, so the camera keeps ahead of the shoulders (see FPBody_GetViewOrigin)
+float FPAnim_HunchWeight( void )
+{
+	static float w = 0.0f, last = -1.0f;
+	float now = gEngfuncs.GetClientTime();
+	bool on = g_ovSeq >= 0 && g_ovKind == OVK_MOVE &&
+			  ( OverlayIs( "fm_hardland" ) || OverlayIs( "fm_roll" ) || OverlayIs( "fm_slide" ) );
+	float dt = ( last < 0.0f || now < last ) ? 0.0f : Clamp( now - last, 0.0f, 0.1f );
+	last = now;
+	w += ( ( on ? 1.0f : 0.0f ) - w ) * Clamp01( dt * ( on ? 12.0f : 5.0f ) );
+	return w;
+}
+
 int FPAnim_ActCamActive( void )
 {
 	return g_ovSeq >= 0 && g_ovFull && g_ovKind == OVK_USER && cl_fpbody_actcam && cl_fpbody_actcam->value != 0.0f;

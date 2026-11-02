@@ -474,6 +474,22 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 	Vector forward( (float)cos( yaw ), (float)sin( yaw ), 0.0f );
 	Vector right( (float)sin( yaw ), (float)-cos( yaw ), 0.0f );
 	float fwd = cl_fpbody_forward->value + cl_fpbody_lookdown->value * down;
+	float upOfs = cl_fpbody_up->value;
+
+	// a hard landing / roll / slide folds the body forward round the head: the
+	// eyes go further out in front (and not up into the shoulders), the more the
+	// head has dropped below standing eye height, so the back and the inside of
+	// the shoulders stay out of view
+	float hunch = FPAnim_HunchWeight();
+	if ( hunch > 0.001f )
+	{
+		float drop = pparams->viewheight[ 2 ] - rel[ 2 ];
+		float extra = drop * 0.6f;
+		if ( extra < 3.0f ) extra = 3.0f;
+		if ( extra > 14.0f ) extra = 14.0f;
+		fwd += extra * hunch;
+		upOfs *= 1.0f - 0.7f * hunch;
+	}
 
 	Vector target;
 	for ( int i = 0; i < 3; i++ )
@@ -482,7 +498,7 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 			+ forward[ i ] * fwd
 			+ right[ i ] * cl_fpbody_right->value;
 	}
-	target[ 2 ] += cl_fpbody_up->value;
+	target[ 2 ] += upOfs;
 
 	// Don't let the camera poke through walls: trace from the normal eye
 	// position (which is always inside the player's hull) to the head.
