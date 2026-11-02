@@ -605,8 +605,32 @@ static struct model_s *FPBody_TryModel( const char *name, int &state )
 	return m;
 }
 
+#ifdef FPBODY_SUIT_MAP_PREFIX
+// The number in the current map's name after the game's map prefix
+// ("maps/echoes06.bsp" -> 6), or -1 on any other map
+static int FPBody_MapNumber( void )
+{
+	const char *level = gEngfuncs.pfnGetLevelName();
+	if ( !level || !*level )
+		return -1;
+	const char *base = strrchr( level, '/' );
+	base = base ? base + 1 : level;
+	size_t n = strlen( FPBODY_SUIT_MAP_PREFIX );
+	if ( strnicmp( base, FPBODY_SUIT_MAP_PREFIX, n ) || base[ n ] < '0' || base[ n ] > '9' )
+		return -1;
+	return atoi( base + n );
+}
+#endif
+
 int FPBody_IsSuited( void )
 {
+#ifdef FPBODY_SUIT_MAP_PREFIX
+	// the suit outfit only from a chapter on (Echoes: the lab coat until RUIN,
+	// though the HUD suit comes in the first chapter)
+	int map = FPBody_MapNumber();
+	if ( map >= 0 && map < FPBODY_SUIT_MAP_FIRST )
+		return 0;
+#endif
 #if FPBODY_SUIT_FROM_ARMOR
 	return gHUD.m_Battery.GetArmor() > 0;
 #else

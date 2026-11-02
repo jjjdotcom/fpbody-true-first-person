@@ -27,6 +27,10 @@ for f in ('cl_dll/fpbody.cpp', 'cl_dll/fpbody.h', 'cl_dll/fpbody_anim.cpp', 'cl_
           'cl_dll/fpbody_game.h', 'dlls/fpbody_moves.inl', 'pm_shared/fpbody_pm.h', 'pm_shared/fpbody_pm_move.h'):
     shutil.copy(os.path.join(REPO, f), os.path.join(SDK, f))
 
+# Echoes: the lab coat until the chapter RUIN (echoes06), though the HUD suit
+# is picked up in the first chapter; then the suit outfit
+rep('cl_dll/fpbody_game.h', [('#define FPBODY_SUIT_FROM_ARMOR 0\t// 1 = "suited" while the player has armor (Blue Shift)\n', '#define FPBODY_SUIT_FROM_ARMOR 0\t// 1 = "suited" while the player has armor (Blue Shift)\n#define FPBODY_SUIT_MAP_PREFIX "echoes"\t// the suit outfit only from map echoes<FIRST> on\n#define FPBODY_SUIT_MAP_FIRST 6\t\t\t// echoes06 = chapter RUIN\n')])
+
 # ---------------- client
 SMR = open(os.path.join(REPO, 'cl_dll/StudioModelRenderer.cpp'), encoding='latin-1').read().replace('\r\n', '\n')
 structs = SMR[SMR.index('#include "fpbody.h"\n'):SMR.index('\nextern cvar_t *tfc_newmodels;')]

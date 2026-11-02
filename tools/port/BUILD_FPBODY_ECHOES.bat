@@ -76,6 +76,8 @@ if not exist "%HL%\fpbody\models\player.mdl" (
 if not exist "%MOD%\models" mkdir "%MOD%\models"
 copy /y "%HL%\fpbody\models\player.mdl" "%MOD%\models\" >nul
 copy /y "%HL%\fpbody\models\fpbody_*.mdl" "%MOD%\models\" >nul
+rem Echoes' own outfits (the suit from RUIN on), kept next to this file in echoes_models
+if exist "%~dp0echoes_models\*.mdl" copy /y "%~dp0echoes_models\*.mdl" "%MOD%\models\" >nul
 copy /y "%HL%\fpbody\models\p_*.mdl" "%MOD%\models\" >nul
 copy /y "%HL%\fpbody\delta.lst" "%MOD%\" >nul
 rem your settings: copied once, then they're the Echoes mod's own
