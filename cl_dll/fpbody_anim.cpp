@@ -2569,7 +2569,7 @@ static const gmhandle_t g_gmHandles[] =
 	{ "p_shotgun", "Bip01 R Hand", { 14.5f, 6.0f, -0.5f }, 60840 },		// cupping the pump from below
 	{ "p_rpg", "Bip01 R Hand", { 12.0f, 4.5f, 0.5f }, 117012 },			// on the rocket tube
 	{ "p_crossbow", "Bip01 R Hand", { 11.5f, 3.0f, -3.0f }, 112276 },		// the front grip under the bow
-	{ "p_egon", "Bip01 R Hand", { 12.0f, 4.0f, 6.5f }, 134264 },		// VAPW Gluon: on the top handle
+	{ "p_egon", "Bip01 R Arm2", { 17.0f, -10.5f, 2.0f }, 134264 },	// VAPW Gluon: on the side bar
 	{ "p_9mmar", "Bip01 R Hand", { 14.5f, 3.5f, 1.0f }, 0 },			// HD M16 / MP5: under the grenade launcher (within reach looking down)
 	{ "p_shotgun", "Bip01 R Hand", { 16.0f, 3.0f, 1.0f }, 0 },		// under the pump
 	{ "p_crossbow", "Bip01 R Hand", { 9.5f, 4.0f, 0.5f }, 0 },		// fore-stock
