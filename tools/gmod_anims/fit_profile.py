@@ -1,6 +1,6 @@
 """Reshape a body's torso to another body's proportions (same skeleton).
 
-  python3 -I fit_profile.py <body.mdl> <ref.mdl> <out.mdl> [zlo zhi] [--lowerback u]
+  python3 -I fit_profile.py <body.mdl> <ref.mdl> <out.mdl> [zlo zhi] [--lowerback u] [--belly u]
 
 In the rest pose, every horizontal slice of the body between zlo and zhi
 (heights relative to "Bip01 Pelvis"; default -4 .. 18, the hips to the chest)
@@ -10,7 +10,9 @@ fading out over 4 units at both ends. For a Half-Life mesh on the Garry's
 Mod-proportioned skeleton, whose waist comes out sunken next to the HL:S
 bodies'. --lowerback pushes the back of the waist out by up to u units
 (most 9 units above the pelvis, none at 2 and 16), filling a sway-back
-curve the outline match leaves. Vertices stay on their bones.
+curve the outline match leaves; --belly pushes the front of the lower torso out
+the same way (most 6 units above the pelvis, none at 0 and 13). Vertices stay
+on their bones.
 """
 import struct
 import sys
@@ -23,6 +25,7 @@ from goldsrc import GoldSrcModel   # noqa: E402
 WIN = 1.5      # half height of the slice an outline is measured over
 FADE = 4.0
 MAXMOVE = 4.0
+BE_MID, BE_HALF = 6.0, 6.5   # --belly: the front of the lower torso
 LB_MID, LB_HALF = 9.0, 7.0   # --lowerback: most 9 units above the pelvis, none 7 above / below that
 
 
@@ -81,7 +84,7 @@ def extents(P, z):
     return s[:, 0].min(), s[:, 0].max(), s[:, 1].min(), s[:, 1].max()
 
 
-def main(body, ref, out, zlo=-4.0, zhi=18.0, lowerback=0.0):
+def main(body, ref, out, zlo=-4.0, zhi=18.0, lowerback=0.0, belly=0.0):
     B, Rf = GoldSrcModel(body), GoldSrcModel(ref)
     bm, bp_, R, T, arms = body_verts(B)
     _, rp, _, _, _ = body_verts(Rf)
@@ -114,6 +117,15 @@ def main(body, ref, out, zlo=-4.0, zhi=18.0, lowerback=0.0):
             v = np.array(struct.unpack_from('<3f', d, vindex + i * 12))
             p = R[b] @ v + T[b]
             q = remap(p)
+            if belly:
+                # the front is -y
+                z = p[2] - pz0
+                wz = max(0.0, 1.0 - abs(z - BE_MID) / BE_HALF)
+                sl = bp_[np.abs(bp_[:, 2] - p[2]) <= WIN]
+                if wz > 0 and len(sl):
+                    cy, ymin = (sl[:, 1].min() + sl[:, 1].max()) / 2, sl[:, 1].min()
+                    f = float(np.clip((cy - p[1]) / max(cy - ymin, 0.5), 0.0, 1.0))
+                    q[1] -= float(belly) * wz * f
             if lowerback:
                 # the rest pose faces -y: the back is +y
                 z = p[2] - pz0
@@ -130,7 +142,8 @@ def main(body, ref, out, zlo=-4.0, zhi=18.0, lowerback=0.0):
 
 if __name__ == '__main__':
     a = sys.argv[1:]
-    lb = 0.0
-    if '--lowerback' in a:
-        i = a.index('--lowerback'); lb = float(a[i + 1]); del a[i:i + 2]
-    main(*a, lowerback=lb)
+    opt = {}
+    for k in ('--lowerback', '--belly'):
+        if k in a:
+            i = a.index(k); opt[k[2:]] = float(a[i + 1]); del a[i:i + 2]
+    main(*a, **opt)
