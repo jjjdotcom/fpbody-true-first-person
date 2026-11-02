@@ -32,6 +32,7 @@
 #define FPM_USE_SHIFT		13		// 3 bits, set by the server: what we just +used (FPM_USE_*)
 #define FPM_SPRINT			65536	// sprinting (+sprint = +alt1, IN_ALT1)
 #define FPM_BARNACLE		131072	// set by the server: a barnacle has us (fuser4 needs 24 bits in delta.lst)
+#define FPM_ROPE			262144	// set by the server: hanging on a rope (Opposing Force)
 #define FPM_SPRINT_SCALE	1.25f	// speed while sprinting (320 -> 400)
 
 // Moves that are switched off (1 = on): prone (pm_prone, double-tap duck) and

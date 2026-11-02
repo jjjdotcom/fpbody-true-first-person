@@ -268,9 +268,13 @@ void CBasePlayer::FPMoves_Think( void )
 	FPMoves_Regen();
 	if ( IsAlive() )
 		FPMoves_Scan();
-	int st = (int)pev->fuser4 & ~( FPM_PANIC | FPM_HOSTILE | FPM_BARNACLE | ( 7 << FPM_HITGROUP_SHIFT ) | ( 7 << FPM_USE_SHIFT ) );
+	int st = (int)pev->fuser4 & ~( FPM_PANIC | FPM_HOSTILE | FPM_BARNACLE | FPM_ROPE | ( 7 << FPM_HITGROUP_SHIFT ) | ( 7 << FPM_USE_SHIFT ) );
 	if ( IsAlive() && ( m_afPhysicsFlags & PFLAG_ONBARNACLE ) )
 		st |= FPM_BARNACLE;
+#ifdef PFLAG_ONROPE
+	if ( IsAlive() && ( m_afPhysicsFlags & PFLAG_ONROPE ) )
+		st |= FPM_ROPE;
+#endif
 	st |= ( m_LastHitGroup & 7 ) << FPM_HITGROUP_SHIFT;
 	if ( IsAlive() && gpGlobals->time < m_flFPUseUntil )
 		st |= ( m_iFPUseKind & 7 ) << FPM_USE_SHIFT;

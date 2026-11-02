@@ -454,6 +454,7 @@ static int g_wasOnGround = 1;
 static float g_maxFallSpeed;
 static float g_ladderW;
 static float g_ladderPhase;
+static float g_ropeVz;			// Opposing Force ropes: how fast we climb (from the height we move)
 static float g_lastZ;
 
 // sway state
@@ -1893,12 +1894,15 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	}
 	else if ( ( st & FPM_CLIMB ) && !onground && vz > -150.0f && !( st & FPM_VAULT ) )
 		loop = "fm_climb";
-	else if ( !onground && g_mvFallStart >= 0.0f && g_now - g_mvFallStart > 0.35f && !( st & FPM_VAULT ) &&
+	else if ( !onground && g_mvFallStart >= 0.0f && g_now - g_mvFallStart > 0.35f && !( st & ( FPM_VAULT | FPM_ROPE ) ) &&
 			  pparams->waterlevel < 2 && !g_onladder )
 		loop = "fm_fall";
-	else if ( g_onladder && !( st & ( FPM_PRONE | FPM_VAULT ) ) && FindSeq( g_playerHdr, "fm_ladder_idle" ) >= 0 )
+	else if ( ( g_onladder || ( st & FPM_ROPE ) ) && !( st & ( FPM_PRONE | FPM_VAULT ) ) && FindSeq( g_playerHdr, "fm_ladder_idle" ) >= 0 )
 	{
-		// ladders (Freeman): climb up / down at the climbing speed, hang still
+		// ladders (Freeman): climb up / down at the climbing speed, hang still;
+		// Opposing Force's ropes the same, hand over hand
+		if ( st & FPM_ROPE )
+			vz = g_ropeVz;
 		if ( vz > 5.0f )
 			loop = "fm_ladder_up";
 		else if ( vz < -5.0f )
@@ -2047,6 +2051,14 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 	float dz = pparams->simorg[ 2 ] - g_lastZ;
 	if ( fabs( dz ) < 64.0f && g_onladder )
 		g_ladderPhase += dz * (float)( 2.0 * M_PI / 40.0 );
+	// a rope holds our velocity at zero and moves us along it: the speed is the height travelled
+	if ( ( g_mvPrevState & FPM_ROPE ) && g_frameTime > 0.0f && fabs( dz ) < 64.0f )
+	{
+		g_ropeVz += ( dz / g_frameTime - g_ropeVz ) * Clamp01( g_frameTime * 8.0f );
+		g_ladderPhase += dz * (float)( 2.0 * M_PI / 40.0 );
+	}
+	else
+		g_ropeVz = 0.0f;
 	g_lastZ = pparams->simorg[ 2 ];
 
 	// weapon sway: the gun lags behind turning and leans when strafing
