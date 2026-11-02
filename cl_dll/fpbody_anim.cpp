@@ -43,6 +43,8 @@
 //   (server) sv_fpbody_anims cz  classic mode weapon holds: cz = Condition Zero,
 //                            cs = Counter-Strike 1.6 (falls back to Condition Zero).
 //                            The 9mmAR (an M16) always uses Counter-Strike 1.6's rifle set.
+//   cl_fpbody_offhand_release 1  the off hand lets go of the gun for use, the flashlight,
+//                            ladders, barnacles, hard landings and the relaxed holds
 //   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK; in classic mode,
 //                            the left hand on the Tau Cannon's side bar)
 //   cl_fpbody_grip_fwd  0    move the off-hand grip forward/back along the gun (units)
@@ -131,6 +133,7 @@ static cvar_t *cl_fpbody_actcam;
 static cvar_t *cl_fpbody_gmod;
 static cvar_t *cl_fpbody_aimfire;
 static cvar_t *cl_fpbody_offhand;
+static cvar_t *cl_fpbody_offhand_release;
 static cvar_t *cl_fpbody_reloads;
 static cvar_t *cl_fpbody_glreload;
 static cvar_t *cl_fpbody_l4dreload;
@@ -477,6 +480,7 @@ void FPAnim_Init( void )
 	cl_fpbody_gmod      = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gmod", "1", FCVAR_ARCHIVE );
 	cl_fpbody_aimfire   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_aimfire", "1", FCVAR_ARCHIVE );
 	cl_fpbody_offhand   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand", "1", FCVAR_ARCHIVE );
+	cl_fpbody_offhand_release = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand_release", "1", FCVAR_ARCHIVE );
 	cl_fpbody_reloads   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloads", "cz", FCVAR_ARCHIVE );
 	cl_fpbody_glreload  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_glreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_debug     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_debug", "0", 0 );
@@ -2162,6 +2166,7 @@ struct skel_t
 	int rFore;
 	bool rForeMask[ MAXSTUDIOBONES ];
 	bool rHandMask[ MAXSTUDIOBONES ];
+	bool lHandMask[ MAXSTUDIOBONES ];
 	bool armsMask[ MAXSTUDIOBONES ];
 	bool lUpperMask[ MAXSTUDIOBONES ];
 	bool rUpperMask[ MAXSTUDIOBONES ];
@@ -2226,6 +2231,7 @@ static void CacheSkeleton( const studiohdr_t *hdr )
 	g_skel.rFore = FindBone( bones, num, "Bip01 R Arm2", "Bip01 R Forearm" );
 	MarkSubtree( bones, num, g_skel.rFore, g_skel.rForeMask, true );
 	MarkSubtree( bones, num, g_skel.rHand, g_skel.rHandMask, true );
+	MarkSubtree( bones, num, g_skel.lHand, g_skel.lHandMask, true );
 }
 
 // Rotate (and optionally move) every masked bone around pivot by world rotation W
@@ -3248,6 +3254,117 @@ static void PumpStroke( float ( *light )[ 3 ][ 4 ], const gun_t *gun, float now,
 		target[ i ] -= barrel[ i ] * stroke;
 }
 
+// The off hand lets go of the gun while it is busy or the body does something
+// of its own: any full-body / gesture animation (relaxed and at-ease holds,
+// barnacle gagging, hard landings, rolls, draws), pressing use, the
+// flashlight, ladders, being held by a barnacle, a hard landing's dip.
+// cl_fpbody_offhand_release 0 keeps it on the gun through all of these.
+static bool OffHandBusy( float now )
+{
+	if ( g_ovSeq >= 0 )
+		return true;
+	if ( cl_fpbody_offhand_release && cl_fpbody_offhand_release->value == 0.0f )
+		return false;
+	return g_relaxW > 0.02f ||
+		   ( in_use.state & 1 ) || now - g_useStart < 0.7f || g_useHoldW > 0.02f ||
+		   now - g_flashStart < 0.7f ||
+		   g_ladderW > 0.02f ||
+		   ( g_mvPrevState & FPM_BARNACLE ) ||
+		   ( now - g_landStart < 0.7f && g_landStrength > 0.35f );
+}
+
+// rotation matrix -> unit axis and angle (degrees)
+static float MatAxisAngle( const mat3_t m, float *axis )
+{
+	float c = Clamp( ( m[ 0 ][ 0 ] + m[ 1 ][ 1 ] + m[ 2 ][ 2 ] - 1.0f ) * 0.5f, -1.0f, 1.0f );
+	float ang = (float)acos( c );
+	axis[ 0 ] = m[ 2 ][ 1 ] - m[ 1 ][ 2 ];
+	axis[ 1 ] = m[ 0 ][ 2 ] - m[ 2 ][ 0 ];
+	axis[ 2 ] = m[ 1 ][ 0 ] - m[ 0 ][ 1 ];
+	if ( Normalize3( axis ) < 1e-5f )
+		return 0.0f;
+	return ang * (float)( 180.0 / M_PI );
+}
+
+// Pistols: the left hand is held on the gun at a fixed place and angle in the
+// gun hand's space, so it stays on the grip from every view angle. Taken from
+// the hold animation while its left hand is on the gun (else from the gun's
+// grip point), kept per gun.
+static int g_pgModel = -1;
+static bool g_pgHavePos, g_pgHaveRot;
+static float g_pgPos[ 3 ];
+static mat3_t g_pgRot;
+
+static void PistolGripLatch( float ( *light )[ 3 ][ 4 ], const gun_t *gun, int weaponmodel, bool holding )
+{
+	if ( weaponmodel != g_pgModel )
+	{
+		g_pgModel = weaponmodel;
+		g_pgHavePos = g_pgHaveRot = false;
+	}
+	int rh = g_skel.rHand, lh = g_skel.lHand;
+	float d[ 3 ], rel[ 3 ];
+	for ( int i = 0; i < 3; i++ )
+		d[ i ] = light[ lh ][ i ][ 3 ] - light[ rh ][ i ][ 3 ];
+	for ( int c = 0; c < 3; c++ )
+		rel[ c ] = light[ rh ][ 0 ][ c ] * d[ 0 ] + light[ rh ][ 1 ][ c ] * d[ 1 ] + light[ rh ][ 2 ][ c ] * d[ 2 ];
+	// the animation's own two-handed grip: follow it while its hand is on the gun
+	if ( holding && Dot3( rel, rel ) < 8.0f * 8.0f )
+	{
+		for ( int i = 0; i < 3; i++ )
+			g_pgPos[ i ] = rel[ i ];
+		for ( int a = 0; a < 3; a++ )
+			for ( int b = 0; b < 3; b++ )
+				g_pgRot[ a ][ b ] = light[ rh ][ 0 ][ a ] * light[ lh ][ 0 ][ b ] + light[ rh ][ 1 ][ a ] * light[ lh ][ 1 ][ b ] +
+									light[ rh ][ 2 ][ a ] * light[ lh ][ 2 ][ b ];
+		g_pgHavePos = g_pgHaveRot = true;
+	}
+	else if ( !g_pgHavePos )
+	{
+		// no grip in the animation: the gun's grip point, with the drop below the
+		// gun taken once (the world's down, seen from the gun hand now)
+		for ( int c = 0; c < 3; c++ )
+			g_pgPos[ c ] = gun->grip[ c ] - light[ rh ][ 2 ][ c ] * gun->down;
+		g_pgHavePos = true;
+	}
+}
+
+// after the arm has reached: turn the left hand to its held angle on the gun
+static void PistolGripTurn( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], float w )
+{
+	int rh = g_skel.rHand, lh = g_skel.lHand;
+	if ( !g_pgHaveRot )
+	{
+		// first frame fully on the gun: keep the angle the reach left it at
+		if ( w < 0.95f )
+			return;
+		for ( int a = 0; a < 3; a++ )
+			for ( int b = 0; b < 3; b++ )
+				g_pgRot[ a ][ b ] = light[ rh ][ 0 ][ a ] * light[ lh ][ 0 ][ b ] + light[ rh ][ 1 ][ a ] * light[ lh ][ 1 ][ b ] +
+									light[ rh ][ 2 ][ a ] * light[ lh ][ 2 ][ b ];
+		g_pgHaveRot = true;
+		return;
+	}
+	mat3_t want, W;
+	for ( int a = 0; a < 3; a++ )
+		for ( int b = 0; b < 3; b++ )
+			want[ a ][ b ] = light[ rh ][ a ][ 0 ] * g_pgRot[ 0 ][ b ] + light[ rh ][ a ][ 1 ] * g_pgRot[ 1 ][ b ] +
+							 light[ rh ][ a ][ 2 ] * g_pgRot[ 2 ][ b ];
+	for ( int a = 0; a < 3; a++ )		// W = want * current^T
+		for ( int b = 0; b < 3; b++ )
+			W[ a ][ b ] = want[ a ][ 0 ] * light[ lh ][ b ][ 0 ] + want[ a ][ 1 ] * light[ lh ][ b ][ 1 ] +
+						  want[ a ][ 2 ] * light[ lh ][ b ][ 2 ];
+	float axis[ 3 ];
+	float ang = MatAxisAngle( W, axis ) * Clamp01( w );
+	if ( ang < 0.2f )
+		return;
+	mat3_t R;
+	AxisAngle( axis, ang, R );
+	float pivot[ 3 ];
+	BoneOrigin( light, lh, pivot );
+	TransformBones( bone, light, g_skel.lHandMask, R, pivot, NULL );
+}
+
 static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel,
 	const float *f, const float *r, const float *u, float now )
 {
@@ -3259,6 +3376,7 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	}
 	const gun_t *gun = GunForModel( weaponmodel );
 	bool overlay = ( g_ovSeq >= 0 );	// GMod reload: hands leave the gun
+	bool letGo = overlay || OffHandBusy( now );	// the left hand is needed elsewhere
 
 	// smooth weights
 	float aimTarget = ( gun && !overlay && cl_fpbody_aimfire->value != 0.0f && g_glOpenW <= 0.0f &&
@@ -3267,27 +3385,23 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	float aimRate = aimTarget > g_aimW ? 14.0f : 5.0f;
 	g_aimW += ( aimTarget - g_aimW ) * Clamp01( g_frameTime * aimRate );
 
-	float offTarget = ( gun && gun->down >= 0.0f && !overlay ) ? Clamp01( cl_fpbody_offhand->value ) : 0.0f;
-	g_offW += ( offTarget - g_offW ) * Clamp01( g_frameTime * 8.0f );
+	float offTarget = ( gun && gun->down >= 0.0f && !letGo ) ? Clamp01( cl_fpbody_offhand->value ) : 0.0f;
+	g_offW += ( offTarget - g_offW ) * Clamp01( g_frameTime * ( offTarget < g_offW ? 14.0f : 8.0f ) );
 
 	if ( !gun || g_skel.rUpper < 0 || g_skel.rHand < 0 )
 		return;
 
-	// pistols: where the animation has the left hand, in the gun hand's space
-	// (two-handed holds like Counter-Strike's wrap it round the grip), to keep it
-	// there when the arms are moved below
+	// pistols: the left hand's place and angle on the gun, in the gun hand's space
+	// (two-handed holds like Counter-Strike's wrap it round the grip), held there
+	// when the arms are moved below and from every view angle
 	float lRel[ 3 ] = { 0, 0, 0 };
 	bool haveRel = false;
 	if ( gun->pistol && g_skel.lHand >= 0 )
 	{
-		float d[ 3 ];
+		PistolGripLatch( light, gun, weaponmodel, !letGo );
 		for ( int i = 0; i < 3; i++ )
-			d[ i ] = light[ g_skel.lHand ][ i ][ 3 ] - light[ g_skel.rHand ][ i ][ 3 ];
-		for ( int c = 0; c < 3; c++ )
-			lRel[ c ] = light[ g_skel.rHand ][ 0 ][ c ] * d[ 0 ] + light[ g_skel.rHand ][ 1 ][ c ] * d[ 1 ] +
-						light[ g_skel.rHand ][ 2 ][ c ] * d[ 2 ];
-		// only if it is on the gun: within a hand's length of the gun hand
-		haveRel = Dot3( lRel, lRel ) < 8.0f * 8.0f;
+			lRel[ i ] = g_pgPos[ i ];
+		haveRel = g_pgHavePos;
 	}
 
 	// 1a. pistols: two-handed hold, shooting hand in front of the chest and
@@ -3360,6 +3474,7 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 						  light[ g_skel.rHand ][ i ][ 2 ] * lRel[ 2 ] + light[ g_skel.rHand ][ i ][ 3 ];
 		GripAdjust( light, gun, weaponmodel, target );
 		ReachArm( bone, light, target, g_offW, false, cl_fpbody_elbowdown->value );
+		PistolGripTurn( bone, light, g_offW );
 	}
 	else if ( g_offW > 0.001f && gun->down >= 0.0f )
 	{
@@ -3441,9 +3556,8 @@ static const gunhandle_t *HandleForModel( int modelindex )
 static void ApplyClassicHandle( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel )
 {
 	const gunhandle_t *h = HandleForModel( weaponmodel );
-	bool overlay = ( g_ovSeq >= 0 );
-	float want = ( h && !overlay ) ? Clamp01( cl_fpbody_offhand->value ) : 0.0f;
-	g_handleW += ( want - g_handleW ) * Clamp01( g_frameTime * 8.0f );
+	float want = ( h && !OffHandBusy( g_now ) ) ? Clamp01( cl_fpbody_offhand->value ) : 0.0f;
+	g_handleW += ( want - g_handleW ) * Clamp01( g_frameTime * ( want < g_handleW ? 14.0f : 8.0f ) );
 	if ( h )
 		g_lastHandle = h;
 	h = g_lastHandle;
