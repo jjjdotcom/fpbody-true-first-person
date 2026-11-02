@@ -1976,6 +1976,13 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 		g_mvActivity = g_now; g_adHoldUntil = 0.0f; g_l4dShellAt = -10.0f; g_pickupPending = false;
 		g_mvLastDuck = g_mvLastReload = -10.0f; g_epaLastHurt = -100.0f;
 		g_cur.type = CLIP_NONE; g_prev.type = CLIP_NONE;
+		// and the ones that let the off hand go / pose the arms for a moment
+		// (use, flashlight, landing, firing): from the last map they lie in the
+		// future and would hold it off the gun until the clock caught up
+		g_useStart = g_flashStart = g_landStart = g_lastShot = -10.0f;
+		g_useHoldW = 0.0f; g_aimW = 0.0f; g_quickTime = -100.0f;
+		g_mvFallStart = -1.0f; g_prevFadeStart = -10.0f;
+		g_lastHeadTime = g_headOfsTime = -10.0f; g_hookTime = -10.0f;
 		StopOverlay();
 	}
 	s_lastNow = g_now;
@@ -3265,12 +3272,15 @@ static bool OffHandBusy( float now )
 		return true;
 	if ( cl_fpbody_offhand_release && cl_fpbody_offhand_release->value == 0.0f )
 		return false;
+	// (a moment ago: never a time still to come, which is a clock that restarted)
+	#define FP_RECENT( t, d ) ( now - ( t ) >= 0.0f && now - ( t ) < ( d ) )
 	return g_relaxW > 0.02f ||
-		   ( in_use.state & 1 ) || now - g_useStart < 0.7f || g_useHoldW > 0.02f ||
-		   now - g_flashStart < 0.7f ||
+		   ( in_use.state & 1 ) || FP_RECENT( g_useStart, 0.7f ) || g_useHoldW > 0.02f ||
+		   FP_RECENT( g_flashStart, 0.7f ) ||
 		   g_ladderW > 0.02f ||
 		   ( g_mvPrevState & FPM_BARNACLE ) ||
-		   ( now - g_landStart < 0.7f && g_landStrength > 0.35f );
+		   ( FP_RECENT( g_landStart, 0.7f ) && g_landStrength > 0.35f );
+	#undef FP_RECENT
 }
 
 // rotation matrix -> unit axis and angle (degrees)
@@ -3381,7 +3391,7 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	// smooth weights
 	float aimTarget = ( gun && !overlay && cl_fpbody_aimfire->value != 0.0f && g_glOpenW <= 0.0f &&
 						!( g_cur.type == CLIP_RELOAD && g_cur.variant == 1 && now < g_cur.start + g_cur.dur ) &&
-						( now - g_lastShot < 0.6f || g_attackHeld ) ) ? 1.0f : 0.0f;
+						( ( now - g_lastShot >= 0.0f && now - g_lastShot < 0.6f ) || g_attackHeld ) ) ? 1.0f : 0.0f;
 	float aimRate = aimTarget > g_aimW ? 14.0f : 5.0f;
 	g_aimW += ( aimTarget - g_aimW ) * Clamp01( g_frameTime * aimRate );
 
