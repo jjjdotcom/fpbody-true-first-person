@@ -25,11 +25,15 @@ player_path, mesh_path, tex_path, out_path = sys.argv[1:5]
 # (a Half-Life player on the Garry's Mod-proportioned skeleton) stretches to fit
 # with no dents or gaps where body parts meet (hips, shoulders)
 BLEND = '--blend' in sys.argv[5:]
-# --hips <s>: with --blend, the hips and thighs narrowed to s of their width
-# (side to side, about the middle; full at the hips, none at the knees and the
-# waist), for a Half-Life mesh whose hips stand out once its shoulders come in
-# to the Garry's Mod skeleton's narrower ones
+# --hips <s>: with --blend, the hips and thighs' depth (front to back) scaled
+# to s (full at the hips, none at the knees and the waist)
+# --hipback <u> / --torso <u>: with --blend, the hips moved back and the torso
+# moved forward by u units (fading out toward the knees / the waist and neck),
+# for a Half-Life mesh whose torso sits behind its hips on the Garry's
+# Mod-proportioned skeleton (whose spine is further back)
 HIPS = float(sys.argv[sys.argv.index('--hips') + 1]) if '--hips' in sys.argv else 1.0
+HIPBACK = float(sys.argv[sys.argv.index('--hipback') + 1]) if '--hipback' in sys.argv else 0.0
+TORSO = float(sys.argv[sys.argv.index('--torso') + 1]) if '--torso' in sys.argv else 0.0
 P = GoldSrcModel(player_path)
 N = GoldSrcModel(mesh_path)
 
@@ -120,6 +124,16 @@ def hip_weight(z):
     return 1.0
 
 
+_nz = Tn[[i for i in mapped if target_name(N.bones[i]['name']) == 'Bip01 Neck'][0]][2]
+
+
+def torso_weight(z):
+    lo, top = _pz + 3.0, _nz                         # above the hips .. the neck
+    if z <= lo or z >= top:
+        return 0.0
+    return min(1.0, (z - lo) / 9.0, (top - z) / 4.0)
+
+
 for mo in models:
     (nummesh, meshindex, numverts, vinfo, vindex,
      numnorms, ninfo, nindex) = struct.unpack_from('<8i', mesh, mo + 72)
@@ -134,8 +148,10 @@ for mo in models:
             elif BLEND:
                 pw = Rn[nb] @ v + Tn[nb]               # world rest position
                 q = pw + blended(pw)
-                if HIPS != 1.0 and nb not in arms:
+                if nb not in arms:
                     q[1] *= 1.0 - (1.0 - HIPS) * hip_weight(pw[2])
+                    # the rest pose faces -y: forward is -y
+                    q[1] += HIPBACK * hip_weight(pw[2]) - TORSO * torso_weight(pw[2])
                 out = Rp[pb].T @ (q - Tp[pb])
             else:
                 w = Rn[nb] @ v + Tn[nb] - Tn[anc]    # offset from the joint, world space
