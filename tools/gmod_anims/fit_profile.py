@@ -1,6 +1,6 @@
 """Reshape a body's torso to another body's proportions (same skeleton).
 
-  python3 -I fit_profile.py <body.mdl> <ref.mdl> <out.mdl> [zlo zhi]
+  python3 -I fit_profile.py <body.mdl> <ref.mdl> <out.mdl> [zlo zhi] [--lowerback u]
 
 In the rest pose, every horizontal slice of the body between zlo and zhi
 (heights relative to "Bip01 Pelvis"; default -4 .. 18, the hips to the chest)
@@ -8,7 +8,9 @@ is stretched side to side and front to back so that its outline spans what
 the reference body's does at that height (both measured without the arms),
 fading out over 4 units at both ends. For a Half-Life mesh on the Garry's
 Mod-proportioned skeleton, whose waist comes out sunken next to the HL:S
-bodies'. Vertices stay on their bones; the file is changed in place.
+bodies'. --lowerback pushes the back of the waist out by up to u units
+(most 9 units above the pelvis, none at 2 and 16), filling a sway-back
+curve the outline match leaves. Vertices stay on their bones.
 """
 import struct
 import sys
@@ -20,7 +22,8 @@ from goldsrc import GoldSrcModel   # noqa: E402
 
 WIN = 1.5      # half height of the slice an outline is measured over
 FADE = 4.0
-MAXMOVE = 4.0  # no vertex moves further than this (a lone vertex in a thin slice)
+MAXMOVE = 4.0
+LB_MID, LB_HALF = 9.0, 7.0   # --lowerback: most 9 units above the pelvis, none 7 above / below that
 
 
 def arm_bones(M):
@@ -78,11 +81,11 @@ def extents(P, z):
     return s[:, 0].min(), s[:, 0].max(), s[:, 1].min(), s[:, 1].max()
 
 
-def main(body, ref, out, zlo=-4.0, zhi=18.0):
+def main(body, ref, out, zlo=-4.0, zhi=18.0, lowerback=0.0):
     B, Rf = GoldSrcModel(body), GoldSrcModel(ref)
     bm, bp_, R, T, arms = body_verts(B)
     _, rp, _, _, _ = body_verts(Rf)
-    pz = T[B.bone_by_name['Bip01 Pelvis']][2]
+    pz = pz0 = T[B.bone_by_name['Bip01 Pelvis']][2]
     zlo, zhi = pz + float(zlo), pz + float(zhi)
 
     def remap(p):
@@ -111,10 +114,23 @@ def main(body, ref, out, zlo=-4.0, zhi=18.0):
             v = np.array(struct.unpack_from('<3f', d, vindex + i * 12))
             p = R[b] @ v + T[b]
             q = remap(p)
+            if lowerback:
+                # the rest pose faces -y: the back is +y
+                z = p[2] - pz0
+                wz = max(0.0, 1.0 - abs(z - LB_MID) / LB_HALF)
+                sl = bp_[np.abs(bp_[:, 2] - p[2]) <= WIN]
+                if wz > 0 and len(sl):
+                    cy, ymax = (sl[:, 1].min() + sl[:, 1].max()) / 2, sl[:, 1].max()
+                    f = float(np.clip((p[1] - cy) / max(ymax - cy, 0.5), 0.0, 1.0))
+                    q[1] += float(lowerback) * wz * f
             struct.pack_into('<3f', d, vindex + i * 12, *(R[b].T @ (q - T[b])))
     open(out, 'wb').write(d)
     print('wrote', out)
 
 
 if __name__ == '__main__':
-    main(*sys.argv[1:])
+    a = sys.argv[1:]
+    lb = 0.0
+    if '--lowerback' in a:
+        i = a.index('--lowerback'); lb = float(a[i + 1]); del a[i:i + 2]
+    main(*a, lowerback=lb)
