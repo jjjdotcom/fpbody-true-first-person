@@ -24,7 +24,7 @@
 ****/
 #include "scripted.h"
 
-enum { FJE_PHASE, FJE_FIRE, FJE_SOUND, FJE_PROP, FJE_CUT, FJE_HEAL, FJE_END };
+enum { FJE_PHASE, FJE_FIRE, FJE_SOUND, FJE_PROP, FJE_CUT, FJE_HEAL, FJE_END, FJE_HUSH };
 
 struct FPJobEvt
 {
@@ -63,6 +63,7 @@ static const FPJobEvt s_of2a3Door[] = {
 	{ FPJ_T_CUT, FJE_PHASE, FPM_JOB_CUT, NULL },
 	{ FPJ_T_CUT, FJE_FIRE, 0, "weld_door_flicker_light" },
 	{ FPJ_T_KICK - 0.1f, FJE_FIRE, 0, "weld_door_flicker_light" },
+	{ FPJ_T_KICK - 0.1f, FJE_HUSH, 0, NULL },			// the torch goes off
 	{ FPJ_T_KICK, FJE_PHASE, FPM_JOB_KICK, NULL },
 	{ FPJ_T_KICK, FJE_PROP, 0, NULL },
 	{ FPJ_T_HIT, FJE_FIRE, 0, "kill_falsedoor" },
@@ -83,6 +84,7 @@ static const FPJobEvt s_of2a5Door[] = {
 	{ FPJ_T_CUT, FJE_PHASE, FPM_JOB_CUT, NULL },
 	{ FPJ_T_CUT, FJE_FIRE, 0, "torch_doorcut_light" },
 	{ FPJ_T_KICK - 0.1f, FJE_FIRE, 0, "torch_doorcut_light" },
+	{ FPJ_T_KICK - 0.1f, FJE_HUSH, 0, NULL },			// the torch goes off
 	{ FPJ_T_KICK, FJE_PHASE, FPM_JOB_KICK, NULL },
 	{ FPJ_T_KICK, FJE_PROP, 0, NULL },
 	{ FPJ_T_HIT, FJE_FIRE, 0, "killdadoor" },
@@ -280,6 +282,7 @@ void CBasePlayer::FPJobs_Start( int job, CBaseEntity *pTarget )
 	m_iFPJobFired = 0;
 	m_iFPJobPhase = 0;
 	m_flFPJobNextFx = gpGlobals->time;
+	m_flFPJobNextSnd = gpGlobals->time;
 	m_hFPJobTarget = pTarget;
 
 	Vector face;
@@ -330,8 +333,17 @@ void CBasePlayer::FPJobs_Start( int job, CBaseEntity *pTarget )
 	m_flNextAttack = UTIL_WeaponTimeBase() + 0.5f;
 }
 
+// the torch's sounds stop when it goes away
+void CBasePlayer::FPJobs_Hush( void )
+{
+	STOP_SOUND( ENT( pev ), CHAN_WEAPON, "fgrunt/torch_cut_loop.wav" );
+	STOP_SOUND( ENT( pev ), CHAN_ITEM, "fgrunt/torch_light.wav" );
+	m_flFPJobNextSnd = gpGlobals->time + 1000.0f;
+}
+
 void CBasePlayer::FPJobs_End( void )
 {
+	FPJobs_Hush();
 	m_iFPJob = 0;
 	m_iFPJobPhase = 0;
 	m_hFPJobTarget = NULL;
@@ -468,6 +480,9 @@ void CBasePlayer::FPJobs_Think( void )
 				if ( want > 0.0f )
 					pT->TakeHealth( want, DMG_GENERIC );
 			}
+			break;
+		case FJE_HUSH:
+			FPJobs_Hush();
 			break;
 		case FJE_END:
 			FPJobs_End();
