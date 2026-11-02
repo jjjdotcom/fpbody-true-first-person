@@ -76,6 +76,8 @@ if not exist "%HL%\fpbody\models\player.mdl" (
 if not exist "%MOD%\models" mkdir "%MOD%\models"
 copy /y "%HL%\fpbody\models\player.mdl" "%MOD%\models\" >nul
 copy /y "%HL%\fpbody\models\fpbody_*.mdl" "%MOD%\models\" >nul
+rem Field Intensity's own suit colour (green), kept next to this file in fi_models
+if exist "%~dp0fi_models\*.mdl" copy /y "%~dp0fi_models\*.mdl" "%MOD%\models\" >nul
 rem the Half-Life guns you tuned, where Field Intensity has no model of its own
 for %%f in ("%HL%\fpbody\models\p_*.mdl") do if not exist "%GAME%\models\%%~nxf" copy /y "%%f" "%MOD%\models\" >nul
 rem Field Intensity's network settings, with room for the body's move state (fuser4)
