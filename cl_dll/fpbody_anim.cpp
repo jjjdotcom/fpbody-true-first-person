@@ -1834,8 +1834,27 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	int ended = g_mvPrevState & ~st;
 	bool oneShot = g_ovSeq >= 0 && g_ovKind == OVK_MOVE;
 
+	// Opposing Force jobs the server runs (dlls/fpbody_jobs.inl): pull the
+	// torch, cut, kick the door in; kneel and give a shot. Each phase plays as
+	// long as the server holds it.
+	int job = FPM_JOB( st ), prevJob = FPM_JOB( g_mvPrevState );
+	if ( job != prevJob )
+	{
+		static const char *names[ 8 ] = { NULL, "fm_job_pull_torch", "fm_job_cut_door", "fm_job_kick", "fm_job_heal",
+			"fm_job_cut_grate", "fm_job_open_grate", "fm_job_store_torch" };
+		static const float durs[ 8 ] = { 0.0f, FPM_JOB_DUR_PULL, FPM_JOB_DUR_CUT, FPM_JOB_DUR_KICK, FPM_JOB_DUR_HEAL,
+			FPM_JOB_DUR_CUTGRATE, FPM_JOB_DUR_OPENGRATE, FPM_JOB_DUR_STORE };
+		if ( job )
+			StartOverlayKind( names[ job ], OVK_MOVE, durs[ job ] );
+		else if ( g_ovSeq >= 0 && g_ovKind == OVK_MOVE && !strncmp( OverlayName(), "fm_job_", 7 ) )
+			StopOverlay();
+		oneShot = g_ovSeq >= 0 && g_ovKind == OVK_MOVE;
+	}
+
 	// one-off moves, in order of importance
-	if ( started & FPM_VAULT )
+	if ( job )
+		;
+	else if ( started & FPM_VAULT )
 	{
 		int type = FPM_VTYPE( st );
 		const char *name = type == FPM_VAULT_HOP ? "fm_vault" : type == FPM_VAULT_PULLUP ? "fm_pullup" : "fm_mantle";
@@ -4308,7 +4327,7 @@ float FPAnim_HunchWeight( void )
 	static float w = 0.0f, last = -1.0f;
 	float now = gEngfuncs.GetClientTime();
 	bool on = g_ovSeq >= 0 && g_ovKind == OVK_MOVE &&
-			  ( OverlayIs( "fm_hardland" ) || OverlayIs( "fm_roll" ) || OverlayIs( "fm_slide" ) );
+			  ( OverlayIs( "fm_hardland" ) || OverlayIs( "fm_roll" ) || OverlayIs( "fm_slide" ) || OverlayIs( "fm_job_heal" ) );
 	float dt = ( last < 0.0f || now < last ) ? 0.0f : Clamp( now - last, 0.0f, 0.1f );
 	last = now;
 	w += ( ( on ? 1.0f : 0.0f ) - w ) * Clamp01( dt * ( on ? 12.0f : 5.0f ) );

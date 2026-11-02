@@ -33,6 +33,7 @@
 #define FPM_SPRINT			65536	// sprinting (+sprint = +alt1, IN_ALT1)
 #define FPM_BARNACLE		131072	// set by the server: a barnacle has us (fuser4 needs 24 bits in delta.lst)
 #define FPM_ROPE			262144	// set by the server: hanging on a rope (Opposing Force)
+#define FPM_JOB_SHIFT		19		// 3 bits, set by the server: an Opposing Force job (FPM_JOB_*)
 #define FPM_SPRINT_SCALE	1.25f	// speed while sprinting (320 -> 400)
 
 // Moves that are switched off (1 = on): prone (pm_prone, double-tap duck) and
@@ -52,6 +53,24 @@
 #define FPM_IMP_PRONE		210
 #define FPM_IMP_KICK		211
 #define FPM_IMP_HOLSTER		212
+
+// Opposing Force jobs the player does himself (dlls/fpbody_jobs.inl): the
+// phase, and how long the server holds it (the client plays fm_job_* that long)
+#define FPM_JOB_PULL		1		// fm_job_pull_torch
+#define FPM_JOB_CUT			2		// fm_job_cut_door
+#define FPM_JOB_KICK		3		// fm_job_kick
+#define FPM_JOB_HEAL		4		// fm_job_heal
+#define FPM_JOB_CUTGRATE	5		// fm_job_cut_grate
+#define FPM_JOB_OPENGRATE	6		// fm_job_open_grate
+#define FPM_JOB_STORE		7		// fm_job_store_torch
+#define FPM_JOB_DUR_PULL	3.8f
+#define FPM_JOB_DUR_CUT		12.0f
+#define FPM_JOB_DUR_KICK	0.9f
+#define FPM_JOB_DUR_HEAL	8.0f
+#define FPM_JOB_DUR_CUTGRATE	5.7f
+#define FPM_JOB_DUR_OPENGRATE	1.6f
+#define FPM_JOB_DUR_STORE	3.3f
+#define FPM_JOB( st )		( ( ( st ) >> FPM_JOB_SHIFT ) & 7 )
 
 #define FPM_STATE( pm )		( (int)( pm )->fuser4 )
 #define FPM_VTYPE( st )		( ( ( st ) >> FPM_VTYPE_SHIFT ) & 3 )

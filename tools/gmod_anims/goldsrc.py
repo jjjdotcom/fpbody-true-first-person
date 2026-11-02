@@ -41,6 +41,7 @@ def unwrap_near(a, ref):
 
 class GoldSrcModel:
     def __init__(self, path):
+        self.path = path
         self.d = bytearray(open(path, 'rb').read())
         d = self.d
         assert d[:4] == b'IDST'
@@ -99,7 +100,20 @@ class GoldSrcModel:
     def decode(self, seqi):
         """-> list over blends of array [frames, bones, 6] (pos xyz, euler xyz)."""
         s = self.seqs[seqi]
-        assert s['seqgroup'] == 0
+        if s['seqgroup'] != 0:
+            # animations kept in a side file (<name>01.mdl ...): read them there
+            side = getattr(self, '_groups', {}).get(s['seqgroup'])
+            if side is None:
+                side = bytearray(open('%s%02d.mdl' % (self.path[:-4], s['seqgroup']), 'rb').read())
+                self._groups = getattr(self, '_groups', {}); self._groups[s['seqgroup']] = side
+            keep, self.d = self.d, side
+            try:
+                return self._decode(s)
+            finally:
+                self.d = keep
+        return self._decode(s)
+
+    def _decode(self, s):
         out = []
         for blend in range(s['numblends']):
             base = s['animindex'] + blend * self.numbones * 12
