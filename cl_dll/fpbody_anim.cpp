@@ -43,6 +43,7 @@
 //   (server) sv_fpbody_anims cz  classic mode weapon holds: cz = Condition Zero,
 //                            cs = Counter-Strike 1.6 (falls back to Condition Zero).
 //                            The 9mmAR (an M16) always uses Counter-Strike 1.6's rifle set.
+//   cl_fpbody_usepalm   1    pressing use: the left palm flat (down, or on a charger's panel)
 //   cl_fpbody_offhand_release 1  the off hand lets go of the gun for use, the flashlight,
 //                            ladders, barnacles, hard landings and the relaxed holds
 //   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK; in classic mode,
@@ -134,6 +135,7 @@ static cvar_t *cl_fpbody_gmod;
 static cvar_t *cl_fpbody_aimfire;
 static cvar_t *cl_fpbody_offhand;
 static cvar_t *cl_fpbody_offhand_release;
+static cvar_t *cl_fpbody_usepalm;
 static cvar_t *cl_fpbody_reloads;
 static cvar_t *cl_fpbody_glreload;
 static cvar_t *cl_fpbody_l4dreload;
@@ -443,6 +445,7 @@ static int g_lastWeaponModel = -1;
 static bool g_useDown;
 static float g_useStart = -10.0f;
 static float g_useHoldW;
+static float g_usePalmW;			// this frame's +use reach (0..1): the left palm turns down / onto the panel
 static int g_lastFlash = -1;
 static float g_flashStart = -10.0f;
 static float g_landStart = -10.0f;
@@ -481,6 +484,7 @@ void FPAnim_Init( void )
 	cl_fpbody_aimfire   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_aimfire", "1", FCVAR_ARCHIVE );
 	cl_fpbody_offhand   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand", "1", FCVAR_ARCHIVE );
 	cl_fpbody_offhand_release = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand_release", "1", FCVAR_ARCHIVE );
+	cl_fpbody_usepalm = gEngfuncs.pfnRegisterVariable( "cl_fpbody_usepalm", "1", FCVAR_ARCHIVE );
 	cl_fpbody_reloads   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloads", "cz", FCVAR_ARCHIVE );
 	cl_fpbody_glreload  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_glreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_debug     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_debug", "0", 0 );
@@ -1980,7 +1984,7 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 		// (use, flashlight, landing, firing): from the last map they lie in the
 		// future and would hold it off the gun until the clock caught up
 		g_useStart = g_flashStart = g_landStart = g_lastShot = -10.0f;
-		g_useHoldW = 0.0f; g_aimW = 0.0f; g_quickTime = -100.0f;
+		g_useHoldW = 0.0f; g_usePalmW = 0.0f; g_aimW = 0.0f; g_quickTime = -100.0f;
 		g_mvFallStart = -1.0f; g_prevFadeStart = -10.0f;
 		g_lastHeadTime = g_headOfsTime = -10.0f; g_hookTime = -10.0f;
 		StopOverlay();
@@ -2105,6 +2109,7 @@ static void EvalActions( float now, pose_t &p, const float *f, const float *r, c
 	// +use: off hand reaches out; holding it keeps the hand out (pushing)
 	float tap = Bump( ( now - g_useStart ) / 0.6f, 0.0f, 1.0f );
 	float useW = tap > g_useHoldW ? tap : g_useHoldW;
+	g_usePalmW = useW;
 	if ( useW > 0.0f )
 	{
 		if ( now < g_useChargeUntil )
@@ -2174,6 +2179,7 @@ struct skel_t
 	bool rForeMask[ MAXSTUDIOBONES ];
 	bool rHandMask[ MAXSTUDIOBONES ];
 	bool lHandMask[ MAXSTUDIOBONES ];
+	int lThumb, lFinger;	// Bip01 L Finger0 / Finger1 (the hand's palm frame)
 	bool armsMask[ MAXSTUDIOBONES ];
 	bool lUpperMask[ MAXSTUDIOBONES ];
 	bool rUpperMask[ MAXSTUDIOBONES ];
@@ -2239,6 +2245,8 @@ static void CacheSkeleton( const studiohdr_t *hdr )
 	MarkSubtree( bones, num, g_skel.rFore, g_skel.rForeMask, true );
 	MarkSubtree( bones, num, g_skel.rHand, g_skel.rHandMask, true );
 	MarkSubtree( bones, num, g_skel.lHand, g_skel.lHandMask, true );
+	g_skel.lThumb = FindBone( bones, num, "Bip01 L Finger0", NULL );
+	g_skel.lFinger = FindBone( bones, num, "Bip01 L Finger1", NULL );
 }
 
 // Rotate (and optionally move) every masked bone around pivot by world rotation W
@@ -3266,6 +3274,59 @@ static void PumpStroke( float ( *light )[ 3 ][ 4 ], const gun_t *gun, float now,
 // barnacle gagging, hard landings, rolls, draws), pressing use, the
 // flashlight, ladders, being held by a barnacle, a hard landing's dip.
 // cl_fpbody_offhand_release 0 keeps it on the gun through all of these.
+static float MatAxisAngle( const mat3_t m, float *axis );
+
+// +use: the left hand flat - palm down, fingers along the reach, thumb in -
+// or flat on the panel of a charger (fingers up), whatever the gun's hold
+// had it doing (a grip round a barrel turns the palm sideways)
+static void UsePalm( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], const float *f, const float *r,
+	const float *u, float w, bool charger )
+{
+	int h = g_skel.lHand, th = g_skel.lThumb, fi = g_skel.lFinger;
+	if ( h < 0 || th < 0 || fi < 0 || w <= 0.001f )
+		return;
+	float H[ 3 ], F[ 3 ], T[ 3 ];
+	BoneOrigin( light, h, H );
+	BoneOrigin( light, fi, F );
+	BoneOrigin( light, th, T );
+	for ( int i = 0; i < 3; i++ ) { F[ i ] -= H[ i ]; T[ i ] -= H[ i ]; }
+	if ( Normalize3( F ) < 1e-3f )
+		return;
+	float d = Dot3( T, F );
+	for ( int i = 0; i < 3; i++ ) T[ i ] -= F[ i ] * d;
+	if ( Normalize3( T ) < 1e-3f )
+		return;
+	// wanted: fingers along the reach (level) or up for a charger, thumb to the right
+	float wf[ 3 ], wt[ 3 ] = { r[ 0 ], r[ 1 ], r[ 2 ] };
+	if ( charger )
+		for ( int i = 0; i < 3; i++ ) wf[ i ] = u[ i ];
+	else
+	{
+		for ( int i = 0; i < 3; i++ ) wf[ i ] = f[ i ];
+		wf[ 2 ] *= 0.3f;							// keep it near level when looking up / down
+		if ( Normalize3( wf ) < 1e-3f )
+			return;
+	}
+	d = Dot3( wt, wf );
+	for ( int i = 0; i < 3; i++ ) wt[ i ] -= wf[ i ] * d;
+	if ( Normalize3( wt ) < 1e-3f )
+		return;
+	float N[ 3 ], wn[ 3 ];
+	Cross( F, T, N );
+	Cross( wf, wt, wn );
+	// W = [wf wt wn] * [F T N]^T
+	mat3_t W, R;
+	for ( int a = 0; a < 3; a++ )
+		for ( int b = 0; b < 3; b++ )
+			W[ a ][ b ] = wf[ a ] * F[ b ] + wt[ a ] * T[ b ] + wn[ a ] * N[ b ];
+	float axis[ 3 ];
+	float ang = MatAxisAngle( W, axis ) * Clamp01( w );
+	if ( ang < 0.2f )
+		return;
+	AxisAngle( axis, ang, R );
+	TransformBones( bone, light, g_skel.lHandMask, R, H, NULL );
+}
+
 static bool OffHandBusy( float now )
 {
 	if ( g_ovSeq >= 0 )
@@ -3830,6 +3891,8 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 
 			if ( p.lAimW > 0.001f && Normalize3( p.lAimDir ) > 0.0f )
 				AimArm( bone, light, g_skel.lUpper, g_skel.lHand, g_skel.lUpperMask, p.lAimDir, p.lAimW );
+			if ( cl_fpbody_usepalm && cl_fpbody_usepalm->value != 0.0f )
+				UsePalm( bone, light, f, r, u, g_usePalmW * Clamp01( scale ), now < g_useChargeUntil );
 		}
 	}
 
