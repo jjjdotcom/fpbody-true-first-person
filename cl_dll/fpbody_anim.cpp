@@ -2581,6 +2581,7 @@ static const gmhandle_t g_gmHandles[] =
 	{ "p_m40a1", "Bip01 R Hand", { 13.0f, 3.5f, 2.5f }, 0 },
 	{ "p_shock", "Bip01 R Hand", { 16.0f, 8.0f, 1.0f }, 0 },
 	{ "p_spore_launcher", "Bip01 R Hand", { 11.5f, 6.5f, -6.5f }, 0 },
+	{ "p_displacer", "Bip01 R Hand", { 12.0f, 10.0f, 6.0f }, 338732 },	// upscaled Displacer: the side handle
 	{ "p_displacer", "Bip01 R Hand", { 23.5f, 6.5f, 4.0f }, 0 },
 };
 
@@ -3687,6 +3688,8 @@ static const gunhandle_t g_handles[] =
 	{ "p_crossbow", "Bip01 R Hand", { 9.5f, 4.0f, 0.5f }, 38036 },
 	{ "p_9mmhandgun", "Bip01 R Hand", { 3.0f, 4.5f, -1.0f }, 12500 },
 	{ "p_357", "Bip01 R Hand", { 3.0f, 4.5f, -1.0f }, 28164 },
+	// Opposing Force upscaled Displacer: the side handle (tools/gmod_anims/lefthand_gmod.py)
+	{ "p_displacer", "Bip01 R Hand", { 12.0f, 10.0f, 6.0f }, 338732 },
 };
 
 static float g_handleW;
