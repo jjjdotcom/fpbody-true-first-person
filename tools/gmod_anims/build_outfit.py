@@ -25,6 +25,11 @@ player_path, mesh_path, tex_path, out_path = sys.argv[1:5]
 # (a Half-Life player on the Garry's Mod-proportioned skeleton) stretches to fit
 # with no dents or gaps where body parts meet (hips, shoulders)
 BLEND = '--blend' in sys.argv[5:]
+# --hips <s>: with --blend, the hips and thighs narrowed to s of their width
+# (side to side, about the middle; full at the hips, none at the knees and the
+# waist), for a Half-Life mesh whose hips stand out once its shoulders come in
+# to the Garry's Mod skeleton's narrower ones
+HIPS = float(sys.argv[sys.argv.index('--hips') + 1]) if '--hips' in sys.argv else 1.0
 P = GoldSrcModel(player_path)
 N = GoldSrcModel(mesh_path)
 
@@ -96,6 +101,25 @@ def blended(p):
     return sum(w * m for w, (_, m) in zip(ws, best)) / ws.sum()
 
 
+arms = set()
+for i, b in enumerate(N.bones):
+    if target_name(b['name']) in ('Bip01 L Arm', 'Bip01 R Arm') or b['parent'] in arms:
+        arms.add(i)
+_pz = Tn[[i for i in mapped if target_name(N.bones[i]['name']) == 'Bip01 Pelvis'][0]][2]
+_kz = Tn[[i for i in mapped if target_name(N.bones[i]['name']) == 'Bip01 L Leg1'][0]][2]
+
+
+def hip_weight(z):
+    lo, hi = _kz + 2.0, _pz + 7.0                     # knees .. waist
+    if z <= lo or z >= hi:
+        return 0.0
+    if z < _pz - 6.0:
+        return (z - lo) / (_pz - 6.0 - lo)
+    if z > _pz + 3.0:
+        return (hi - z) / (hi - _pz - 3.0)
+    return 1.0
+
+
 for mo in models:
     (nummesh, meshindex, numverts, vinfo, vindex,
      numnorms, ninfo, nindex) = struct.unpack_from('<8i', mesh, mo + 72)
@@ -109,7 +133,10 @@ for mo in models:
                 out = Rp[pb].T @ w
             elif BLEND:
                 pw = Rn[nb] @ v + Tn[nb]               # world rest position
-                out = Rp[pb].T @ (pw + blended(pw) - Tp[pb])
+                q = pw + blended(pw)
+                if HIPS != 1.0 and nb not in arms:
+                    q[1] *= 1.0 - (1.0 - HIPS) * hip_weight(pw[2])
+                out = Rp[pb].T @ (q - Tp[pb])
             else:
                 w = Rn[nb] @ v + Tn[nb] - Tn[anc]    # offset from the joint, world space
                 out = Rp[pb].T @ w
