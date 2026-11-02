@@ -20,6 +20,11 @@ sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from goldsrc import GoldSrcModel   # noqa: E402
 
 player_path, mesh_path, tex_path, out_path = sys.argv[1:5]
+# --blend: move each vertex by the joints' moves blended along the bones near it
+# (instead of rigidly with its own joint), so a mesh made for other proportions
+# (a Half-Life player on the Garry's Mod-proportioned skeleton) stretches to fit
+# with no dents or gaps where body parts meet (hips, shoulders)
+BLEND = '--blend' in sys.argv[5:]
 P = GoldSrcModel(player_path)
 N = GoldSrcModel(mesh_path)
 
@@ -65,6 +70,32 @@ for bp in range(nbp):
     nm, _, mi = struct.unpack_from('<3i', mesh, bpi + bp * 76 + 64)
     models += [mi + k * 112 for k in range(nm)]
 
+# joint moves (player joint - mesh joint, world rest pose) and the bone segments
+mapped = [i for i in bone_map if bone_map[i][1] == i]
+move = {i: Tp[bone_map[i][0]] - Tn[i] for i in mapped}
+segs = []
+for i in mapped:
+    kids = [c for c in mapped if N.bones[c]['parent'] == i]
+    for c in kids:
+        segs.append((i, c))
+    if not kids:
+        segs.append((i, i))
+
+
+def blended(p):
+    best = []
+    for a, b in segs:
+        A, B = Tn[a], Tn[b]
+        ab = B - A
+        L = float(ab @ ab)
+        t = 0.0 if L < 1e-6 else float(np.clip((p - A) @ ab / L, 0.0, 1.0))
+        d = float(np.linalg.norm(p - (A + t * ab)))
+        best.append((d, (1 - t) * move[a] + t * move[b]))
+    dmin = min(d for d, _ in best)
+    ws = np.array([np.exp(-(d - dmin) / 1.5) for d, _ in best])
+    return sum(w * m for w, (_, m) in zip(ws, best)) / ws.sum()
+
+
 for mo in models:
     (nummesh, meshindex, numverts, vinfo, vindex,
      numnorms, ninfo, nindex) = struct.unpack_from('<8i', mesh, mo + 72)
@@ -76,6 +107,9 @@ for mo in models:
             if is_norm:
                 w = Rn[nb] @ v
                 out = Rp[pb].T @ w
+            elif BLEND:
+                pw = Rn[nb] @ v + Tn[nb]               # world rest position
+                out = Rp[pb].T @ (pw + blended(pw) - Tp[pb])
             else:
                 w = Rn[nb] @ v + Tn[nb] - Tn[anc]    # offset from the joint, world space
                 out = Rp[pb].T @ w
@@ -106,8 +140,13 @@ for mo in models:
 base += mesh
 
 if texm is mesh:
+    # the textures came along with the mesh: their pixel data moved by X too
     Y = X
     tex_hdr = struct.unpack_from('<6i', N.d, 180)
+    ntex, ti = tex_hdr[0], tex_hdr[1]
+    for t in range(ntex):
+        o = X + ti + t * 80 + 76
+        struct.pack_into('<i', base, o, struct.unpack_from('<i', base, o)[0] + X)
 else:
     align(base)
     Y = len(base)
