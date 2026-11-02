@@ -43,6 +43,8 @@
 //   (server) sv_fpbody_anims cz  classic mode weapon holds: cz = Condition Zero,
 //                            cs = Counter-Strike 1.6 (falls back to Condition Zero).
 //                            The 9mmAR (an M16) always uses Counter-Strike 1.6's rifle set.
+//   cl_fpbody_holdlower 10   GMod mode: degrees two-handed guns are held lower than the sights
+//                            until you fire (per gun: fp_hold <down> <right> <back>)
 //   cl_fpbody_usepalm   1    pressing use: the left palm flat (down, or on a charger's panel)
 //   cl_fpbody_offhand_release 1  the off hand lets go of the gun for use, the flashlight,
 //                            ladders, barnacles, hard landings and the relaxed holds
@@ -136,6 +138,7 @@ static cvar_t *cl_fpbody_aimfire;
 static cvar_t *cl_fpbody_offhand;
 static cvar_t *cl_fpbody_offhand_release;
 static cvar_t *cl_fpbody_usepalm;
+static cvar_t *cl_fpbody_holdlower;
 static cvar_t *cl_fpbody_reloads;
 static cvar_t *cl_fpbody_glreload;
 static cvar_t *cl_fpbody_l4dreload;
@@ -228,6 +231,8 @@ static void FP_GunCmd( void );
 static void FP_GunRelaxCmd( void );
 static void FP_GunSetCmd( void );
 static void FP_GunRelaxSetCmd( void );
+static void FP_HoldCmd( void );
+static void FP_HoldSetCmd( void );
 static void FP_RelaxHandCmd( void );
 static void FP_RelaxLHandCmd( void );
 static void FP_RelaxHandSetCmd( void );
@@ -486,6 +491,7 @@ void FPAnim_Init( void )
 	cl_fpbody_offhand   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand", "1", FCVAR_ARCHIVE );
 	cl_fpbody_offhand_release = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand_release", "1", FCVAR_ARCHIVE );
 	cl_fpbody_usepalm = gEngfuncs.pfnRegisterVariable( "cl_fpbody_usepalm", "1", FCVAR_ARCHIVE );
+	cl_fpbody_holdlower = gEngfuncs.pfnRegisterVariable( "cl_fpbody_holdlower", "10", FCVAR_ARCHIVE );
 	cl_fpbody_reloads   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloads", "cz", FCVAR_ARCHIVE );
 	cl_fpbody_glreload  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_glreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_debug     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_debug", "0", 0 );
@@ -529,6 +535,8 @@ void FPAnim_Init( void )
 	gEngfuncs.pfnAddCommand( "fp_gun_relax", FP_GunRelaxCmd );
 	gEngfuncs.pfnAddCommand( "fp_gun_set", FP_GunSetCmd );
 	gEngfuncs.pfnAddCommand( "fp_gun_relax_set", FP_GunRelaxSetCmd );
+	gEngfuncs.pfnAddCommand( "fp_hold", FP_HoldCmd );
+	gEngfuncs.pfnAddCommand( "fp_hold_set", FP_HoldSetCmd );
 	gEngfuncs.pfnAddCommand( "fp_relax_hand", FP_RelaxHandCmd );
 	gEngfuncs.pfnAddCommand( "fp_relax_lhand", FP_RelaxLHandCmd );
 	gEngfuncs.pfnAddCommand( "fp_relax_hand_set", FP_RelaxHandSetCmd );
@@ -2713,7 +2721,7 @@ static void FP_GripCmd( void )
 // barrel). fp_gun_relax is used instead while the gun is lowered (at ease),
 // blended in and out with it. Saved per gun in <game>/fpbody_guns.cfg.
 // ---------------------------------------------------------------------------
-struct gunofs_t { char model[ 32 ]; float ofs[ 6 ]; float rel[ 6 ]; bool hasRel; float hand[ 6 ]; bool hasHand; float lhand[ 3 ]; bool hasLHand; float fingers[ 4 ]; bool hasFingers; };
+struct gunofs_t { char model[ 32 ]; float ofs[ 6 ]; float rel[ 6 ]; bool hasRel; float hand[ 6 ]; bool hasHand; float lhand[ 3 ]; bool hasLHand; float fingers[ 4 ]; bool hasFingers; float hold[ 3 ]; bool hasHold; };
 static gunofs_t g_gunOfs[ 48 ];
 static int g_numGunOfs;
 
@@ -2755,6 +2763,9 @@ static void GunSave( void )
 		const float *fg = g_gunOfs[ i ].fingers;
 		if ( g_gunOfs[ i ].hasFingers )
 			fprintf( fp, "fp_fingers_set %s %g %g %g %g\n", g_gunOfs[ i ].model, fg[ 0 ], fg[ 1 ], fg[ 2 ], fg[ 3 ] );
+		const float *hd = g_gunOfs[ i ].hold;
+		if ( g_gunOfs[ i ].hasHold )
+			fprintf( fp, "fp_hold_set %s %g %g %g\n", g_gunOfs[ i ].model, hd[ 0 ], hd[ 1 ], hd[ 2 ] );
 	}
 	fclose( fp );
 }
@@ -2785,6 +2796,61 @@ static void FP_GunRelaxSetCmd( void )
 		GunSetFrom( g->rel, 2 );
 		g->hasRel = true;
 	}
+}
+
+// The ready hold (GMod mode, two-handed guns): both arms and the gun turned
+// down / to the right about the shoulders and pulled back, so a gun held up at
+// the eyes doesn't fill the view; it comes up to the sights while you fire.
+// fp_hold <down degrees> <right degrees> <back units> for the gun in your hands
+// (fp_hold reset: back to cl_fpbody_holdlower), saved in fpbody_guns.cfg.
+static void FP_HoldSetCmd( void )
+{
+	if ( gEngfuncs.Cmd_Argc() < 3 )
+		return;
+	gunofs_t *g = GunOfsFor( gEngfuncs.Cmd_Argv( 1 ), true );
+	if ( !g )
+		return;
+	for ( int i = 0; i < 3; i++ )
+		g->hold[ i ] = gEngfuncs.Cmd_Argc() > 2 + i ? (float)atof( gEngfuncs.Cmd_Argv( 2 + i ) ) : 0.0f;
+	g->hasHold = true;
+}
+
+static void FP_HoldCmd( void )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	char name[ 32 ];
+	GunShortName( local ? local->curstate.weaponmodel : 0, name, sizeof( name ) );
+	if ( !name[ 0 ] )
+	{
+		gEngfuncs.Con_Printf( "fp_hold: nothing in your hands\n" );
+		return;
+	}
+	int argc = gEngfuncs.Cmd_Argc();
+	if ( argc >= 2 && !stricmp( gEngfuncs.Cmd_Argv( 1 ), "reset" ) )
+	{
+		gunofs_t *g = GunOfsFor( name, false );
+		if ( g )
+			g->hasHold = false;
+		GunSave();
+	}
+	else if ( argc >= 2 )
+	{
+		gunofs_t *g = GunOfsFor( name, true );
+		if ( g )
+		{
+			for ( int i = 0; i < 3; i++ )
+				g->hold[ i ] = argc > 1 + i ? (float)atof( gEngfuncs.Cmd_Argv( 1 + i ) ) : 0.0f;
+			g->hasHold = true;
+			GunSave();
+		}
+	}
+	const gunofs_t *g = GunOfsFor( name, false );
+	if ( g && g->hasHold )
+		gEngfuncs.Con_Printf( "fp_hold %s: down %g  right %g  back %g   (usage: fp_hold <down> <right> <back>; fp_hold reset)\n",
+			name, g->hold[ 0 ], g->hold[ 1 ], g->hold[ 2 ] );
+	else
+		gEngfuncs.Con_Printf( "fp_hold %s: default (down %g from cl_fpbody_holdlower)   (usage: fp_hold <down> <right> <back>; fp_hold reset)\n",
+			name, cl_fpbody_holdlower ? cl_fpbody_holdlower->value : 0.0f );
 }
 
 static void GunCmd( bool relax )
@@ -3834,6 +3900,30 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 			}
 			g_gunLowerW += ( want - g_gunLowerW ) * Clamp01( g_frameTime * 6.0f );
 			p.armsPitch += cl_fpbody_gunlower->value * g_gunLowerW;
+		}
+
+		// GMod mode: the ready hold of two-handed guns, a little below the sights
+		// (fp_hold per gun); up to the sights while firing, off while at ease or
+		// in a full-body move
+		if ( !FPBody_Classic() && weaponmodel > 0 )
+		{
+			const gun_t *gun = GunForModel( weaponmodel );
+			if ( gun && !gun->pistol && gun->down >= 0.0f )
+			{
+				char name[ 32 ];
+				GunShortName( weaponmodel, name, sizeof( name ) );
+				const gunofs_t *go = GunOfsFor( name, false );
+				float hd[ 3 ] = { cl_fpbody_holdlower ? cl_fpbody_holdlower->value : 0.0f, 0.0f, 0.0f };
+				if ( go && go->hasHold )
+					for ( int i = 0; i < 3; i++ )
+						hd[ i ] = go->hold[ i ];
+				float w = ( 1.0f - Clamp01( g_aimW ) ) * ( 1.0f - Clamp01( g_relaxW ) ) * ( g_ovSeq >= 0 ? 0.0f : 1.0f );
+				static float s_holdW;
+				s_holdW += ( w - s_holdW ) * Clamp01( g_frameTime * 8.0f );
+				p.armsPitch += hd[ 0 ] * s_holdW;
+				p.armsYaw   -= hd[ 1 ] * s_holdW;
+				p.armsBack  += hd[ 2 ] * s_holdW;
+			}
 		}
 
 		float scale = cl_fpbody_animscale->value;
