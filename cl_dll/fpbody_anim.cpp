@@ -3534,6 +3534,17 @@ static void PistolGripTurn( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 
 	TransformBones( bone, light, g_skel.lHandMask, R, pivot, NULL );
 }
 
+// The big energy guns (Gluon, Tau Cannon, Displacer) are held in their firing
+// position whenever they're up, not just while firing (at ease still lowers them)
+static bool AlwaysAimed( int weaponmodel )
+{
+	if ( FPBody_Classic() )
+		return false;
+	char name[ 32 ];
+	GunShortName( weaponmodel, name, sizeof( name ) );
+	return !stricmp( name, "p_egon" ) || !stricmp( name, "p_gauss" ) || !stricmp( name, "p_displacer" );
+}
+
 static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], int weaponmodel,
 	const float *f, const float *r, const float *u, float now )
 {
@@ -3550,7 +3561,7 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	// smooth weights
 	float aimTarget = ( gun && !overlay && cl_fpbody_aimfire->value != 0.0f && g_glOpenW <= 0.0f &&
 						!( g_cur.type == CLIP_RELOAD && g_cur.variant == 1 && now < g_cur.start + g_cur.dur ) &&
-						( ( now - g_lastShot >= 0.0f && now - g_lastShot < 0.6f ) || g_attackHeld ) ) ? 1.0f : 0.0f;
+						( ( now - g_lastShot >= 0.0f && now - g_lastShot < 0.6f ) || g_attackHeld || AlwaysAimed( weaponmodel ) ) ) ? 1.0f : 0.0f;
 	float aimRate = aimTarget > g_aimW ? 14.0f : 5.0f;
 	g_aimW += ( aimTarget - g_aimW ) * Clamp01( g_frameTime * aimRate );
 
