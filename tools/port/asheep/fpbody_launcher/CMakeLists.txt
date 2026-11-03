@@ -1,0 +1,13 @@
+# Builds a small launcher exe: hl.exe -game <FPBODY_GAMEDIR>, with the given icon.
+cmake_minimum_required(VERSION 3.15)
+project(fpbody_launcher C RC)
+set(FPBODY_GAMEDIR "fpbody_asheep" CACHE STRING "mod folder to start")
+set(FPBODY_EXE_NAME "Azure Sheep True First Person" CACHE STRING "exe name")
+set(FPBODY_ICON "" CACHE FILEPATH "icon (.ico)")
+if(FPBODY_ICON AND EXISTS "${FPBODY_ICON}")
+  configure_file("${FPBODY_ICON}" "${CMAKE_CURRENT_SOURCE_DIR}/icon.ico" COPYONLY)
+  set(RES launcher.rc)
+endif()
+add_executable(fpbody_launcher WIN32 launcher.c ${RES})
+target_compile_definitions(fpbody_launcher PRIVATE FPBODY_GAMEDIR="${FPBODY_GAMEDIR}" _CRT_SECURE_NO_WARNINGS)
+set_target_properties(fpbody_launcher PROPERTIES OUTPUT_NAME "${FPBODY_EXE_NAME}" MSVC_RUNTIME_LIBRARY "MultiThreaded")
