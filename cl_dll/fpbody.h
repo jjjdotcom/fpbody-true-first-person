@@ -43,6 +43,8 @@ struct fpholster_t
 	const float ( *local )[ 4 ];	// p_ model space -> anchor bone space (3x4)
 	unsigned int keep;			// bones of the p_ model to draw (0 = all)
 	float shift[ 3 ];			// extra move in anchor-bone space (onto a slimmer body)
+	float rot[ 3 ][ 3 ];		// fp_holster turn, in anchor-bone space
+	int hasRot;
 };
 int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr, fpholster_t *out, int max );
 // rotationmatrix for StudioSetupBones = anchor bone (from the player's cached light transforms) * local

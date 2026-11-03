@@ -48,12 +48,16 @@
 #include "r_studioint.h"
 
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 #include <math.h>
 
 #include "fpbody.h"
 #include "fpbody_anim.h"
 #include "fpbody_game.h"
 #include "fpbody_holsters.h"
+#include "studio_util.h"
 #include "ammohistory.h"
 
 #ifndef M_PI
@@ -99,6 +103,9 @@ static bool g_bHaveSmoothed;
 // hasn't been drawn for longer than this, fall back to normal eye height.
 #define FPBODY_MAX_SAMPLE_AGE 0.25f
 
+static void FPBody_HolsterCmd( void );
+static void FPBody_HolsterSetCmd( void );
+
 void FPBody_Init( void )
 {
 	cl_fpbody          = gEngfuncs.pfnRegisterVariable( "cl_fpbody", "1", FCVAR_ARCHIVE );
@@ -117,6 +124,8 @@ void FPBody_Init( void )
 	cl_fpbody_holster   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_holster", "1", FCVAR_ARCHIVE );
 
 	gEngfuncs.pfnAddCommand( "fp_debug", FPBody_Debug_f );
+	gEngfuncs.pfnAddCommand( "fp_holster", FPBody_HolsterCmd );
+	gEngfuncs.pfnAddCommand( "fp_holster_set", FPBody_HolsterSetCmd );
 
 	FPAnim_Init();
 }
@@ -748,6 +757,7 @@ static void FPBody_Debug_f( void )
 // ---------------------------------------------------------------------------
 
 #define NUM_HOLSTER_DEFS ( (int)( sizeof( g_holsterDefs ) / sizeof( g_holsterDefs[ 0 ] ) ) )
+#define NUM_HOLSTER_DEFS_MAX 256
 
 // does a space separated list of class names contain this one
 static bool NameInList( const char *list, const char *name )
@@ -782,6 +792,224 @@ static bool OwnsWeaponNamed( const char *list )
 	return false;
 }
 
+// ---------------------------------------------------------------------------
+// fp_holster: move / turn where a carried weapon sits on the body, per weapon
+// (by its p_ model), saved in <game>/fpbody_holsters.cfg. The moves are in the
+// body's own directions (forward, left, up) and the turns about them, whatever
+// bone the weapon hangs from; they follow the body as it moves.
+// ---------------------------------------------------------------------------
+struct holsterofs_t { char model[ 32 ]; float v[ 6 ]; };
+static holsterofs_t g_holsterOfs[ 64 ];
+static int g_numHolsterOfs;
+static bool g_holsterCfgRun;
+static const studiohdr_t *g_holsterLastHdr;	// the body the holsters were last placed on
+static int g_holsterShown[ NUM_HOLSTER_DEFS_MAX ];
+static int g_numHolsterShown;
+
+// "models/p_shotgun.mdl" -> "p_shotgun"
+static void HolsterShortName( const char *path, char *out, int size )
+{
+	const char *n = strrchr( path, '/' );
+	n = n ? n + 1 : path;
+	int i = 0;
+	for ( ; n[ i ] && n[ i ] != '.' && i < size - 1; i++ )
+		out[ i ] = (char)tolower( (unsigned char)n[ i ] );
+	out[ i ] = 0;
+}
+
+static holsterofs_t *HolsterOfsFor( const char *name, bool create )
+{
+	for ( int i = 0; i < g_numHolsterOfs; i++ )
+		if ( !stricmp( g_holsterOfs[ i ].model, name ) )
+			return &g_holsterOfs[ i ];
+	if ( !create || g_numHolsterOfs >= (int)( sizeof( g_holsterOfs ) / sizeof( g_holsterOfs[ 0 ] ) ) )
+		return NULL;
+	holsterofs_t *h = &g_holsterOfs[ g_numHolsterOfs++ ];
+	memset( h, 0, sizeof( *h ) );
+	strncpy( h->model, name, sizeof( h->model ) - 1 );
+	return h;
+}
+
+// what the player typed -> the p_ model name of a holster: "shotgun",
+// "p_shotgun" or "weapon_shotgun"
+static bool HolsterResolve( const char *arg, char *out, int size )
+{
+	char want[ 48 ];
+	snprintf( want, sizeof( want ), "%s", arg );
+	for ( char *c = want; *c; c++ )
+		*c = (char)tolower( (unsigned char)*c );
+	for ( int i = 0; i < NUM_HOLSTER_DEFS; i++ )
+	{
+		char name[ 32 ];
+		HolsterShortName( g_holsterDefs[ i ].model, name, sizeof( name ) );
+		if ( !stricmp( want, name ) || !stricmp( want, name + 2 ) || NameInList( g_holsterDefs[ i ].weapons, want ) )
+		{
+			snprintf( out, size, "%s", name );
+			return true;
+		}
+		char wpn[ 48 ];
+		snprintf( wpn, sizeof( wpn ), "weapon_%s", want );
+		if ( NameInList( g_holsterDefs[ i ].weapons, wpn ) )
+		{
+			snprintf( out, size, "%s", name );
+			return true;
+		}
+	}
+	return false;
+}
+
+static void HolsterSave( void )
+{
+	char path[ 256 ];
+	snprintf( path, sizeof( path ), "%s/fpbody_holsters.cfg", gEngfuncs.pfnGetGameDirectory() );
+	FILE *fp = fopen( path, "w" );
+	if ( !fp )
+	{
+		gEngfuncs.Con_Printf( "fp_holster: couldn't write %s\n", path );
+		return;
+	}
+	fprintf( fp, "// fpbody holster tuning (fp_holster): forward left up pitch yaw roll\n" );
+	for ( int i = 0; i < g_numHolsterOfs; i++ )
+	{
+		const float *v = g_holsterOfs[ i ].v;
+		fprintf( fp, "fp_holster_set %s %g %g %g %g %g %g\n", g_holsterOfs[ i ].model, v[ 0 ], v[ 1 ], v[ 2 ], v[ 3 ], v[ 4 ], v[ 5 ] );
+	}
+	fclose( fp );
+}
+
+static void FPBody_HolsterSetCmd( void )
+{
+	if ( gEngfuncs.Cmd_Argc() < 5 )
+		return;
+	holsterofs_t *h = HolsterOfsFor( gEngfuncs.Cmd_Argv( 1 ), true );
+	if ( !h )
+		return;
+	for ( int i = 0; i < 6; i++ )
+		h->v[ i ] = ( i + 2 < gEngfuncs.Cmd_Argc() ) ? (float)atof( gEngfuncs.Cmd_Argv( i + 2 ) ) : 0.0f;
+}
+
+static void FPBody_HolsterCmd( void )
+{
+	int argc = gEngfuncs.Cmd_Argc();
+	if ( argc < 2 )
+	{
+		gEngfuncs.Con_Printf( "usage: fp_holster <weapon> <forward> <left> <up> [pitch yaw roll]   (or: fp_holster <weapon> reset)\n"
+							  "  <weapon>: shotgun, 9mmar, crossbow, rpg, gauss, egon, crowbar, 357, 9mmhandgun, ... (or weapon_shotgun / p_shotgun)\n"
+							  "  forward / left / up in units (negative = back / right / down), the turns in degrees.\n"
+							  "  Each command sets the full values; they save to fpbody_holsters.cfg.\n" );
+		if ( !g_numHolsterShown )
+			gEngfuncs.Con_Printf( "Nothing is on your body right now.\n" );
+		else
+			gEngfuncs.Con_Printf( "On your body now:\n" );
+		char seen[ 16 ][ 32 ];
+		int ns = 0;
+		for ( int k = 0; k < g_numHolsterShown; k++ )
+		{
+			char name[ 32 ];
+			HolsterShortName( g_holsterDefs[ g_holsterShown[ k ] ].model, name, sizeof( name ) );
+			bool dup = false;
+			for ( int j = 0; j < ns; j++ )
+				if ( !strcmp( seen[ j ], name ) )
+					dup = true;
+			if ( dup || ns >= 16 )
+				continue;
+			strcpy( seen[ ns++ ], name );
+			const holsterofs_t *h = HolsterOfsFor( name, false );
+			float z[ 6 ] = { 0, 0, 0, 0, 0, 0 };
+			const float *v = h ? h->v : z;
+			gEngfuncs.Con_Printf( "  fp_holster %s %g %g %g %g %g %g\n", name + 2, v[ 0 ], v[ 1 ], v[ 2 ], v[ 3 ], v[ 4 ], v[ 5 ] );
+		}
+		return;
+	}
+	char name[ 32 ];
+	if ( !HolsterResolve( gEngfuncs.Cmd_Argv( 1 ), name, sizeof( name ) ) )
+	{
+		gEngfuncs.Con_Printf( "fp_holster: no holster for \"%s\" (type fp_holster to see what's on your body)\n", gEngfuncs.Cmd_Argv( 1 ) );
+		return;
+	}
+	if ( argc == 2 )
+	{
+		const holsterofs_t *h = HolsterOfsFor( name, false );
+		float z[ 6 ] = { 0, 0, 0, 0, 0, 0 };
+		const float *v = h ? h->v : z;
+		gEngfuncs.Con_Printf( "fp_holster %s %g %g %g %g %g %g\n", name + 2, v[ 0 ], v[ 1 ], v[ 2 ], v[ 3 ], v[ 4 ], v[ 5 ] );
+		return;
+	}
+	holsterofs_t *h = HolsterOfsFor( name, true );
+	if ( !h )
+		return;
+	if ( !stricmp( gEngfuncs.Cmd_Argv( 2 ), "reset" ) )
+		memset( h->v, 0, sizeof( h->v ) );
+	else
+		for ( int i = 0; i < 6; i++ )
+			h->v[ i ] = ( i + 2 < argc ) ? (float)atof( gEngfuncs.Cmd_Argv( i + 2 ) ) : 0.0f;
+	HolsterSave();
+	gEngfuncs.Con_Printf( "fp_holster %s %g %g %g %g %g %g\n", name + 2, h->v[ 0 ], h->v[ 1 ], h->v[ 2 ], h->v[ 3 ], h->v[ 4 ], h->v[ 5 ] );
+}
+
+// rest-pose rotation of every bone in the body's frame (x forward, y left, z up)
+static void HolsterRestRot( const studiohdr_t *hdr, int bone, float out[ 3 ][ 3 ] )
+{
+	const mstudiobone_t *bones = (const mstudiobone_t *)( (const byte *)hdr + hdr->boneindex );
+	float m[ 3 ][ 3 ] = { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+	int chain[ MAXSTUDIOBONES ], n = 0;
+	for ( int b = bone; b >= 0 && n < MAXSTUDIOBONES; b = bones[ b ].parent )
+		chain[ n++ ] = b;
+	for ( int k = n - 1; k >= 0; k-- )
+	{
+		const mstudiobone_t *b = &bones[ chain[ k ] ];
+		float ang[ 3 ] = { b->value[ 3 ], b->value[ 4 ], b->value[ 5 ] }, q[ 4 ], lm[ 3 ][ 4 ], r[ 3 ][ 3 ];
+		AngleQuaternion( ang, q );
+		QuaternionMatrix( q, lm );
+		for ( int i = 0; i < 3; i++ )
+			for ( int j = 0; j < 3; j++ )
+				r[ i ][ j ] = m[ i ][ 0 ] * lm[ 0 ][ j ] + m[ i ][ 1 ] * lm[ 1 ][ j ] + m[ i ][ 2 ] * lm[ 2 ][ j ];
+		memcpy( m, r, sizeof( m ) );
+	}
+	memcpy( out, m, sizeof( m ) );
+}
+
+// apply a weapon's fp_holster values to a holster on bone 'anchor'
+static void HolsterApplyOfs( const studiohdr_t *hdr, const fpholster_def_t *d, fpholster_t *h )
+{
+	h->hasRot = 0;
+	char name[ 32 ];
+	HolsterShortName( d->model, name, sizeof( name ) );
+	const holsterofs_t *o = HolsterOfsFor( name, false );
+	if ( !o )
+		return;
+	const float *v = o->v;
+	if ( !v[ 0 ] && !v[ 1 ] && !v[ 2 ] && !v[ 3 ] && !v[ 4 ] && !v[ 5 ] )
+		return;
+	float B[ 3 ][ 3 ];
+	HolsterRestRot( hdr, h->anchor, B );		// bone -> body
+	// the move, body frame -> bone frame (B transposed)
+	for ( int c = 0; c < 3; c++ )
+		h->shift[ c ] += B[ 0 ][ c ] * v[ 0 ] + B[ 1 ][ c ] * v[ 1 ] + B[ 2 ][ c ] * v[ 2 ];
+	if ( !v[ 3 ] && !v[ 4 ] && !v[ 5 ] )
+		return;
+	// the turn in the body frame: yaw about up, pitch about left (+ = front up), roll about forward
+	float p = -v[ 3 ] * 0.0174532925f, y = v[ 4 ] * 0.0174532925f, r = v[ 5 ] * 0.0174532925f;
+	float Rz[ 3 ][ 3 ] = { { cosf( y ), -sinf( y ), 0 }, { sinf( y ), cosf( y ), 0 }, { 0, 0, 1 } };
+	float Ry[ 3 ][ 3 ] = { { cosf( p ), 0, sinf( p ) }, { 0, 1, 0 }, { -sinf( p ), 0, cosf( p ) } };
+	float Rx[ 3 ][ 3 ] = { { 1, 0, 0 }, { 0, cosf( r ), -sinf( r ) }, { 0, sinf( r ), cosf( r ) } };
+	float T[ 3 ][ 3 ], M[ 3 ][ 3 ], BM[ 3 ][ 3 ];
+	for ( int i = 0; i < 3; i++ )
+		for ( int j = 0; j < 3; j++ )
+			T[ i ][ j ] = Ry[ i ][ 0 ] * Rx[ 0 ][ j ] + Ry[ i ][ 1 ] * Rx[ 1 ][ j ] + Ry[ i ][ 2 ] * Rx[ 2 ][ j ];
+	for ( int i = 0; i < 3; i++ )
+		for ( int j = 0; j < 3; j++ )
+			M[ i ][ j ] = Rz[ i ][ 0 ] * T[ 0 ][ j ] + Rz[ i ][ 1 ] * T[ 1 ][ j ] + Rz[ i ][ 2 ] * T[ 2 ][ j ];
+	// in bone space: B^T M B
+	for ( int i = 0; i < 3; i++ )
+		for ( int j = 0; j < 3; j++ )
+			BM[ i ][ j ] = M[ i ][ 0 ] * B[ 0 ][ j ] + M[ i ][ 1 ] * B[ 1 ][ j ] + M[ i ][ 2 ] * B[ 2 ][ j ];
+	for ( int i = 0; i < 3; i++ )
+		for ( int j = 0; j < 3; j++ )
+			h->rot[ i ][ j ] = B[ 0 ][ i ] * BM[ 0 ][ j ] + B[ 1 ][ i ] * BM[ 1 ][ j ] + B[ 2 ][ i ] * BM[ 2 ][ j ];
+	h->hasRot = 1;
+}
+
 int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr, fpholster_t *out, int max )
 {
 	static int modelState[ NUM_HOLSTER_DEFS ];
@@ -794,7 +1022,14 @@ int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr
 	if ( !local || playerNumber != local->index )
 		return 0;
 
+	if ( !g_holsterCfgRun )
+	{
+		g_holsterCfgRun = true;
+		gEngfuncs.pfnClientCmd( "exec fpbody_holsters.cfg\n" );
+	}
 	const studiohdr_t *hdr = (const studiohdr_t *)playerStudioHdr;
+	g_holsterLastHdr = hdr;
+	g_numHolsterShown = 0;
 	if ( hdr != anchorHdr )
 	{
 		anchorHdr = hdr;
@@ -877,6 +1112,9 @@ int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr
 						out[ n ].shift[ c ] = g_holsterShiftHLS[ k ].shift[ c ];
 					break;
 				}
+		HolsterApplyOfs( hdr, d, &out[ n ] );
+		if ( g_numHolsterShown < NUM_HOLSTER_DEFS_MAX )
+			g_holsterShown[ g_numHolsterShown++ ] = i;
 		n++;
 	}
 	return n;
@@ -885,7 +1123,18 @@ int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr
 void FPBody_HolsterMatrix( const fpholster_t *h, const float ( *playerLight )[ 3 ][ 4 ], float ( *out )[ 4 ] )
 {
 	const float ( *A )[ 4 ] = playerLight[ h->anchor ];
+	float Lr[ 3 ][ 4 ];
 	const float ( *L )[ 4 ] = h->local;
+	if ( h->hasRot )		// fp_holster's turn, about the weapon's own origin
+	{
+		for ( int r = 0; r < 3; r++ )
+		{
+			for ( int c = 0; c < 3; c++ )
+				Lr[ r ][ c ] = h->rot[ r ][ 0 ] * L[ 0 ][ c ] + h->rot[ r ][ 1 ] * L[ 1 ][ c ] + h->rot[ r ][ 2 ] * L[ 2 ][ c ];
+			Lr[ r ][ 3 ] = L[ r ][ 3 ];
+		}
+		L = Lr;
+	}
 	for ( int r = 0; r < 3; r++ )
 	{
 		for ( int c = 0; c < 3; c++ )
