@@ -1,6 +1,9 @@
 """Make a battle-damaged copy of an HEV suit model (texture work only).
 
-  python3 -I damage_suit.py <in.mdl> <out.mdl> [strength] [seed]
+  python3 -I damage_suit.py <in.mdl> <out.mdl> [strength] [seed] [nowrap]
+
+nowrap: comma-separated texture names that get no bandage (on the HL:S
+body PLAYER_Legs1 is the waist, where a wrap comes out stretched).
 
 Every suit texture (PLAYER_*, the HL:S "leg" sheet; not the head, face, glasses
 or the chrome) gets, in its own pixel space so it lands the same on every
@@ -57,7 +60,7 @@ def blob_mask(w, h, rng, cx, cy, r, rough, aspect=1.0, ang=0.0):
     return np.clip(1.0 - d - (n - 0.5) * rough, 0.0, 1.0)
 
 
-def damage(img, name, strength, seed):
+def damage(img, name, strength, seed, nowrap=()):
     h, w, _ = img.shape
     rng = np.random.default_rng((zlib.crc32(name.lower().encode()) + seed) & 0xffffffff)
     a = img.astype(np.float32)
@@ -137,7 +140,8 @@ def damage(img, name, strength, seed):
 
     # bandages: a wrap of dirty gauze round arms and legs, stained through
     lname = name.lower()
-    limb = any(k in lname for k in ('forearm', 'bicep', 'calf', 'legs1', 'leg'))
+    # (not the HL:S 'leg' sheet: its band lands round the waist, stretched)
+    limb = any(k in lname for k in ('forearm', 'bicep', 'calf', 'legs1')) and lname not in nowrap
     bicep = 'bicep' in lname
     if limb and h >= 24 and ( bicep or rng.random() < 0.7 * min(1.0, s) ):
         # the upper arm gets a long wrap (most of its length), the others a band
@@ -187,8 +191,9 @@ def damage(img, name, strength, seed):
     return np.clip(a, 0, 255).astype(np.uint8)
 
 
-def main(src, dst, strength=1.0, seed=0):
+def main(src, dst, strength=1.0, seed=0, nowrap=''):
     strength, seed = float(strength), int(seed)
+    nowrap = tuple(n.strip().lower() for n in nowrap.split(',') if n.strip())
     d = bytearray(open(src, 'rb').read())
     ntex, ti = struct.unpack_from('<2i', d, 180)
     done = []
@@ -200,7 +205,7 @@ def main(src, dst, strength=1.0, seed=0):
             continue
         pix = np.frombuffer(bytes(d[idx:idx + w * h]), np.uint8).reshape(h, w)
         pal = np.frombuffer(bytes(d[idx + w * h:idx + w * h + 768]), np.uint8).reshape(256, 3)
-        out = damage(pal[pix], name.rsplit('.', 1)[0], strength, seed)
+        out = damage(pal[pix], name.rsplit('.', 1)[0], strength, seed, nowrap)
         q = Image.fromarray(out).quantize(colors=256, method=Image.MEDIANCUT, dither=Image.NONE)
         qp = np.zeros(768, np.uint8)
         p = np.array(q.getpalette()[:768], np.uint8)
@@ -213,4 +218,4 @@ def main(src, dst, strength=1.0, seed=0):
 
 
 if __name__ == '__main__':
-    main(*sys.argv[1:5])
+    main(*sys.argv[1:6])
