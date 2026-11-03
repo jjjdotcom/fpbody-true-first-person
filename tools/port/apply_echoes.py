@@ -499,3 +499,20 @@ s = s.rstrip() + nl + nl + '#include "fpbody_moves.inl"	// fpbody: Freeman moves
 open(p, 'w', encoding='latin-1', newline='').write(s); print('player.cpp tail')
 rep('cl_dll/CMakeLists.txt', [('	view.cpp\n', '	view.cpp\n	fpbody.cpp\n	fpbody_anim.cpp\n')])
 rep('mod_options.txt', [('GAMEDIR=echoes # Gamedir path', 'GAMEDIR=fpbody_echoes # Gamedir path (fpbody: the True First Person mod folder)')])
+
+# ladders: Spirit hides func_ladder with EF_NODRAW, which keeps it off the client
+# entirely - the client's movement prediction (and the body's climbing
+# animations, which go by it) never sees the ladder. Half-Life's way instead:
+# drawn fully transparent, still sent.
+rep('dlls/triggers.cpp', [('''		pev->effects |= EF_NODRAW;
+		//LRC- NODRAW is a better-performance way to stop things being drawn.
+		// (unless... would it prevent client-side movement algorithms from working?)
+//		pev->rendermode = kRenderTransTexture;
+//		pev->renderamt = 0;
+	}''', '''		// fpbody: invisible but still sent to the client (Half-Life's way): with
+		// EF_NODRAW the client never gets the ladder, so its movement prediction
+		// and the body's climbing animations don't know we're on it
+		pev->effects &= ~EF_NODRAW;
+		pev->rendermode = kRenderTransTexture;
+		pev->renderamt = 0;
+	}''')])
