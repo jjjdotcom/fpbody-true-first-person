@@ -1672,10 +1672,12 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 		else
 		{
 			g_epaCower = 0;
+			// played at the speed you move, so the feet don't slide: the cycles
+			// cover about 60 (walk) and 165 (run) units a second at rate 1
 			if ( g_speed2D < 160.0f )
-				WantLoop( "fm_panic_walk", Clamp( g_speed2D / 70.0f, 0.5f, 1.6f ) );
+				WantLoop( "fm_panic_walk", Clamp( g_speed2D / 60.0f, 0.5f, 3.0f ) );
 			else
-				WantLoop( "fm_panic_run", Clamp( g_speed2D / 220.0f, 0.6f, 1.5f ) );
+				WantLoop( "fm_panic_run", Clamp( g_speed2D / 165.0f, 0.6f, 2.5f ) );
 		}
 	}
 	else
