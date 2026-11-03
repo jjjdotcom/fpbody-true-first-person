@@ -220,6 +220,7 @@ static bool MoveBusy( void ) { return g_ovSeq >= 0 && ( g_ovKind == OVK_MOVE || 
 static bool StartOverlayKind( const char *name, int kind, float wantDur );
 static bool OverlayIs( const char *name );
 static const char *OverlayName( void );
+static bool PassiveTwoHanded( void );
 static cvar_t *cl_fpbody_debug;
 static cvar_t *cl_fpbody_elbowdown;
 static cvar_t *cl_fpbody_wristtwist;
@@ -3146,7 +3147,7 @@ static void ApplyRelaxHands( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4
 	const char *hold = HoldType();
 	bool oneHand = ( OverlayIs( "fm_relax_idle" ) || OverlayIs( "fm_relax_walk" ) || OverlayIs( "fm_relax_run" ) ) &&
 				   strcmp( hold, "pistol" ) && strcmp( hold, "revolver" );
-	if ( g->hasLHand && g_skel.lHand >= 0 && !oneHand )
+	if ( g->hasLHand && g_skel.lHand >= 0 && !oneHand && !( PassiveTwoHanded() && g_offW > 0.5f ) )
 	{
 		float H[ 3 ], target[ 3 ];
 		BoneOrigin( light, g_skel.lHand, H );
@@ -3439,15 +3440,23 @@ static void UsePalm( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ], cons
 	TransformBones( bone, light, g_skel.lHandMask, R, H, NULL );
 }
 
+// the two-handed lowered hold (fm_passive_*): the left hand stays on the gun
+static bool PassiveTwoHanded( void )
+{
+	return g_ovSeq >= 0 && g_ovKind == OVK_EASE &&
+		   ( OverlayIs( "fm_passive_idle" ) || OverlayIs( "fm_passive_walk" ) || OverlayIs( "fm_passive_run" ) );
+}
+
 static bool OffHandBusy( float now )
 {
-	if ( g_ovSeq >= 0 )
+	bool passive = PassiveTwoHanded();
+	if ( g_ovSeq >= 0 && !passive )
 		return true;
 	if ( cl_fpbody_offhand_release && cl_fpbody_offhand_release->value == 0.0f )
 		return false;
 	// (a moment ago: never a time still to come, which is a clock that restarted)
 	#define FP_RECENT( t, d ) ( now - ( t ) >= 0.0f && now - ( t ) < ( d ) )
-	return g_relaxW > 0.02f ||
+	return ( g_relaxW > 0.02f && !passive ) ||
 		   ( in_use.state & 1 ) || FP_RECENT( g_useStart, 0.7f ) || g_useHoldW > 0.02f ||
 		   FP_RECENT( g_flashStart, 0.7f ) ||
 		   g_ladderW > 0.02f ||
@@ -3570,7 +3579,8 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 	}
 	const gun_t *gun = GunForModel( weaponmodel );
 	bool overlay = ( g_ovSeq >= 0 );	// GMod reload: hands leave the gun
-	bool letGo = overlay || OffHandBusy( now );	// the left hand is needed elsewhere
+	bool letGo = ( overlay && !PassiveTwoHanded() ) || OffHandBusy( now );	// the left hand is needed elsewhere
+										// (it stays on long guns in the two-handed lowered hold)
 
 	// smooth weights
 	float aimTarget = ( gun && !overlay && cl_fpbody_aimfire->value != 0.0f && g_glOpenW <= 0.0f &&
