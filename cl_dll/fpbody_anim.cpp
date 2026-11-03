@@ -1674,11 +1674,12 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 		{
 			g_epaCower = 0;
 			// played at the speed you move, so the feet don't slide: the cycles
-			// cover about 60 (walk) and 165 (run) units a second at rate 1
+			// cover about 78 (walk) and 200 (run) units a second at rate 1
+			// (the strides of Half-Life's walk and run, which they're timed like)
 			if ( g_speed2D < 160.0f )
-				WantLoop( "fm_panic_walk", Clamp( g_speed2D / 60.0f, 0.5f, 3.0f ) );
+				WantLoop( "fm_panic_walk", Clamp( g_speed2D / 78.0f, 0.5f, 3.0f ) );
 			else
-				WantLoop( "fm_panic_run", Clamp( g_speed2D / 165.0f, 0.6f, 2.5f ) );
+				WantLoop( "fm_panic_run", Clamp( g_speed2D / 200.0f, 0.6f, 2.5f ) );
 		}
 	}
 	else
@@ -1951,9 +1952,14 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 		rate = Clamp( g_speed2D / 380.0f, 0.7f, 1.4f );
 	}
 
+	// (the panic run / cower loops belong to EPA_Frame, which runs after this
+	// and stops them itself: stopping them here restarted them every frame, so
+	// they never got past their first frames and the feet slid)
+	bool epaLoop = OverlayIs( "fm_panic_walk" ) || OverlayIs( "fm_panic_run" ) || OverlayIs( "fm_cower" ) ||
+				   OverlayIs( "fm_cower_intro" );
 	if ( loop && !oneShot )
 		WantLoop( loop, rate );
-	else if ( !loop && g_ovSeq >= 0 && g_ovKind == OVK_LOOP )
+	else if ( !loop && g_ovSeq >= 0 && g_ovKind == OVK_LOOP && !epaLoop )
 		StopOverlay();
 
 	// at ease: lower the gun after a few quiet seconds
