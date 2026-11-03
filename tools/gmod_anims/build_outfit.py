@@ -51,7 +51,11 @@ def target_name(name):
 bone_map = {}
 for i, b in enumerate(N.bones):
     j, anc = i, i
-    while anc >= 0 and target_name(N.bones[anc]['name']) not in P.bone_by_name:
+    # only Biped bones match by name: helper bones (Dummy05, Bone02...) mean
+    # different things in different models (the HD scientist's jaw hangs off its
+    # Dummy05, the player's Dummy05 is somewhere else entirely)
+    while anc >= 0 and (not N.bones[anc]['name'].startswith('Bip01') or
+                        target_name(N.bones[anc]['name']) not in P.bone_by_name):
         anc = N.bones[anc]['parent']
     if anc < 0:
         anc = 0
@@ -60,6 +64,20 @@ unmapped = [N.bones[i]['name'] for i in bone_map if bone_map[i][1] != i]
 print('rigid-attached to an ancestor:', unmapped)
 
 Rn, Tn = N.world(N.rest_local())
+# --pose <seq>: bones the player skeleton doesn't have (a jaw, a tie...) are
+# placed as in that sequence's first frame, relative to the bone they ride on,
+# instead of in their rest pose (the HD scientist's jaw rests wide open)
+if '--pose' in sys.argv:
+    _pr, _pt = N.world(N.decode(N.seq_by_name[sys.argv[sys.argv.index('--pose') + 1]])[0][0])
+    for _i, _b in enumerate(N.bones):
+        _a = _i
+        while _a >= 0 and (not N.bones[_a]['name'].startswith('Bip01') or
+                           target_name(N.bones[_a]['name']) not in P.bone_by_name):
+            _a = N.bones[_a]['parent']
+        if _a >= 0 and _a != _i:
+            _k = Rn[_a] @ _pr[_a].T
+            Rn[_i] = _k @ _pr[_i]
+            Tn[_i] = Tn[_a] + _k @ (_pt[_i] - _pt[_a])
 Rp, Tp = P.world(P.rest_local())
 
 base = bytearray(P.d)
