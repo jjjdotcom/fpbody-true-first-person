@@ -5,9 +5,11 @@ rem with your installed Visual Studio and CMake, and sets up the fpbody_echoes
 rem mod folder. Put this SDK folder (fpbody_echoes_sdk) in your Half-Life folder,
 rem next to the echoes folder (Half-Life: Echoes must be installed there).
 rem the Half-Life folder is the one this SDK folder sits in
-cd /d "%~dp0.."
+rem this folder, kept before any cd (the bat's own folder can come out wrong after a cd when it was started by a relative path)
+set "SDK=%~dp0"
+cd /d "%SDK%.."
 set "HL=%CD%"
-cd /d "%~dp0"
+cd /d "%SDK%"
 set "MOD=%HL%\fpbody_echoes"
 set "GAME=%HL%\echoes"
 rem everything is also written to this log (send it to Claude if something fails)
@@ -77,7 +79,7 @@ if not exist "%MOD%\models" mkdir "%MOD%\models"
 copy /y "%HL%\fpbody\models\player.mdl" "%MOD%\models\" >nul
 copy /y "%HL%\fpbody\models\fpbody_*.mdl" "%MOD%\models\" >nul
 rem Echoes' own outfits (the suit from RUIN on), kept next to this file in echoes_models
-if exist "%~dp0echoes_models\*.mdl" copy /y "%~dp0echoes_models\*.mdl" "%MOD%\models\" >nul
+if exist "%SDK%echoes_models\*.mdl" copy /y "%SDK%echoes_models\*.mdl" "%MOD%\models\" >nul
 copy /y "%HL%\fpbody\models\p_*.mdl" "%MOD%\models\" >nul
 copy /y "%HL%\fpbody\delta.lst" "%MOD%\" >nul
 rem your settings: copied once, then they're the Echoes mod's own
