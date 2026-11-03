@@ -19,7 +19,8 @@ strength (default 1) scales how much of each; seed picks the layout.
 Atlas textures (128 texels or more on a side: one sheet for the torso or the
 legs, as on Source-converted suits) get the effects sized to a 64-texel part,
 and their bandages are placed on the mesh instead (WRAPS: a long wrap round
-the left upper arm, one round the right thigh). The
+the left upper arm when split_tex.py gave it its own texture copy, one round
+the thighs). The
 texture is requantized to its own 256-colour palette; the mesh is untouched.
 The result contains the model's data: keep it local.
 """
@@ -199,7 +200,7 @@ def damage(img, name, strength, seed, nowrap=(), atlas=False):
     return np.clip(a, 0, 255).astype(np.uint8)
 
 
-def mesh_wraps(src, k, img, specs, seed):
+def mesh_wraps(src, k, img, specs, seed, split=False):
     """Bandages placed on the mesh, for atlas textures: each spec is
     (bone, start, end), the stretch of that bone's length (0 = its joint,
     1 = the far end of its vertices) that the gauze covers. Every triangle of
@@ -212,8 +213,8 @@ def mesh_wraps(src, k, img, specs, seed):
     rng = np.random.default_rng(seed + 77)
     blood = np.array([62, 10, 8], np.float32)
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
-    for bone, x0, x1 in specs:
-        if bone not in names:
+    for bone, x0, x1, one_side in specs:
+        if one_side != split or bone not in names:
             continue
         bi = names.index(bone)
         mine = [t for t in tl if all(b == bi for b in t[4])]
@@ -264,8 +265,10 @@ def mesh_wraps(src, k, img, specs, seed):
     return np.clip(a, 0, 255).astype(np.uint8)
 
 
-# the wraps on atlas models: a long one round the left upper arm, one round the right thigh
-WRAPS = (('Bip01 L Arm1', 0.12, 0.88), ('Bip01 R Leg', 0.45, 0.75))
+# the wraps on atlas models: a long one round the left upper arm (only on a
+# "#" copy of the texture made by split_tex.py, so only that arm), one round the
+# thighs (the legs share their texels: both)
+WRAPS = (('Bip01 L Arm1', 0.12, 0.88, True), ('Bip01 R Leg', 0.45, 0.75, False))
 
 
 def main(src, dst, strength=1.0, seed=0, nowrap=''):
@@ -278,14 +281,15 @@ def main(src, dst, strength=1.0, seed=0, nowrap=''):
         o = ti + k * 80
         name = bytes(d[o:o + 64]).split(b'\0')[0].decode('latin-1')
         flags, w, h, idx = struct.unpack_from('<4i', d, o + 64)
-        if not is_suit(name) or flags & 2 or w * h < 64:
+        if not is_suit(name.split('#')[0]) or flags & 2 or w * h < 64:
             continue
         pix = np.frombuffer(bytes(d[idx:idx + w * h]), np.uint8).reshape(h, w)
         pal = np.frombuffer(bytes(d[idx + w * h:idx + w * h + 768]), np.uint8).reshape(256, 3)
         atlas = min(w, h) >= 128
-        out = damage(pal[pix], name.rsplit('.', 1)[0], strength, seed, nowrap, atlas)
+        base = name.rsplit('.', 1)[0].split('#')[0]          # a split_tex.py copy: damaged like its original
+        out = damage(pal[pix], base, strength, seed, nowrap, atlas)
         if atlas:
-            out = mesh_wraps(src, k, out, WRAPS, seed)
+            out = mesh_wraps(src, k, out, WRAPS, seed, split='#' in name)
         q = Image.fromarray(out).quantize(colors=256, method=Image.MEDIANCUT, dither=Image.NONE)
         qp = np.zeros(768, np.uint8)
         p = np.array(q.getpalette()[:768], np.uint8)
