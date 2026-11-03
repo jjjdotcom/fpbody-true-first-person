@@ -5,9 +5,11 @@ rem with your installed Visual Studio and CMake, and sets up the fpbody_fi mod
 rem folder. Put this SDK folder (fpbody_fi_sdk) in your Half-Life folder, next to
 rem the field_intensity folder (Half-Life: Field Intensity must be installed there).
 rem the Half-Life folder is the one this SDK folder sits in
-cd /d "%~dp0.."
+rem this folder, kept before any cd (the bat's own folder can come out wrong after a cd when it was started by a relative path)
+set "SDK=%~dp0"
+cd /d "%SDK%.."
 set "HL=%CD%"
-cd /d "%~dp0"
+cd /d "%SDK%"
 set "MOD=%HL%\fpbody_fi"
 set "GAME=%HL%\field_intensity"
 rem everything is also written to this log (send it to Claude if something fails)
@@ -77,7 +79,7 @@ if not exist "%MOD%\models" mkdir "%MOD%\models"
 copy /y "%HL%\fpbody\models\player.mdl" "%MOD%\models\" >nul
 copy /y "%HL%\fpbody\models\fpbody_*.mdl" "%MOD%\models\" >nul
 rem Field Intensity's own suit colour (green), kept next to this file in fi_models
-if exist "%~dp0fi_models\*.mdl" copy /y "%~dp0fi_models\*.mdl" "%MOD%\models\" >nul
+if exist "%SDK%fi_models\*.mdl" copy /y "%SDK%fi_models\*.mdl" "%MOD%\models\" >nul
 rem the Half-Life guns you tuned, where Field Intensity has no model of its own
 for %%f in ("%HL%\fpbody\models\p_*.mdl") do if not exist "%GAME%\models\%%~nxf" copy /y "%%f" "%MOD%\models\" >nul
 rem Field Intensity's network settings, with room for the body's move state (fuser4)

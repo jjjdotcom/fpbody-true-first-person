@@ -7,9 +7,11 @@ rem Half-Life folder. Put this SDK folder (fpbody_asheep_sdk) in your Half-Life
 rem folder, next to the asheep folder (Azure Sheep must be installed there).
 rem The code is the Azure Sheep reimplementation (github.com/HL1-Mods-Reimplementations-and-Ports/hl-asheep)
 rem with the True First Person code added.
-cd /d "%~dp0.."
+rem this folder, kept before any cd (the bat's own folder can come out wrong after a cd when it was started by a relative path)
+set "SDK=%~dp0"
+cd /d "%SDK%.."
 set "HL=%CD%"
-cd /d "%~dp0"
+cd /d "%SDK%"
 set "MOD=%HL%\fpbody_asheep"
 set "GAME=%HL%\asheep"
 rem everything is also written to this log (send it to Claude if something fails)
@@ -83,7 +85,7 @@ if not exist "%MOD%\models" mkdir "%MOD%\models"
 copy /y "%HL%\fpbody\models\player.mdl" "%MOD%\models\" >nul
 copy /y "%HL%\fpbody\models\fpbody_*.mdl" "%MOD%\models\" >nul
 rem Barney's outfits: the guard uniform, then the blue HEV suit (Azure Sheep's HEV Barney), kept next to this file in asheep_models
-if exist "%~dp0asheep_models\*.mdl" copy /y "%~dp0asheep_models\*.mdl" "%MOD%\models\" >nul
+if exist "%SDK%asheep_models\*.mdl" copy /y "%SDK%asheep_models\*.mdl" "%MOD%\models\" >nul
 rem the Half-Life guns you tuned, where Azure Sheep has no model of its own
 for %%f in ("%HL%\fpbody\models\p_*.mdl") do if not exist "%GAME%\models\%%~nxf" copy /y "%%f" "%MOD%\models\" >nul
 rem network settings, with room for the body's move state (fuser4)
