@@ -3642,7 +3642,29 @@ static void ApplyGunPose( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4 ],
 		float barrel[ 3 ], pivot[ 3 ];
 		HandToWorldDir( light, g_skel.rHand, gun->axis, barrel );
 		BoneOrigin( light, g_skel.rUpper, pivot );
-		TurnToward( bone, light, g_skel.rUpperMask, pivot, barrel, f, g_aimW );
+		float want[ 3 ] = { f[ 0 ], f[ 1 ], f[ 2 ] }, w = g_aimW;
+		if ( AlwaysAimed( weaponmodel ) )
+		{
+			// the big energy guns: the hold's own up / down blend does most of the
+			// pitch; the turn only follows the view to 20 degrees up or down and
+			// never swings the arm more than 30 degrees, so the gun doesn't twist
+			// into the body or out of the left hand looking far up or down
+			float h = sqrtf( want[ 0 ] * want[ 0 ] + want[ 1 ] * want[ 1 ] );
+			float lim = 0.342f;		// sin 20
+			if ( h > 1e-3f && fabs( want[ 2 ] ) > lim )
+			{
+				float z = want[ 2 ] > 0.0f ? lim : -lim, k = sqrtf( 1.0f - z * z ) / h;
+				want[ 0 ] *= k; want[ 1 ] *= k; want[ 2 ] = z;
+			}
+			float b[ 3 ] = { barrel[ 0 ], barrel[ 1 ], barrel[ 2 ] };
+			if ( Normalize3( b ) > 1e-4f )
+			{
+				float ang = (float)( acos( Clamp( Dot3( b, want ), -1.0f, 1.0f ) ) * 180.0 / M_PI );
+				if ( ang > 30.0f )
+					w *= 30.0f / ang;
+			}
+		}
+		TurnToward( bone, light, g_skel.rUpperMask, pivot, barrel, want, w );
 	}
 
 	// 2. off hand onto the gun: its measured handle if it has one
