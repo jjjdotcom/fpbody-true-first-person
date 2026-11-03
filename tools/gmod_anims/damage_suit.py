@@ -19,8 +19,8 @@ strength (default 1) scales how much of each; seed picks the layout.
 Atlas textures (128 texels or more on a side: one sheet for the torso or the
 legs, as on Source-converted suits) get the effects sized to a 64-texel part,
 and their bandages are placed on the mesh instead (WRAPS: a long wrap round
-the left upper arm when split_tex.py gave it its own texture copy, one round
-the thighs). The
+the left upper arm and one round the right thigh, each when split_tex.py gave
+that bone its own texture copy). The
 texture is requantized to its own 256-colour palette; the mesh is untouched.
 The result contains the model's data: keep it local.
 """
@@ -265,10 +265,10 @@ def mesh_wraps(src, k, img, specs, seed, split=False):
     return np.clip(a, 0, 255).astype(np.uint8)
 
 
-# the wraps on atlas models: a long one round the left upper arm (only on a
-# "#" copy of the texture made by split_tex.py, so only that arm), one round the
-# thighs (the legs share their texels: both)
-WRAPS = (('Bip01 L Arm1', 0.12, 0.88, True), ('Bip01 R Leg', 0.45, 0.75, False))
+# the wraps on atlas models: a long one round the left upper arm and one round
+# the right thigh, each only on a "#" copy of the texture made by split_tex.py
+# (the sides share their texels, so only that arm / leg gets it)
+WRAPS = (('Bip01 L Arm1', 0.12, 0.88, True), ('Bip01 R Leg', 0.45, 0.75, True))
 
 
 def main(src, dst, strength=1.0, seed=0, nowrap=''):
