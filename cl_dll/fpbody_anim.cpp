@@ -46,6 +46,8 @@
 //   cl_fpbody_holdlower 10   GMod mode: degrees two-handed guns are held lower than the sights
 //                            until you fire (per gun: fp_hold <down> <right> <back>)
 //   cl_fpbody_usepalm   1    pressing use: the left palm flat (down, or on a charger's panel)
+//   cl_fpbody_relax_onehand 1   at ease, every gun hangs at your side in one hand like the
+//                               pistols (0: only pistols; long guns go to the two-handed passive hold)
 //   cl_fpbody_offhand_release 1  the off hand lets go of the gun for use, the flashlight,
 //                            ladders, barnacles, hard landings and the relaxed holds
 //   cl_fpbody_offhand   1    keep the off hand on two-handed guns (arm IK; in classic mode,
@@ -137,6 +139,7 @@ static cvar_t *cl_fpbody_gmod;
 static cvar_t *cl_fpbody_aimfire;
 static cvar_t *cl_fpbody_offhand;
 static cvar_t *cl_fpbody_offhand_release;
+static cvar_t *cl_fpbody_relax_onehand;
 static cvar_t *cl_fpbody_usepalm;
 static cvar_t *cl_fpbody_holdlower;
 static cvar_t *cl_fpbody_reloads;
@@ -490,6 +493,7 @@ void FPAnim_Init( void )
 	cl_fpbody_aimfire   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_aimfire", "1", FCVAR_ARCHIVE );
 	cl_fpbody_offhand   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand", "1", FCVAR_ARCHIVE );
 	cl_fpbody_offhand_release = gEngfuncs.pfnRegisterVariable( "cl_fpbody_offhand_release", "1", FCVAR_ARCHIVE );
+	cl_fpbody_relax_onehand = gEngfuncs.pfnRegisterVariable( "cl_fpbody_relax_onehand", "1", FCVAR_ARCHIVE );
 	cl_fpbody_usepalm = gEngfuncs.pfnRegisterVariable( "cl_fpbody_usepalm", "1", FCVAR_ARCHIVE );
 	cl_fpbody_holdlower = gEngfuncs.pfnRegisterVariable( "cl_fpbody_holdlower", "10", FCVAR_ARCHIVE );
 	cl_fpbody_reloads   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloads", "cz", FCVAR_ARCHIVE );
@@ -1966,9 +1970,12 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 					 OverlayIs( "fm_strangle" ) );
 	if ( easeWant && !drawing && ( g_ovSeq < 0 || g_ovKind == OVK_EASE ) )
 	{
-		// Freeman: pistols and the .357 hang at the side (relaxed hands), long guns go to the passive hold
+		// Freeman: pistols and the .357 hang at the side (relaxed hands); with
+		// cl_fpbody_relax_onehand every gun does, else long guns go to the passive hold
 		const char *hold = HoldType();
-		bool relaxed = ( !strcmp( hold, "pistol" ) || !strcmp( hold, "revolver" ) ) && FindSeq( g_playerHdr, "fm_relax_idle" ) >= 0;
+		bool relaxed = ( !strcmp( hold, "pistol" ) || !strcmp( hold, "revolver" ) ||
+						 ( cl_fpbody_relax_onehand && cl_fpbody_relax_onehand->value != 0.0f ) ) &&
+					   FindSeq( g_playerHdr, "fm_relax_idle" ) >= 0;
 		const char *name = relaxed ? ( g_speed2D < 20.0f ? "fm_relax_idle" : g_speed2D < 160.0f ? "fm_relax_walk" : "fm_relax_run" )
 								   : ( g_speed2D < 20.0f ? "fm_passive_idle" : g_speed2D < 160.0f ? "fm_passive_walk" : "fm_passive_run" );
 		if ( !OverlayIs( name ) )
@@ -3132,7 +3139,12 @@ static void ApplyRelaxHands( float ( *bone )[ 3 ][ 4 ], float ( *light )[ 3 ][ 4
 			TransformBones( bone, light, g_skel.rHandMask, R, H, NULL );
 		}
 	}
-	if ( g->hasLHand && g_skel.lHand >= 0 )
+	// (the left-hand tuning is for the two-handed passive hold: not while a long
+	// gun hangs in one hand, cl_fpbody_relax_onehand)
+	const char *hold = HoldType();
+	bool oneHand = ( OverlayIs( "fm_relax_idle" ) || OverlayIs( "fm_relax_walk" ) || OverlayIs( "fm_relax_run" ) ) &&
+				   strcmp( hold, "pistol" ) && strcmp( hold, "revolver" );
+	if ( g->hasLHand && g_skel.lHand >= 0 && !oneHand )
 	{
 		float H[ 3 ], target[ 3 ];
 		BoneOrigin( light, g_skel.lHand, H );
