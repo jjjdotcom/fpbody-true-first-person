@@ -29,7 +29,7 @@ for f in ('cl_dll/fpbody.cpp', 'cl_dll/fpbody.h', 'cl_dll/fpbody_anim.cpp', 'cl_
 
 # Echoes: the lab coat until the chapter RUIN (echoes06), though the HUD suit
 # is picked up in the first chapter; then the suit outfit
-rep('cl_dll/fpbody_game.h', [('#define FPBODY_SUIT_FROM_ARMOR 0\t// 1 = "suited" while the player has armor (Blue Shift)\n', '#define FPBODY_SUIT_FROM_ARMOR 0\t// 1 = "suited" while the player has armor (Blue Shift)\n#define FPBODY_SUIT_MAP_PREFIX "echoes"\t// the suit outfit only from map echoes<FIRST> on\n#define FPBODY_SUIT_MAP_FIRST 6\t\t\t// echoes06 = chapter RUIN\n')])
+rep('cl_dll/fpbody_game.h', [('#define FPBODY_SUIT_FROM_ARMOR 0\t// 1 = "suited" while the player has armor (Blue Shift)\n', '#define FPBODY_SUIT_FROM_ARMOR 0\t// 1 = "suited" while the player has armor (Blue Shift)\n#define FPBODY_SUIT_MAP_PREFIX "echoes"\t// the suit outfit only from map echoes<FIRST> on\n#define FPBODY_SUIT_MAP_FIRST 6\t\t\t// echoes06 = chapter RUIN\n#define FPBODY_SUIT_NO_HLS 1\t\t\t// suited: the damaged classic-mesh suit (fpbody_suit / fpbody_classic_suit)\n')])
 
 # ---------------- client
 SMR = open(os.path.join(REPO, 'cl_dll/StudioModelRenderer.cpp'), encoding='latin-1').read().replace('\r\n', '\n')

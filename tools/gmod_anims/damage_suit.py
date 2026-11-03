@@ -138,9 +138,11 @@ def damage(img, name, strength, seed):
     # bandages: a wrap of dirty gauze round arms and legs, stained through
     lname = name.lower()
     limb = any(k in lname for k in ('forearm', 'bicep', 'calf', 'legs1', 'leg'))
-    if limb and h >= 32 and rng.random() < 0.7 * min(1.0, s):
-        bh = max(5, int(h * rng.uniform(0.12, 0.2)))
-        cy = rng.uniform(bh, h - bh)
+    bicep = 'bicep' in lname
+    if limb and h >= 24 and ( bicep or rng.random() < 0.7 * min(1.0, s) ):
+        # the upper arm gets a long wrap (most of its length), the others a band
+        bh = max(5, int(h * ( rng.uniform(0.38, 0.48) if bicep else rng.uniform(0.12, 0.2) )))
+        cy = rng.uniform(bh, h - bh) if h > 2 * bh else h / 2
         tilt = rng.uniform(-0.12, 0.12)
         yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
         edge_noise = (fbm(w, h, rng, 3, 8) - 0.5) * 3.0

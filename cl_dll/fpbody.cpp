@@ -56,6 +56,9 @@
 #include "fpbody.h"
 #include "fpbody_anim.h"
 #include "fpbody_game.h"
+#ifndef FPBODY_SUIT_NO_HLS
+#define FPBODY_SUIT_NO_HLS 0	// 1 = when suited, the classic-mesh suit even with cl_fpbody_hls 1
+#endif
 #include "fpbody_holsters.h"
 #include "studio_util.h"
 #include "ammohistory.h"
@@ -697,6 +700,10 @@ struct model_s *FPBody_GetOutfitModel( int playerNumber )
 	if ( cl_fpbody_outfit && cl_fpbody_outfit->value != 0.0f )
 	{
 		bool hls = c == 0 && cl_fpbody_hls && cl_fpbody_hls->value != 0.0f;
+#if FPBODY_SUIT_NO_HLS
+		if ( hls && FPBody_IsSuited() )
+			hls = false;		// this game's suit is the classic-mesh one (Echoes: the damaged suit)
+#endif
 		if ( hls )
 		{
 			int k = FPBody_IsSuited() ? 0 : 1;
