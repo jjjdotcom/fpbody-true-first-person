@@ -191,6 +191,7 @@ public:
 	float m_flFPPanicUntil;
 	float m_flFPHostileUntil;
 	void FPMoves_OnUse( CBaseEntity *pObject );	// Contextual Player Animations
+	bool FPMoves_NearScanner( void );	// fpbody: a retinal scanner where we look
 	float m_flFPUseUntil;
 	float m_flFPNextUse;
 	void FPMoves_Regen( void );	// health regeneration (sv_fpbody_regen)

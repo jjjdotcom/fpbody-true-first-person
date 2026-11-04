@@ -1981,10 +1981,10 @@ index 0000000..ad1af3c
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..45d9992
+index 0000000..883a0c8
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4413 @@
+@@ -0,0 +1,4425 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -3608,6 +3608,11 @@ index 0000000..45d9992
 +		g_mvActivity = g_now;
 +	if ( use == FPM_USE_CHARGER )
 +		g_useChargeUntil = g_now + 0.3f;			// charging: the hand stays on the charger
++	// a retinal scanner: lean in for the eye scan (Barney's "retina", as fm_retina)
++	if ( use == FPM_USE_SCAN && g_ctxLastUse != FPM_USE_SCAN && FPBody_Active() && g_playerHdr &&
++		 !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) && FindSeq( g_playerHdr, "fm_retina" ) >= 0 &&
++		 ( g_ovSeq < 0 || g_ovKind != OVK_MOVE ) )
++		StartOverlayKind( "fm_retina", OVK_MOVE, 0.0f );
 +	g_ctxLastUse = use;
 +
 +	// --- picked something up: bend down and grab
@@ -3661,11 +3666,12 @@ index 0000000..45d9992
 +		{
 +			g_epaCower = 0;
 +			// played at the speed you move, so the feet don't slide: the cycles
-+			// cover about 60 (walk) and 165 (run) units a second at rate 1
++			// cover about 78 (walk) and 200 (run) units a second at rate 1
++			// (the strides of Half-Life's walk and run, which they're timed like)
 +			if ( g_speed2D < 160.0f )
-+				WantLoop( "fm_panic_walk", Clamp( g_speed2D / 60.0f, 0.5f, 3.0f ) );
++				WantLoop( "fm_panic_walk", Clamp( g_speed2D / 78.0f, 0.5f, 3.0f ) );
 +			else
-+				WantLoop( "fm_panic_run", Clamp( g_speed2D / 165.0f, 0.6f, 2.5f ) );
++				WantLoop( "fm_panic_run", Clamp( g_speed2D / 200.0f, 0.6f, 2.5f ) );
 +		}
 +	}
 +	else
@@ -3871,6 +3877,7 @@ index 0000000..45d9992
 +	if ( oneShot && g_now - g_ovStart > 0.2f )
 +	{
 +		if ( ( OverlayIs( "fm_slide" ) && !( st & FPM_SLIDE ) && g_now - g_ovStart > 0.5f ) ||
++			 ( OverlayIs( "fm_retina" ) && ( g_speed2D > 60.0f || !onground ) ) ||		// walked off from the scanner
 +			 ( ( OverlayIs( "fm_mantle" ) || OverlayIs( "fm_vault" ) || OverlayIs( "fm_pullup" ) ) && !( st & FPM_VAULT ) &&
 +			   onground && g_speed2D > 60.0f ) )
 +		{
@@ -3938,9 +3945,14 @@ index 0000000..45d9992
 +		rate = Clamp( g_speed2D / 380.0f, 0.7f, 1.4f );
 +	}
 +
++	// (the panic run / cower loops belong to EPA_Frame, which runs after this
++	// and stops them itself: stopping them here restarted them every frame, so
++	// they never got past their first frames and the feet slid)
++	bool epaLoop = OverlayIs( "fm_panic_walk" ) || OverlayIs( "fm_panic_run" ) || OverlayIs( "fm_cower" ) ||
++				   OverlayIs( "fm_cower_intro" );
 +	if ( loop && !oneShot )
 +		WantLoop( loop, rate );
-+	else if ( !loop && g_ovSeq >= 0 && g_ovKind == OVK_LOOP )
++	else if ( !loop && g_ovSeq >= 0 && g_ovKind == OVK_LOOP && !epaLoop )
 +		StopOverlay();
 +
 +	// at ease: lower the gun after a few quiet seconds
@@ -6938,10 +6950,10 @@ index 38b0581..da7cf84 100644
  void CCrossbow::Holster( int skiplocal /* = 0 */ )
 diff --git a/dlls/fpbody_moves.inl b/dlls/fpbody_moves.inl
 new file mode 100644
-index 0000000..f5af017
+index 0000000..950eb20
 --- /dev/null
 +++ b/dlls/fpbody_moves.inl
-@@ -0,0 +1,301 @@
+@@ -0,0 +1,353 @@
 +/***
 +*
 +*	fpbody_moves.inl - server side of the Freeman moves (see pm_shared/fpbody_pm.h).
@@ -7199,6 +7211,50 @@ index 0000000..f5af017
 +	m_flFPRegenLastHealth = pev->health;
 +}
 +
++// Retinal scanners: an eye scanner model (EYE_SCANNER.mdl / eye_scanner_broken.mdl)
++// or something named for one ("retina", "scanner" but not a hand scanner) near
++// what we're looking at: pressing use there plays the eye scan (fm_retina), even
++// when the scanner itself can't be used (access denied, or only a prop).
++static bool FPMoves_HasWord( string_t s, const char *word )
++{
++	if ( !s )
++		return false;
++	char low[ 128 ];
++	const char *p = STRING( s );
++	int n = 0;
++	for ( ; p[ n ] && n < 127; n++ )
++		low[ n ] = ( p[ n ] >= 'A' && p[ n ] <= 'Z' ) ? p[ n ] + 32 : p[ n ];
++	low[ n ] = 0;
++	return strstr( low, word ) != NULL;
++}
++
++static bool FPMoves_IsScanner( CBaseEntity *pEnt )
++{
++	if ( FPMoves_HasWord( pEnt->pev->model, "eye_scanner" ) || FPMoves_HasWord( pEnt->pev->targetname, "retina" ) )
++		return true;
++	return FPMoves_HasWord( pEnt->pev->targetname, "scanner" ) && !FPMoves_HasWord( pEnt->pev->targetname, "hand" );
++}
++
++bool CBasePlayer::FPMoves_NearScanner( void )
++{
++	UTIL_MakeVectors( pev->v_angle );
++	Vector eye = pev->origin + pev->view_ofs;
++	TraceResult tr;
++	UTIL_TraceLine( eye, eye + gpGlobals->v_forward * 72.0f, ignore_monsters, ENT( pev ), &tr );
++	Vector at = tr.vecEndPos;
++	CBaseEntity *pEnt = NULL;
++	while ( ( pEnt = UTIL_FindEntityInSphere( pEnt, at, 64.0f ) ) != NULL )
++	{
++		if ( pEnt == this || !FPMoves_IsScanner( pEnt ) )
++			continue;
++		// in front of us (brush entities: their middle; point entities: where they are)
++		Vector to = ( pEnt->pev->solid == SOLID_BSP || pEnt->pev->movetype == MOVETYPE_PUSH ? pEnt->Center() : pEnt->pev->origin ) - eye;
++		if ( to.Length() < 120.0f && DotProduct( to.Normalize(), gpGlobals->v_forward ) > 0.5f )
++			return true;
++	}
++	return false;
++}
++
 +void CBasePlayer::FPMoves_Think( void )
 +{
 +	// saved games made before the hold type was saved come back with none, so
@@ -7220,6 +7276,14 @@ index 0000000..f5af017
 +		st |= FPM_ROPE;
 +#endif
 +	st |= ( m_LastHitGroup & 7 ) << FPM_HITGROUP_SHIFT;
++	// pressing use at a retinal scanner: the eye scan (once, it takes a few seconds)
++	if ( IsAlive() && ( m_afButtonPressed & IN_USE ) && gpGlobals->time >= m_flFPNextUse &&
++		 !( (int)pev->fuser4 & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) && FPMoves_NearScanner() )
++	{
++		m_iFPUseKind = FPM_USE_SCAN;
++		m_flFPUseUntil = gpGlobals->time + 0.3f;
++		m_flFPNextUse = gpGlobals->time + 4.0f;
++	}
 +	if ( IsAlive() && gpGlobals->time < m_flFPUseUntil )
 +		st |= ( m_iFPUseKind & 7 ) << FPM_USE_SHIFT;
 +	if ( IsAlive() && gpGlobals->time < m_flFPPanicUntil )
@@ -7484,10 +7548,10 @@ index 7ac2e0c..1ed974d 100644
  
 +#include "fpbody_moves.inl"	// fpbody: Freeman moves (kick, holster all)
 diff --git a/dlls/player.h b/dlls/player.h
-index a6b2a68..612a293 100644
+index a6b2a68..7560f55 100644
 --- a/dlls/player.h
 +++ b/dlls/player.h
-@@ -176,6 +176,27 @@ public:
+@@ -176,6 +176,28 @@ public:
  	int			m_iHideHUD;		// the players hud weapon info is to be hidden
  	int			m_iClientHideHUD;
  	int			m_iFOV;			// field of view
@@ -7506,6 +7570,7 @@ index a6b2a68..612a293 100644
 +	float m_flFPPanicUntil;
 +	float m_flFPHostileUntil;
 +	void FPMoves_OnUse( CBaseEntity *pObject );	// Contextual Player Animations
++	bool FPMoves_NearScanner( void );	// fpbody: a retinal scanner where we look
 +	float m_flFPUseUntil;
 +	float m_flFPNextUse;
 +	void FPMoves_Regen( void );	// health regeneration (sv_fpbody_regen)
@@ -7807,10 +7872,10 @@ index 0000000..a1ec328
 +1 ICON "icon.ico"
 diff --git a/pm_shared/fpbody_pm.h b/pm_shared/fpbody_pm.h
 new file mode 100644
-index 0000000..e6e956d
+index 0000000..d096c53
 --- /dev/null
 +++ b/pm_shared/fpbody_pm.h
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,92 @@
 +/***
 +*
 +*	fpbody_pm.h - player movement for the "True First Person" mod: prone,
@@ -7858,6 +7923,7 @@ index 0000000..e6e956d
 +#define FPM_USE_BUTTON		2
 +#define FPM_USE_OTHER		3
 +#define FPM_USE_CHARGER		4		// held: the reach repeats
++#define FPM_USE_SCAN		5		// a retinal scanner: the eye scan (fm_retina)
 +
 +#define FPM_VAULT_MANTLE	1
 +#define FPM_VAULT_HOP		2

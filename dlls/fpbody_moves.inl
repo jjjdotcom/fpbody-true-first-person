@@ -255,6 +255,50 @@ void CBasePlayer::FPMoves_Regen( void )
 	m_flFPRegenLastHealth = pev->health;
 }
 
+// Retinal scanners: an eye scanner model (EYE_SCANNER.mdl / eye_scanner_broken.mdl)
+// or something named for one ("retina", "scanner" but not a hand scanner) near
+// what we're looking at: pressing use there plays the eye scan (fm_retina), even
+// when the scanner itself can't be used (access denied, or only a prop).
+static bool FPMoves_HasWord( string_t s, const char *word )
+{
+	if ( !s )
+		return false;
+	char low[ 128 ];
+	const char *p = STRING( s );
+	int n = 0;
+	for ( ; p[ n ] && n < 127; n++ )
+		low[ n ] = ( p[ n ] >= 'A' && p[ n ] <= 'Z' ) ? p[ n ] + 32 : p[ n ];
+	low[ n ] = 0;
+	return strstr( low, word ) != NULL;
+}
+
+static bool FPMoves_IsScanner( CBaseEntity *pEnt )
+{
+	if ( FPMoves_HasWord( pEnt->pev->model, "eye_scanner" ) || FPMoves_HasWord( pEnt->pev->targetname, "retina" ) )
+		return true;
+	return FPMoves_HasWord( pEnt->pev->targetname, "scanner" ) && !FPMoves_HasWord( pEnt->pev->targetname, "hand" );
+}
+
+bool CBasePlayer::FPMoves_NearScanner( void )
+{
+	UTIL_MakeVectors( pev->v_angle );
+	Vector eye = pev->origin + pev->view_ofs;
+	TraceResult tr;
+	UTIL_TraceLine( eye, eye + gpGlobals->v_forward * 72.0f, ignore_monsters, ENT( pev ), &tr );
+	Vector at = tr.vecEndPos;
+	CBaseEntity *pEnt = NULL;
+	while ( ( pEnt = UTIL_FindEntityInSphere( pEnt, at, 64.0f ) ) != NULL )
+	{
+		if ( pEnt == this || !FPMoves_IsScanner( pEnt ) )
+			continue;
+		// in front of us (brush entities: their middle; point entities: where they are)
+		Vector to = ( pEnt->pev->solid == SOLID_BSP || pEnt->pev->movetype == MOVETYPE_PUSH ? pEnt->Center() : pEnt->pev->origin ) - eye;
+		if ( to.Length() < 120.0f && DotProduct( to.Normalize(), gpGlobals->v_forward ) > 0.5f )
+			return true;
+	}
+	return false;
+}
+
 void CBasePlayer::FPMoves_Think( void )
 {
 	// saved games made before the hold type was saved come back with none, so
@@ -276,6 +320,14 @@ void CBasePlayer::FPMoves_Think( void )
 		st |= FPM_ROPE;
 #endif
 	st |= ( m_LastHitGroup & 7 ) << FPM_HITGROUP_SHIFT;
+	// pressing use at a retinal scanner: the eye scan (once, it takes a few seconds)
+	if ( IsAlive() && ( m_afButtonPressed & IN_USE ) && gpGlobals->time >= m_flFPNextUse &&
+		 !( (int)pev->fuser4 & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) && FPMoves_NearScanner() )
+	{
+		m_iFPUseKind = FPM_USE_SCAN;
+		m_flFPUseUntil = gpGlobals->time + 0.3f;
+		m_flFPNextUse = gpGlobals->time + 4.0f;
+	}
 	if ( IsAlive() && gpGlobals->time < m_flFPUseUntil )
 		st |= ( m_iFPUseKind & 7 ) << FPM_USE_SHIFT;
 	if ( IsAlive() && gpGlobals->time < m_flFPPanicUntil )

@@ -45,6 +45,7 @@
 #define FPM_USE_BUTTON		2
 #define FPM_USE_OTHER		3
 #define FPM_USE_CHARGER		4		// held: the reach repeats
+#define FPM_USE_SCAN		5		// a retinal scanner: the eye scan (fm_retina)
 
 #define FPM_VAULT_MANTLE	1
 #define FPM_VAULT_HOP		2

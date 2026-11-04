@@ -1621,6 +1621,11 @@ static void EPA_Frame( struct ref_params_s *pparams, int st, bool onground, bool
 		g_mvActivity = g_now;
 	if ( use == FPM_USE_CHARGER )
 		g_useChargeUntil = g_now + 0.3f;			// charging: the hand stays on the charger
+	// a retinal scanner: lean in for the eye scan (Barney's "retina", as fm_retina)
+	if ( use == FPM_USE_SCAN && g_ctxLastUse != FPM_USE_SCAN && FPBody_Active() && g_playerHdr &&
+		 !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) ) && FindSeq( g_playerHdr, "fm_retina" ) >= 0 &&
+		 ( g_ovSeq < 0 || g_ovKind != OVK_MOVE ) )
+		StartOverlayKind( "fm_retina", OVK_MOVE, 0.0f );
 	g_ctxLastUse = use;
 
 	// --- picked something up: bend down and grab
@@ -1885,6 +1890,7 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	if ( oneShot && g_now - g_ovStart > 0.2f )
 	{
 		if ( ( OverlayIs( "fm_slide" ) && !( st & FPM_SLIDE ) && g_now - g_ovStart > 0.5f ) ||
+			 ( OverlayIs( "fm_retina" ) && ( g_speed2D > 60.0f || !onground ) ) ||		// walked off from the scanner
 			 ( ( OverlayIs( "fm_mantle" ) || OverlayIs( "fm_vault" ) || OverlayIs( "fm_pullup" ) ) && !( st & FPM_VAULT ) &&
 			   onground && g_speed2D > 60.0f ) )
 		{
