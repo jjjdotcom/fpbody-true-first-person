@@ -1026,7 +1026,7 @@ void CBasePlayer::Killed( entvars_t *pevAttacker, int iGib )
 static int FPBody_LookupAnim( CBaseAnimating *ent, const char *name )
 {
 	const char *set = sv_fpbody_anims.string;
-	if ( set && set[ 0 ] && strcmp( set, "cz" ) && strcmp( set, "0" ) )
+	if ( set && set[ 0 ] && strcmp( set, "cz" ) && strcmp( set, "0" ) && stricmp( set, "cs16" ) )	// cs16: drawn by the client
 	{
 		char alt[ 80 ];
 		snprintf( alt, sizeof( alt ), "%s_%s", set, name );

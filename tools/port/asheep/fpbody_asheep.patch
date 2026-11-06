@@ -150,7 +150,7 @@ index 98013eb..e7238e8 100644
    ${COMMON_DIR}/parsemsg.cpp
    ${DLLS_DIR}/crossbow.cpp
 diff --git a/cl_dll/StudioModelRenderer.cpp b/cl_dll/StudioModelRenderer.cpp
-index ada72c7..ee1024f 100644
+index ada72c7..23591db 100644
 --- a/cl_dll/StudioModelRenderer.cpp
 +++ b/cl_dll/StudioModelRenderer.cpp
 @@ -21,6 +21,59 @@
@@ -287,7 +287,7 @@ index ada72c7..ee1024f 100644
 +	entity_state_t fpState;
 +	FPOverlayRestore fpSeqRestore;
 +	FPSeqRemap fpRemap;
-+	if ( fpOutfit && m_pRenderModel != m_pCurrentEntity->model && m_pCurrentEntity->model && m_pCurrentEntity->model->type == mod_studio )
++	if ( fpOutfit && ( m_pRenderModel != m_pCurrentEntity->model || FPAnim_RemapSelf() ) && m_pCurrentEntity->model && m_pCurrentEntity->model->type == mod_studio )
 +	{
 +		const void *srvHdr = IEngineStudio.Mod_Extradata( m_pCurrentEntity->model );
 +		int seq = FPAnim_MapSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->curstate.sequence );
@@ -1981,10 +1981,10 @@ index 0000000..ad1af3c
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..883a0c8
+index 0000000..0504cef
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4425 @@
+@@ -0,0 +1,4447 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -2030,6 +2030,8 @@ index 0000000..883a0c8
 +//   (server) sv_fpbody_anims cz  classic mode weapon holds: cz = Condition Zero,
 +//                            cs = Counter-Strike 1.6 (falls back to Condition Zero).
 +//                            The 9mmAR (an M16) always uses Counter-Strike 1.6's rifle set.
++//                            cs16 = GMod mode too: the Counter-Strike 1.6 port's holds and
++//                            gaits (the cs16_ sequences)
 +//   cl_fpbody_holdlower 10   GMod mode: degrees two-handed guns are held lower than the sights
 +//                            until you fire (per gun: fp_hold <down> <right> <back>)
 +//   cl_fpbody_usepalm   1    pressing use: the left palm flat (down, or on a charger's panel)
@@ -6129,6 +6131,8 @@ index 0000000..883a0c8
 +	const char *set = gEngfuncs.pfnGetCvarString ? gEngfuncs.pfnGetCvarString( "sv_fpbody_anims" ) : NULL;
 +	if ( set && !strnicmp( set, "cs", 2 ) )
 +		pref |= 1;
++	if ( set && !stricmp( set, "cs16" ) )
++		pref |= 4;		// the Counter-Strike 1.6 port set (cs16_<name>) on the GMod-mode models
 +	static int cachedIndex = -1, cachedM16 = 0;
 +	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 +	int wm = local ? local->curstate.weaponmodel : 0;
@@ -6202,9 +6206,11 @@ index 0000000..883a0c8
 +int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq )
 +{
 +	const studiohdr_t *from = (const studiohdr_t *)fromHdr, *to = (const studiohdr_t *)toHdr;
-+	if ( !from || !to || from == to || seq < 0 || seq >= from->numseq )
++	if ( !from || !to || seq < 0 || seq >= from->numseq )
 +		return seq;
 +	int pref = CSPreference();
++	if ( from == to && !( pref & 4 ) )
++		return seq;
 +	static const studiohdr_t *cFrom, *cTo;
 +	static int cPref = -1;
 +	static short cache[ 2048 ];
@@ -6222,11 +6228,21 @@ index 0000000..883a0c8
 +	{
 +		const mstudioseqdesc_t *seqs = (const mstudioseqdesc_t *)( (const byte *)from + from->seqindex );
 +		const char *label = seqs[ seq ].label;
++		if ( !strnicmp( label, "cs16_", 5 ) )
++			label += 5;
 +		int m = -1;
 +		size_t n = strlen( label );
 +		bool hold = !strnicmp( label, "ref_", 4 ) || !strnicmp( label, "crouch_", 7 );
 +		bool rifle = n > 6 && !stricmp( label + n - 6, "_rifle" );
-+		if ( hold && ( ( pref & 1 ) || ( ( pref & 2 ) && rifle ) ) )
++		// sv_fpbody_anims cs16: the GMod-mode models' Counter-Strike 1.6 holds and
++		// gaits (cs16_<name>, tools/gmod_anims/add_cs16.py)
++		if ( pref & 4 )
++		{
++			char cs[ 48 ];
++			snprintf( cs, sizeof( cs ), "cs16_%s", label );
++			m = FindSeq( to, cs );
++		}
++		if ( m < 0 && hold && ( ( pref & 1 ) || ( ( pref & 2 ) && rifle ) ) )
 +		{
 +			char cs[ 48 ];
 +			snprintf( cs, sizeof( cs ), "cs_%s", label );
@@ -6237,6 +6253,12 @@ index 0000000..883a0c8
 +		cache[ seq ] = (short)( m >= 0 ? m : ( seq < to->numseq ? seq : 0 ) );
 +	}
 +	return cache[ seq ];
++}
++
++// sv_fpbody_anims cs16: remap even when the body is drawn with the server's own model
++int FPAnim_RemapSelf( void )
++{
++	return ( CSPreference() & 4 ) != 0;
 +}
 +
 +// set by the studio renderer while the local entity's sequence is already
@@ -6412,10 +6434,10 @@ index 0000000..883a0c8
 +}
 diff --git a/cl_dll/fpbody_anim.h b/cl_dll/fpbody_anim.h
 new file mode 100644
-index 0000000..1e4ba55
+index 0000000..8d5283b
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.h
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,68 @@
 +// fpbody_anim.h - procedural body animations for the "True First Person" mod.
 +//
 +// Half-Life's player.mdl has no reload / weapon-switch / use animations, so
@@ -6458,6 +6480,7 @@ index 0000000..1e4ba55
 +
 +// Sequence number in one studio model -> the sequence of the same name in another
 +int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq );
++int FPAnim_RemapSelf( void );
 +void FPAnim_SwimHold( const void *fromHdr, const void *toHdr, int srvSeq, int weaponmodel, int entindex, int *seq, int *gait );
 +void FPAnim_DebugSeq( const void *fromHdr, const void *toHdr, int seq, int gait, int mseq, int mgait );
 +void FPAnim_AdjustWeapon( void *studiohdr, float ( *bt )[ 3 ][ 4 ], float ( *lt )[ 3 ][ 4 ], struct model_s *weapon, int entindex );
@@ -7396,7 +7419,7 @@ index 41f0d8f..a181e09 100644
  
  	// govern the rate of charge
 diff --git a/dlls/player.cpp b/dlls/player.cpp
-index 7ac2e0c..1ed974d 100644
+index 7ac2e0c..a7bd14e 100644
 --- a/dlls/player.cpp
 +++ b/dlls/player.cpp
 @@ -105,6 +105,7 @@ TYPEDESCRIPTION	CBasePlayer::m_playerSaveData[] =
@@ -7439,7 +7462,7 @@ index 7ac2e0c..1ed974d 100644
 +static int FPBody_LookupAnim( CBaseAnimating *ent, const char *name )
 +{
 +	const char *set = sv_fpbody_anims.string;
-+	if ( set && set[ 0 ] && strcmp( set, "cz" ) && strcmp( set, "0" ) )
++	if ( set && set[ 0 ] && strcmp( set, "cz" ) && strcmp( set, "0" ) && stricmp( set, "cs16" ) )	// cs16: drawn by the client
 +	{
 +		char alt[ 80 ];
 +		snprintf( alt, sizeof( alt ), "%s_%s", set, name );

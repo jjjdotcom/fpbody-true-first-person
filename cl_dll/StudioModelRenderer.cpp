@@ -1791,7 +1791,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 	entity_state_t fpState;
 	FPOverlayRestore fpSeqRestore;
 	FPSeqRemap fpRemap;
-	if ( fpOutfit && m_pRenderModel != m_pCurrentEntity->model && m_pCurrentEntity->model && m_pCurrentEntity->model->type == mod_studio )
+	if ( fpOutfit && ( m_pRenderModel != m_pCurrentEntity->model || FPAnim_RemapSelf() ) && m_pCurrentEntity->model && m_pCurrentEntity->model->type == mod_studio )
 	{
 		const void *srvHdr = IEngineStudio.Mod_Extradata( m_pCurrentEntity->model );
 		int seq = FPAnim_MapSeq( srvHdr, m_pStudioHeader, m_pCurrentEntity->curstate.sequence );

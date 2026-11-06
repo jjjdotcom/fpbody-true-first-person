@@ -43,6 +43,8 @@
 //   (server) sv_fpbody_anims cz  classic mode weapon holds: cz = Condition Zero,
 //                            cs = Counter-Strike 1.6 (falls back to Condition Zero).
 //                            The 9mmAR (an M16) always uses Counter-Strike 1.6's rifle set.
+//                            cs16 = GMod mode too: the Counter-Strike 1.6 port's holds and
+//                            gaits (the cs16_ sequences)
 //   cl_fpbody_holdlower 10   GMod mode: degrees two-handed guns are held lower than the sights
 //                            until you fire (per gun: fp_hold <down> <right> <back>)
 //   cl_fpbody_usepalm   1    pressing use: the left palm flat (down, or on a charger's panel)
@@ -4142,6 +4144,8 @@ static int CSPreference( void )
 	const char *set = gEngfuncs.pfnGetCvarString ? gEngfuncs.pfnGetCvarString( "sv_fpbody_anims" ) : NULL;
 	if ( set && !strnicmp( set, "cs", 2 ) )
 		pref |= 1;
+	if ( set && !stricmp( set, "cs16" ) )
+		pref |= 4;		// the Counter-Strike 1.6 port set (cs16_<name>) on the GMod-mode models
 	static int cachedIndex = -1, cachedM16 = 0;
 	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 	int wm = local ? local->curstate.weaponmodel : 0;
@@ -4215,9 +4219,11 @@ void FPAnim_SwimHold( const void *fromHdr, const void *toHdr, int srvSeq, int we
 int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq )
 {
 	const studiohdr_t *from = (const studiohdr_t *)fromHdr, *to = (const studiohdr_t *)toHdr;
-	if ( !from || !to || from == to || seq < 0 || seq >= from->numseq )
+	if ( !from || !to || seq < 0 || seq >= from->numseq )
 		return seq;
 	int pref = CSPreference();
+	if ( from == to && !( pref & 4 ) )
+		return seq;
 	static const studiohdr_t *cFrom, *cTo;
 	static int cPref = -1;
 	static short cache[ 2048 ];
@@ -4235,11 +4241,21 @@ int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq )
 	{
 		const mstudioseqdesc_t *seqs = (const mstudioseqdesc_t *)( (const byte *)from + from->seqindex );
 		const char *label = seqs[ seq ].label;
+		if ( !strnicmp( label, "cs16_", 5 ) )
+			label += 5;
 		int m = -1;
 		size_t n = strlen( label );
 		bool hold = !strnicmp( label, "ref_", 4 ) || !strnicmp( label, "crouch_", 7 );
 		bool rifle = n > 6 && !stricmp( label + n - 6, "_rifle" );
-		if ( hold && ( ( pref & 1 ) || ( ( pref & 2 ) && rifle ) ) )
+		// sv_fpbody_anims cs16: the GMod-mode models' Counter-Strike 1.6 holds and
+		// gaits (cs16_<name>, tools/gmod_anims/add_cs16.py)
+		if ( pref & 4 )
+		{
+			char cs[ 48 ];
+			snprintf( cs, sizeof( cs ), "cs16_%s", label );
+			m = FindSeq( to, cs );
+		}
+		if ( m < 0 && hold && ( ( pref & 1 ) || ( ( pref & 2 ) && rifle ) ) )
 		{
 			char cs[ 48 ];
 			snprintf( cs, sizeof( cs ), "cs_%s", label );
@@ -4250,6 +4266,12 @@ int FPAnim_MapSeq( const void *fromHdr, const void *toHdr, int seq )
 		cache[ seq ] = (short)( m >= 0 ? m : ( seq < to->numseq ? seq : 0 ) );
 	}
 	return cache[ seq ];
+}
+
+// sv_fpbody_anims cs16: remap even when the body is drawn with the server's own model
+int FPAnim_RemapSelf( void )
+{
+	return ( CSPreference() & 4 ) != 0;
 }
 
 // set by the studio renderer while the local entity's sequence is already

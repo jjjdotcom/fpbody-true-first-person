@@ -227,6 +227,14 @@ class Pose:
                     g.poseparams[ls['paramindex'][0]]['name'].startswith('aim'):
                 pose = apply_delta(pose, self.aim_delta(ls, pitch, c), post=post)
                 continue
+            if (gx, gy) != (1, 1) and not a['flags'] & ANIM_DELTA and ls['paramindex'][0] >= 0 and \
+                    g.poseparams[ls['paramindex'][0]]['name'].startswith('aim'):
+                # an absolute aim grid (the Counter-Strike 1.6 pack): whole
+                # poses for up / mid / down, blended by pitch
+                lp = self.aim_delta(ls, pitch, c)
+                w = ls['weights']
+                pose = self.weighted_world(pose, lp, w) if ls['flags'] & SEQ_WORLD else self.weighted_local(pose, lp, w)
+                continue
             if (gx, gy) != (1, 1):
                 a = self.grid_anim(ls, cell)
             lp = self.anim_frame(a, c, bool(ls['flags'] & 1) or loop)
