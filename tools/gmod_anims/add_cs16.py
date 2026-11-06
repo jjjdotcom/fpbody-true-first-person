@@ -32,6 +32,7 @@ from add_cz import existing_sequences, textures_last, clone  # noqa: E402
 from add_freeman import PackRetargeter                       # noqa: E402
 from add_l4d import Pose, movement_distance, IDLE_STEP, SEQ_POST, ANIM_DELTA   # noqa: E402
 from retarget import apply_delta                             # noqa: E402
+from compact import compact                                  # noqa: E402
 
 PREFIX = 'cs16_'
 # fpbody weapon extension -> (CS 1.6 hold, attack gesture); gmod:<hold> =
@@ -153,6 +154,7 @@ def main(pack, freeman, in_path, out_path):
     seqs, n = cs16(M, ref, pack)
     M.write(out_path, seqs)
     textures_last(out_path)
+    compact(out_path, out_path)     # drop the replaced data (the engine keeps it in memory)
     print('wrote', out_path, 'added', n, 'sequences, total', len(seqs))
 
 
