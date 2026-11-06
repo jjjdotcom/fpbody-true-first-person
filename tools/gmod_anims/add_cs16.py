@@ -12,7 +12,8 @@ add_freeman.py) and ADDED next to the model's own animations as
   cs16_ref_aim_ / cs16_ref_shoot_ / cs16_crouch_aim_ / cs16_crouch_shoot_<ext>
                                     every weapon hold (aim pitch blends)
   cs16_walk, cs16_walk2handed, cs16_run, cs16_run2, cs16_crawl,
-  cs16_crouch_idle, cs16_deep_idle  the gaits
+  cs16_crouch_idle                  the gaits (standing still keeps the
+                                    model's own idle: the COD IW idle)
 
 The client draws cs16_<name> in place of <name> when sv_fpbody_anims is
 "cs16" (cl_dll/fpbody_anim.cpp, FPAnim_MapSeq); otherwise nothing changes.
@@ -64,7 +65,6 @@ GAITS = {
     'run2':        ('run_all_01', (1, 0)),
     'crawl':       ('cwalk_all', (1, 0)),
     'crouch_idle': ('cidle_all', None),
-    'deep_idle':   ('idle_all_01', None),
 }
 
 
