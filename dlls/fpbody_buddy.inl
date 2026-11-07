@@ -292,10 +292,10 @@ void CFPBuddy::Check( CBaseEntity *pPlayer )
 		m_flStuckTime = gpGlobals->time;
 		m_flStuckDist = dist;
 	}
-	bool far = dist > 800;
-	bool lost = m_flLostTime && gpGlobals->time - m_flLostTime > 3 && dist > 160;
-	bool stuck = gpGlobals->time - m_flStuckTime > 5;
-	if ( ( far || lost || stuck ) && gpGlobals->time >= m_flNextTeleport )
+	bool tooFar = dist > 800;
+	bool outOfSight = m_flLostTime && gpGlobals->time - m_flLostTime > 3 && dist > 160;
+	bool noProgress = gpGlobals->time - m_flStuckTime > 5;
+	if ( ( tooFar || outOfSight || noProgress ) && gpGlobals->time >= m_flNextTeleport )
 	{
 		if ( !Teleport( pPlayer ) )
 			m_flNextTeleport = gpGlobals->time + 0.5;

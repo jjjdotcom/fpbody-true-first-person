@@ -6994,7 +6994,7 @@ index 38b0581..da7cf84 100644
  void CCrossbow::Holster( int skiplocal /* = 0 */ )
 diff --git a/dlls/fpbody_buddy.inl b/dlls/fpbody_buddy.inl
 new file mode 100644
-index 0000000..7ba3cfa
+index 0000000..d4d2951
 --- /dev/null
 +++ b/dlls/fpbody_buddy.inl
 @@ -0,0 +1,346 @@
@@ -7292,10 +7292,10 @@ index 0000000..7ba3cfa
 +		m_flStuckTime = gpGlobals->time;
 +		m_flStuckDist = dist;
 +	}
-+	bool far = dist > 800;
-+	bool lost = m_flLostTime && gpGlobals->time - m_flLostTime > 3 && dist > 160;
-+	bool stuck = gpGlobals->time - m_flStuckTime > 5;
-+	if ( ( far || lost || stuck ) && gpGlobals->time >= m_flNextTeleport )
++	bool tooFar = dist > 800;
++	bool outOfSight = m_flLostTime && gpGlobals->time - m_flLostTime > 3 && dist > 160;
++	bool noProgress = gpGlobals->time - m_flStuckTime > 5;
++	if ( ( tooFar || outOfSight || noProgress ) && gpGlobals->time >= m_flNextTeleport )
 +	{
 +		if ( !Teleport( pPlayer ) )
 +			m_flNextTeleport = gpGlobals->time + 0.5;
