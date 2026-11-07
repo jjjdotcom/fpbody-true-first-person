@@ -5,7 +5,9 @@ an HEV security guard NPC model with Half-Life's soldier MP5 added.
         [--hue degrees]
 
 <barney_hev.mdl>: a Barney model on 3ds Max Biped bones (Thigh/Calf/
-UpperArm/Forearm names), e.g. Echoes' HEV Barney. <hgrunt.mdl>: Half-Life's
+UpperArm/Forearm names), e.g. Echoes' HEV Barney, or on Half-Life's own
+(Leg/Arm names, as the soldier), e.g. Azure Sheep's hev_barney.mdl; textures
+in a T file and sequence groups are folded into the one output file. <hgrunt.mdl>: Half-Life's
 soldier (hgruntT.mdl / hgrunt01.mdl next to it). Added:
   - sequences mp5_idle / mp5_walk / mp5_run / mp5_shoot from the soldier's
     combatidle / walk1 / run / standing_mp5, retargeted by each bone's turn in
@@ -16,7 +18,9 @@ soldier (hgruntT.mdl / hgrunt01.mdl next to it). Added:
   - the soldier's MP5 (weapons submodel 0, with its texture) as submodel 3 of
     Barney's gun bodypart, put on Barney's right hand so that it follows the
     hand exactly as on the soldier.
---hue turns the HEV textures' palettes (barney_HEV_*) by that many degrees.
+--hue turns the HEV textures' palettes (names starting --suit, default
+barney_HEV) by that many degrees (with --near: only colours within 50 degrees
+of that hue, e.g. a blue suit and not its yellow logo).
 The result contains both models' data: keep it local.
 """
 import argparse
@@ -45,9 +49,21 @@ SEQS = (('mp5_idle', 'combatidle'), ('mp5_walk', 'walk1'), ('mp5_run', 'run'), (
 GUN_PART, GUN_SUB = 2, 0      # the soldier's "weapons" bodypart, "gunreference"
 
 
-def leg(G, thigh, calf, foot):
+def leg(G):
     r = G.rest_local()
-    return np.linalg.norm(r[G.bone_by_name[calf], :3]) + np.linalg.norm(r[G.bone_by_name[foot], :3])
+    calf = 'Bip01 L Calf' if 'Bip01 L Calf' in G.bone_by_name else 'Bip01 L Leg1'
+    return np.linalg.norm(r[G.bone_by_name[calf], :3]) + np.linalg.norm(r[G.bone_by_name['Bip01 L Foot'], :3])
+
+
+def bone_map(B, S):
+    """Barney bone index -> soldier bone index"""
+    out = {}
+    for i, b in enumerate(B.bones):
+        n = b['name']
+        t = MAP.get(n, n if n.startswith('Bip01') else None)
+        if t in S.bone_by_name:
+            out[i] = S.bone_by_name[t]
+    return out
 
 
 def rot(e):
@@ -58,7 +74,7 @@ def retarget(S, B, src_label, ref_s, ref_b, grip, k):
     """the soldier's sequence on Barney's bones: [blends][frames, bones, 6]"""
     Rs0, Ts0 = S.world(ref_s)
     Rb0, _ = B.world(ref_b)
-    smap = {B.bone_by_name[b]: S.bone_by_name[s] for b, s in MAP.items()}
+    smap = bone_map(B, S)
     out = []
     for blend in S.decode(S.seq_by_name[src_label]):
         f = np.repeat(grip[None], len(blend), axis=0)
@@ -109,7 +125,7 @@ def textures(d):
     return out
 
 
-def add_gun(path, S, ST, B, ref_s, ref_b, k):
+def add_gun(path, path_t, S, ST, B, ref_s, ref_b, k):
     """append the soldier's MP5 as a new submodel of Barney's gun bodypart"""
     d = bytearray(open(path, 'rb').read())
     sd, td = bytes(S.d), bytes(ST.d)
@@ -129,12 +145,18 @@ def add_gun(path, S, ST, B, ref_s, ref_b, k):
     for nrm, b in zip(gun['n'], gun['nb']):
         N.append(Rb0[bh].T @ (Rs0[sh] @ (Rr[sh].T @ (Rr[b] @ nrm))))
     # textures: Barney's + the gun's (from hgruntT's skin table)
-    btex = textures(bytes(d))
+    src = bytes(d)
+    if not struct.unpack_from('<i', src, 180)[0]:       # textures in a T file
+        import os
+        if not os.path.exists(path_t):
+            path_t = path_t[:-5] + 't.mdl'
+        src = open(path_t, 'rb').read()
+    btex = textures(src)
     stex = textures(td)
     nsr, nsf, si = struct.unpack_from('<3i', td, 192)
     sskins = struct.unpack_from('<%dh' % nsr, td, si)
-    bnsr, bnsf, bsi = struct.unpack_from('<3i', d, 192)
-    bskins = list(struct.unpack_from('<%dh' % (bnsr * bnsf), d, bsi))
+    bnsr, bnsf, bsi = struct.unpack_from('<3i', src, 192)
+    bskins = list(struct.unpack_from('<%dh' % (bnsr * bnsf), src, bsi))
     newref = {}
     for m in gun['meshes']:
         if m[2] not in newref:
@@ -182,17 +204,17 @@ def add_gun(path, S, ST, B, ref_s, ref_b, k):
     return gp, nm
 
 
-def tint(path, hue):
+def tint(path, hue, prefix, near=None):
     d = bytearray(open(path, 'rb').read())
     for t in textures(bytes(d)):
         name = bytes(t['hdr'][:64]).split(b'\0')[0].decode('latin-1').lower()
-        if not name.startswith('barney_hev'):
+        if not any(name.startswith(p.lower()) for p in prefix.split(',')):
             continue
         idx = struct.unpack_from('<i', t['hdr'], 76)[0] + t['w'] * t['h']
         for k in range(256):
             r, g, b = (x / 255 for x in d[idx + k * 3:idx + k * 3 + 3])
             h, s, v = colorsys.rgb_to_hsv(r, g, b)
-            if s > 0.25:          # leave the greys / blacks / chrome
+            if s > 0.25 and (near is None or abs((h * 360 - near + 180) % 360 - 180) < 50):   # not greys / chrome / other colours
                 r, g, b = colorsys.hsv_to_rgb((h + hue / 360.0) % 1.0, s, v)
                 d[idx + k * 3:idx + k * 3 + 3] = bytes(int(round(x * 255)) for x in (r, g, b))
     open(path, 'wb').write(d)
@@ -203,6 +225,8 @@ def main():
     ap.add_argument('barney'); ap.add_argument('hgrunt'); ap.add_argument('out')
     ap.add_argument('--ref', default='rest', choices=('rest', 'idle'))
     ap.add_argument('--hue', type=float, default=0.0)
+    ap.add_argument('--suit', default='barney_HEV')
+    ap.add_argument('--near', type=float, default=None, help='only colours within 50 degrees of this hue')
     a = ap.parse_args()
     B, S = GoldSrcModel(a.barney), GoldSrcModel(a.hgrunt)
     ST = GoldSrcModel(a.hgrunt[:-4] + 'T.mdl')
@@ -210,7 +234,7 @@ def main():
         ref_s, ref_b = S.rest_local(), B.rest_local()
     else:
         ref_s, ref_b = S.decode(S.seq_by_name['idle1'])[0][0], B.decode(B.seq_by_name['idle1'])[0][0]
-    k = leg(B, 'Bip01 L Thigh', 'Bip01 L Calf', 'Bip01 L Foot') / leg(S, 'Bip01 L Leg', 'Bip01 L Leg1', 'Bip01 L Foot')
+    k = leg(B) / leg(S)
     grip = B.decode(B.seq_by_name['shootgun'])[0][0].copy()
     seqs = existing_sequences(B)
     by = {s['label']: s for s in seqs}
@@ -226,11 +250,16 @@ def main():
         seqs = [x for x in seqs if x['label'] != new] + [s]
     tmp = a.out + '.tmp'
     B.write(tmp, seqs)
-    gp, nm = add_gun(tmp, S, ST, B, ref_s, ref_b, k)
+    gp, nm = add_gun(tmp, a.barney[:-4] + 'T.mdl', S, ST, B, ref_s, ref_b, k)
     if a.hue:
-        tint(tmp, a.hue)
+        tint(tmp, a.hue, a.suit, a.near)
     textures_last(tmp)
     compact(tmp, a.out)
+    d = bytearray(open(a.out, 'rb').read())     # every sequence is in this file now
+    o = 4 + 4 + 64 + 4 + 12 * 5 + 4 + 32
+    if struct.unpack_from('<i', d, o)[0] > 1:
+        struct.pack_into('<i', d, o, 1)
+        open(a.out, 'wb').write(d)
     import os
     os.remove(tmp)
     print('wrote', a.out, 'leg scale %.3f' % k, 'MP5 = bodypart %d submodel %d' % (gp, nm))
