@@ -2727,9 +2727,12 @@ void CBasePlayer :: UpdatePlayerSound ( void )
 }
 
 
+void FPBuddy_PlayerThink( CBasePlayer *pPlayer );	// fpbody: the HEV companion (barney.cpp)
+
 void CBasePlayer::PostThink()
 {
 	FPMoves_Think();	// fpbody: kick, redeploy after holster-all
+	FPBuddy_PlayerThink( this );	// fpbody: the HEV companion
 	if ( g_fGameOver )
 		goto pt_end;         // intermission or finale
 

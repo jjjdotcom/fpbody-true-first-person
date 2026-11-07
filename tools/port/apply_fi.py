@@ -548,3 +548,7 @@ rep('dlls/satchel.cpp', [
 ])
 if FAILS:
     sys.exit("\n".join(FAILS))
+
+# the HEV companion
+import subprocess
+subprocess.check_call([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fpbody_buddy.py'), SDK, 'fi'])

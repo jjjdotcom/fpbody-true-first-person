@@ -815,8 +815,11 @@ void StartFrame( void )
 }
 
 
+void FPBuddy_Precache( void );	// fpbody: the HEV companion (barney.cpp)
+
 void ClientPrecache( void )
 {
+	FPBuddy_Precache();	// fpbody: the HEV companion
 	// setup precaches always needed
 	PRECACHE_SOUND("player/sprayer.wav");			// spray paint sound for PreAlpha
 	

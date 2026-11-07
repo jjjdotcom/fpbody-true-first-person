@@ -41,6 +41,7 @@ cvar_t	allowmonsters={"mp_allowmonsters","0", FCVAR_SERVER };
 
 cvar_t sv_buddha = { "sv_buddha", "1", FCVAR_ARCHIVE };	// fpbody: buddha mode (on by default; "buddha" toggles)
 cvar_t sv_fpbody_anims = { "sv_fpbody_anims", "cz", FCVAR_ARCHIVE };	// fpbody: cz / cs player weapon animations
+cvar_t sv_fpbody_buddy = { "sv_fpbody_buddy", "0", FCVAR_ARCHIVE };	// fpbody: 1 = the HEV companion
 cvar_t sv_fpbody_regen = { "sv_fpbody_regen", "1", FCVAR_ARCHIVE };			// fpbody: health comes back by itself
 cvar_t sv_fpbody_regen_delay = { "sv_fpbody_regen_delay", "5", FCVAR_ARCHIVE };	// seconds without getting hurt first
 cvar_t sv_fpbody_regen_rate = { "sv_fpbody_regen_rate", "5", FCVAR_ARCHIVE };		// health per second
@@ -476,6 +477,7 @@ void GameDLLInit( void )
 	CVAR_REGISTER( &allow_spectators );
 	CVAR_REGISTER( &sv_buddha );
 	CVAR_REGISTER( &sv_fpbody_anims );
+	CVAR_REGISTER( &sv_fpbody_buddy );
 	CVAR_REGISTER( &sv_fpbody_regen );
 	CVAR_REGISTER( &sv_fpbody_regen_delay );
 	CVAR_REGISTER( &sv_fpbody_regen_rate );

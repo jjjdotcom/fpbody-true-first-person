@@ -516,3 +516,7 @@ rep('dlls/triggers.cpp', [('''		pev->effects |= EF_NODRAW;
 		pev->rendermode = kRenderTransTexture;
 		pev->renderamt = 0;
 	}''')])
+
+# the HEV companion
+import subprocess
+subprocess.check_call([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fpbody_buddy.py'), SDK, 'classic'])

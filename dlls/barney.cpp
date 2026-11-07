@@ -838,4 +838,4 @@ void CDeadBarney :: Spawn( )
 	MonsterInitDead();
 }
 
-
+#include "fpbody_buddy.inl"	// fpbody: the HEV companion (sv_fpbody_buddy)
