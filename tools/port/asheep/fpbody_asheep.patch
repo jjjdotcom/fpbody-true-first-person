@@ -1981,10 +1981,10 @@ index 0000000..ad1af3c
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..0504cef
+index 0000000..a341f53
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4447 @@
+@@ -0,0 +1,4481 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -2023,6 +2023,8 @@ index 0000000..0504cef
 +//                            tilted down in our own view (0 = as in Condition Zero)
 +//   cl_fpbody_glreload  1    reload the 9mmAR grenade launcher after every shot (body animation)
 +//   cl_fpbody_pickup    1    bend down and grab anything you pick up (ammo, weapons, health, batteries, items)
++//   cl_fpbody_freemanreload 1  GMod mode: the Freeman mod's (Garry's Mod's) reloads for every gun
++//                            that has one, before the Left 4 Dead / Counter-Strike: Source ones
 +//   cl_fpbody_l4dreload 1    Left 4 Dead reloads for pistols, rifles and the shotgun (GMod mode)
 +//   cl_fpbody_reloads   cz   classic mode third-person reloads: cz = Condition Zero first,
 +//                            cs = Counter-Strike 1.6 first, sven = Sven Co-op first
@@ -2134,6 +2136,7 @@ index 0000000..0504cef
 +static cvar_t *cl_fpbody_reloads;
 +static cvar_t *cl_fpbody_glreload;
 +static cvar_t *cl_fpbody_l4dreload;
++static cvar_t *cl_fpbody_freemanreload;
 +static cvar_t *cl_fpbody_pickup;
 +static bool g_pickupPending;			// the HUD got a pickup message
 +static float g_pickupUntil;			// the pickup reach is playing
@@ -2494,6 +2497,7 @@ index 0000000..0504cef
 +	cl_fpbody_pump = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pump", "4", FCVAR_ARCHIVE );
 +	cl_fpbody_reloadset = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloadset", "css", FCVAR_ARCHIVE );
 +	cl_fpbody_l4dreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_l4dreload", "1", FCVAR_ARCHIVE );
++	cl_fpbody_freemanreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_freemanreload", "1", FCVAR_ARCHIVE );
 +	cl_fpbody_pickup    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pickup", "1", FCVAR_ARCHIVE );
 +	cl_fpbody_gunlower  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gunlower", "20", FCVAR_ARCHIVE );
 +	cl_fpbody_grip_fwd  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_fwd", "0", FCVAR_ARCHIVE );
@@ -2773,6 +2777,36 @@ index 0000000..0504cef
 +			draw = "fm_draw_rifle";
 +		if ( draw && StartOverlayKind( draw, OVK_EASE, Clamp( seqDur, 0.5f, 1.0f ) ) )
 +		{
++			StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
++			return;
++		}
++	}
++
++	// The Freeman mod's reloads (Garry's Mod's reload gestures) first: every gun
++	// with a close match; the shotgun inserts each shell with Garry's Mod's
++	// shotgun reload. cl_fpbody_freemanreload 0 = Left 4 Dead / CS:S first.
++	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL ) && g_bGmodModel && g_playerHdr &&
++		 cl_fpbody_gmod->value != 0.0f && cl_fpbody_freemanreload->value != 0.0f && !MoveBusy() )
++	{
++		const char *gm = NULL;
++		if ( Has( modelName, "v_shotgun" ) )
++			gm = ( type == CLIP_SHELL_START || type == CLIP_SHELL ) ? "gm_reload_shotgun" : NULL;
++		else if ( type == CLIP_RELOAD )
++		{
++			if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_desert_eagle" ) )
++				gm = "gm_reload_pistol";
++			else if ( Has( modelName, "v_357" ) )
++				gm = "gm_reload_revolver";
++			else if ( Has( modelName, "v_9mmar" ) )
++				gm = "gm_reload_smg1";
++			else if ( Has( modelName, "v_crossbow" ) || Has( modelName, "v_m40a1" ) || Has( modelName, "v_saw" ) )
++				gm = "gm_reload_ar2";
++			else if ( Has( modelName, "v_rpg" ) || Has( modelName, "v_spore_launcher" ) )
++				gm = "gm_reload_smg1_alt";
++		}
++		if ( gm && FindSeq( g_playerHdr, gm ) >= 0 && StartOverlay( gm, false, seqDur ) )
++		{
++			g_ovLoop = false;
 +			StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
 +			return;
 +		}
