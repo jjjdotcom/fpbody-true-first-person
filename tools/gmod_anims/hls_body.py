@@ -176,6 +176,21 @@ def tint(im, hue, sat=1.0):
     return out
 
 
+def player_color(im, rgb):
+    """Garry's Mod's player colour on a $blendtintbybasealpha texture: the
+    base times the colour where the alpha says so (the suit), as it is in game."""
+    from PIL import Image
+    a = np.asarray(im.convert('RGBA'), float)
+    m = a[..., 3:4] / 255
+    c = np.array(rgb, float) / 255
+    a[..., :3] = np.clip(a[..., :3] * (1 - m + m * c), 0, 255)
+    a[..., 3] = 255
+    return Image.fromarray(a.astype(np.uint8), 'RGBA')
+
+
+PLAYER_COLOR = None     # --player-color
+
+
 def convert_textures(S, hue=None, sat=1.0, skip=()):
     from PIL import Image
     out = []
@@ -184,6 +199,8 @@ def convert_textures(S, hue=None, sat=1.0, skip=()):
             out.append((name, 0, 8, 8, bytes(64), bytes(768)))      # not used by any triangle
             continue
         im, keys = S.load_texture(k)
+        if im is not None and PLAYER_COLOR and keys.get('$blendtintbybasealpha', '0').strip() == '1':
+            im = player_color(im, PLAYER_COLOR)
         if im is not None and hue is not None:
             im = tint(im, hue, sat)
         flags = 0
@@ -408,6 +425,8 @@ def main():
     ap.add_argument('--hands-body', default='')
     ap.add_argument('--tint', type=float, default=None)
     ap.add_argument('--sat', type=float, default=1.0)
+    ap.add_argument('--player-color', default='',
+                    help="R,G,B (0-255): Garry's Mod's player colour on the textures tinted by it")
     ap.add_argument('--own-skeleton', action='store_true',
                     help="the source model's own proportions instead of the Garry's Mod player's")
     a = ap.parse_args()
@@ -418,6 +437,9 @@ def main():
             k, v = kv.split('=')
             out[k.lower()] = int(v)
         return out
+    global PLAYER_COLOR
+    if a.player_color:
+        PLAYER_COLOR = [float(x) for x in a.player_color.split(',')]
     choose = parse(a.body)
     P = GoldSrcModel(a.base)
     ref = SourceModel(a.ref, a.ref[:-4].replace('_gmod', '') + '.ani')
