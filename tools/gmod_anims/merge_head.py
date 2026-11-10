@@ -5,7 +5,9 @@
 [head submodel] picks the head model's submodel (default 0; Half-Life's
 multiplayer models keep the full-detail mesh in 1). [corners] (default 2) is
 how many corners on the head make a triangle the head's: 1 also swaps the
-neck (strips joining the head to the collar), for a helmet.
+neck (strips joining the head to the collar), for a helmet. [part] "hands"
+swaps the hands (both hand bones and the fingers) instead of the head: the
+PS2 hands of the fpbody suits onto another outfit.
 
 The body's triangles on the head (two or more corners skinned to "Bip01 Head"
 or a bone under it) are dropped and the head model's are added, with their
@@ -74,8 +76,11 @@ def tris(path, sub=0):
     return [b['name'] for b in G.bones], [b['parent'] for b in G.bones], textures(d), out
 
 
+PART = ('Bip01 Head',)
+
+
 def head_set(names, parents):
-    h = {names.index('Bip01 Head')}
+    h = {names.index(n) for n in PART if n in names}
     for i, p in enumerate(parents):
         if p in h:
             h.add(i)
@@ -87,7 +92,9 @@ class _Tex:
         self.textures = t
 
 
-def main(body_path, head_path, out_path, sub='0', corners='2'):
+def main(body_path, head_path, out_path, sub='0', corners='2', part='head'):
+    global PART
+    PART = ('Bip01 L Hand', 'Bip01 R Hand') if part == 'hands' else ('Bip01 Head',)
     sub, corners = int(sub), int(corners)
     bn, bp, btex, btris = tris(body_path)
     hn, hp, htex, htris = tris(head_path, sub)
@@ -106,4 +113,4 @@ def main(body_path, head_path, out_path, sub='0', corners='2'):
 
 
 if __name__ == '__main__':
-    main(*sys.argv[1:6])
+    main(*sys.argv[1:7])

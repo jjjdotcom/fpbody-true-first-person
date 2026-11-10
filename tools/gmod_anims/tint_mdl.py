@@ -1,6 +1,6 @@
 """Recolour the orange of an HEV suit in a GoldSrc model's textures.
 
-  python3 -I tint_mdl.py <in.mdl> <out.mdl> <hue> [sat]
+  python3 -I tint_mdl.py <in.mdl> <out.mdl> <hue> [sat] [--only name,name]
 
 Works on a model with its own textures or on a texture file (<name>T.mdl).
 Only the palettes change (8-bit textures): entries that are orange (hue 8-50,
@@ -28,11 +28,14 @@ def tint_palette(pal, hue, sat):
     return bytes(out)
 
 
-def main(src, dst, hue, sat=1.0):
+def main(src, dst, hue, sat=1.0, only=None):
+    """only: texture names to recolour (default all), e.g. the PS2 hands ("leg") on Decay's Gina"""
     d = bytearray(open(src, 'rb').read())
     ntex, ti = struct.unpack_from('<2i', d, 180)
     for t in range(ntex):
         o = ti + t * 80
+        if only and d[o:o + 64].split(b'\0')[0].decode('latin-1') not in only:
+            continue
         w, h, idx = struct.unpack_from('<3i', d, o + 68)
         p = idx + w * h
         d[p:p + 768] = tint_palette(bytes(d[p:p + 768]), float(hue), float(sat))
@@ -41,4 +44,8 @@ def main(src, dst, hue, sat=1.0):
 
 
 if __name__ == '__main__':
-    print(main(*sys.argv[1:5]), 'textures tinted')
+    a = sys.argv[1:]
+    only = None
+    if '--only' in a:
+        k = a.index('--only'); only = a[k + 1].split(','); del a[k:k + 2]
+    print(main(*a[:4], only=only), 'textures tinted')
