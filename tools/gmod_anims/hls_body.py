@@ -55,7 +55,7 @@ def own_proportions(rt, P, ref, S):
     player's (--own-skeleton): a model built smaller or slimmer (a woman) keeps
     its neck, arms and hands together. Joints the model lacks (toes, some
     fingers) keep the reference's offset from their parent, scaled to the
-    model's height; the direction corrections and height scale follow."""
+    model's height; the height scale follows."""
     _, Tsrc = S.bind_world()
     old = rt.Ts0.copy()
     pel, foot = retarget.VB + 'Pelvis', retarget.VB + 'L_Foot'
@@ -68,20 +68,21 @@ def own_proportions(rt, P, ref, S):
             rt.Ts0[i] = Tsrc[j]
         elif b['parent'] >= 0:
             rt.Ts0[i] = rt.Ts0[b['parent']] + (old[i] - old[b['parent']]) * k
-    for tn, sn in retarget.MAP:
+    # the limbs turn to the model's own bind pose (arms down, legs apart...):
+    # their joints are far apart, so their directions are the model's; the
+    # torso and head keep the turns the animations were made with (rt.C,
+    # against the Garry's Mod player) - their joints are close together and
+    # their directions say little (a pelvis-to-spine step that leans back
+    # 30 degrees would tilt the hips and stretch the waist)
+    limbs = [n for n in retarget.DIR_CHILD if n.split()[-1].rstrip('0123456789') in ('Arm', 'Hand', 'Leg', 'Foot')
+             or n.split()[-1] in ('Arm1', 'Arm2', 'Leg1')]
+    for tn in limbs:
         ti = P.bone_by_name[tn]
-        ch = retarget.DIR_CHILD.get(tn)
-        if ch is None:
-            continue
-        ci = P.bone_by_name[ch]
+        ci = P.bone_by_name[retarget.DIR_CHILD[tn]]
         dv = rt.Ts0[rt.src_of[ci]] - rt.Ts0[rt.src_of[ti]]
-        # a joint on top of its child (Extended Workforce: Spine4 on Spine2)
-        # has no direction: aim at the next joint along instead
-        while np.linalg.norm(dv) < 0.5 and retarget.DIR_CHILD.get(P.bones[ci]['name']):
-            ci = P.bone_by_name[retarget.DIR_CHILD[P.bones[ci]['name']]]
-            dv = rt.Ts0[rt.src_of[ci]] - rt.Ts0[rt.src_of[ti]]
-        rt.C[ti] = retarget.rot_between(rt.Tt0[ci] - rt.Tt0[ti], dv)
-    for tn, sn in retarget.MAP:
+        if np.linalg.norm(dv) > 0.5:
+            rt.C[ti] = retarget.rot_between(rt.Tt0[ci] - rt.Tt0[ti], dv)
+    for tn, sn in retarget.MAP:                  # fingers and toes follow
         ti = P.bone_by_name[tn]
         if retarget.DIR_CHILD.get(tn) is None:
             rt.C[ti] = rt.C.get(P.bones[ti]['parent'], np.eye(3))
