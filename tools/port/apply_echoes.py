@@ -520,3 +520,4 @@ rep('dlls/triggers.cpp', [('''		pev->effects |= EF_NODRAW;
 # the HEV companion
 import subprocess
 subprocess.check_call([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fpbody_buddy.py'), SDK, 'classic'])
+subprocess.check_call([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fpbody_react.py'), SDK, 'classic'])

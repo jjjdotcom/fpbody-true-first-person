@@ -1981,10 +1981,10 @@ index 0000000..ad1af3c
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..c8a764b
+index 0000000..c3ad202
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4513 @@
+@@ -0,0 +1,4518 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -3887,8 +3887,13 @@ index 0000000..c8a764b
 +		oneShot = g_ovSeq >= 0 && g_ovKind == OVK_MOVE;
 +	}
 +
++	// knocked down by a big enemy (dlls/fpbody_react.inl): on the back, a
++	// moment down, back up; a model without fm_knockdown is thrown back instead
++	if ( ( started & FPM_KNOCK ) && !StartOverlayKind( "fm_knockdown", OVK_MOVE, FPM_KNOCK_DUR ) )
++		StartOverlayKind( "fm_blast", OVK_EASE, 1.4f );
++
 +	// one-off moves, in order of importance
-+	if ( job )
++	if ( job || ( st & FPM_KNOCK ) )
 +		;
 +	else if ( started & FPM_VAULT )
 +	{
@@ -7798,17 +7803,159 @@ index 0000000..950eb20
 +			FPMoves_Redeploy();								// fire takes the gun out again
 +	}
 +}
+diff --git a/dlls/fpbody_react.inl b/dlls/fpbody_react.inl
+new file mode 100644
+index 0000000..8b92c68
+--- /dev/null
++++ b/dlls/fpbody_react.inl
+@@ -0,0 +1,135 @@
++/***
++*
++*	fpbody_react.inl - hit reactions by who hit us (sv_fpbody_knockdown 1).
++*	Included at the end of player.cpp, after fpbody_moves.inl.
++*
++*	Big enemies (every zombie, bullsquids, gargantuas, alien grunts,
++*	tentacles ... and anything with a big hull) knock the player flat when
++*	they hit him: he falls on his back, lies there a moment and gets back up
++*	(fm_knockdown, played by the client while FPM_KNOCK is set in the move
++*	state). He can't move or fire meanwhile, the gun is put away and comes
++*	back out when he's up. Not in water, on a ladder, in the air or on a
++*	train (then the small reaction instead), and at most once every few
++*	seconds.
++*
++*	Small enemies (headcrabs, snarks, penguins, houndeyes, leeches, rats,
++*	shock roaches ... and bullsquid spit) make him react as to an explosion
++*	(fm_blast: the Damage message carries DMG_BLAST).
++*
++*	Hooks: CBasePlayer::TakeDamage calls FPReact_OnDamage first thing;
++*	PreThink calls FPReact_Think after FPMoves_Think; game.cpp registers
++*	sv_fpbody_knockdown (default 1); FPM_KNOCK is in pm_shared/fpbody_pm.h.
++*
++****/
++
++#define FPR_KNOCK_DUR		FPM_KNOCK_DUR	// fm_knockdown (pm_shared/fpbody_pm.h)
++#define FPR_KNOCK_COOLDOWN	4.0f	// after getting up, before the next one
++
++#ifndef FPR_TANK
++#define FPR_TANK( pl )		( ( pl )->m_pTank != NULL )	// at a mounted gun
++#endif
++
++extern cvar_t sv_fpbody_knockdown;
++
++static float s_fpKnockEnd;			// when the player is back up (0 = not down)
++static float s_fpKnockNext;			// no new knockdown before this
++
++static bool FPReact_NameHas( CBaseEntity *pEnt, const char *const *words )
++{
++	const char *cls = STRING( pEnt->pev->classname );
++	for ( int i = 0; words[ i ]; i++ )
++		if ( strstr( cls, words[ i ] ) )
++			return true;
++	return false;
++}
++
++// 2 = a big enemy (knocks us down), 1 = a small one (the blast reaction), 0 = neither
++static int FPReact_Kind( CBaseEntity *pAttacker, CBaseEntity *pInflictor )
++{
++	static const char *const small[] = { "headcrab", "babycrab", "snark", "penguin", "leech", "monster_rat",
++		"cockroach", "chumtoad", "houndeye", "shockroach", "pitdrone", "babyvoltigore", "stukabat", "squidspit",
++		"bullsquid_spit", NULL };
++	static const char *const big[] = { "zombie", "gonome", "bullchicken", "bullsquid", "bigmomma", "gargantua",
++		"babygarg", "alien_grunt", "agrunt", "tentacle", "ichthyosaur", "pitworm", "geneworm", "voltigore",
++		"shocktrooper", "kingpin", NULL };
++	if ( pInflictor && pInflictor != pAttacker && FPReact_NameHas( pInflictor, small ) )
++		return 1;									// e.g. bullsquid spit
++	if ( !pAttacker || !( pAttacker->pev->flags & FL_MONSTER ) || pAttacker->IsPlayer() )
++		return 0;
++	if ( FPReact_NameHas( pAttacker, small ) )
++		return 1;
++	if ( FPReact_NameHas( pAttacker, big ) )
++		return 2;
++	// anything else by its size: wider than a man or much taller is big, knee high is small
++	Vector size = pAttacker->pev->maxs - pAttacker->pev->mins;
++	if ( size.x >= 60.0f || size.z >= 96.0f )
++		return 2;
++	if ( size.x > 0.0f && size.x <= 40.0f && size.z <= 40.0f )
++		return 1;
++	return 0;
++}
++
++static void FPReact_GetUp( CBasePlayer *pl )
++{
++	s_fpKnockEnd = 0.0f;
++	pl->pev->flags &= ~FL_FROZEN;
++	pl->pev->fuser4 = (float)( (int)pl->pev->fuser4 & ~FPM_KNOCK );
++	if ( pl->IsAlive() && pl->m_pActiveItem )
++		pl->m_pActiveItem->Deploy();					// the gun comes back out
++}
++
++void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage )
++{
++	if ( sv_fpbody_knockdown.value == 0.0f || flDamage <= 0.0f || !pl->IsAlive() || pl->pev->takedamage == DAMAGE_NO ||
++		 gpGlobals->maxClients > 1 )
++		return;
++	CBaseEntity *pAttacker = pevAttacker ? CBaseEntity::Instance( pevAttacker ) : NULL;
++	CBaseEntity *pInflictor = pevInflictor ? CBaseEntity::Instance( pevInflictor ) : NULL;
++	int kind = FPReact_Kind( pAttacker, pInflictor );
++	if ( !kind )
++		return;
++	int st = (int)pl->pev->fuser4;
++	if ( kind == 2 )
++	{
++		// knocked down by the blow itself (not its hornets, rocks, stomps ...),
++		// standing on the ground and free to fall
++		bool can = pAttacker == pInflictor && s_fpKnockEnd <= 0.0f && gpGlobals->time >= s_fpKnockNext &&
++				   ( pl->pev->flags & FL_ONGROUND ) && !( pl->pev->flags & ( FL_FROZEN | FL_ONTRAIN ) ) &&
++				   pl->pev->waterlevel < 2 && !pl->IsOnLadder() && !FPR_TANK( pl ) &&
++				   !( pl->m_afPhysicsFlags & PFLAG_ONBARNACLE ) && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) );
++		if ( can )
++		{
++			s_fpKnockEnd = gpGlobals->time + FPR_KNOCK_DUR;
++			s_fpKnockNext = s_fpKnockEnd + FPR_KNOCK_COOLDOWN;
++			pl->pev->flags |= FL_FROZEN;
++			pl->pev->velocity = g_vecZero;
++			pl->pev->viewmodel = iStringNull;			// hands free to break the fall
++			pl->pev->weaponmodel = iStringNull;
++			pl->m_flNextAttack = UTIL_WeaponTimeBase() + FPR_KNOCK_DUR;
++			pl->pev->fuser4 = (float)( st | FPM_KNOCK );
++			return;
++		}
++		if ( s_fpKnockEnd > 0.0f )
++			return;										// already down
++	}
++	pl->m_bitsDamageType |= DMG_BLAST;					// the client: thrown back as by a blast (fm_blast)
++}
++
++void FPReact_Think( CBasePlayer *pl )
++{
++	int st = (int)pl->pev->fuser4;
++	// down until the time's up; a stale time (a new map, a loaded game: the
++	// clock starts again) or a knock bit from a saved game gets him up now
++	bool down = s_fpKnockEnd > 0.0f && gpGlobals->time < s_fpKnockEnd && s_fpKnockEnd - gpGlobals->time <= FPR_KNOCK_DUR + 0.5f;
++	if ( down && pl->IsAlive() )
++	{
++		pl->pev->flags |= FL_FROZEN;
++		pl->pev->viewmodel = iStringNull;
++		pl->pev->weaponmodel = iStringNull;
++		pl->pev->fuser4 = (float)( st | FPM_KNOCK );
++	}
++	else if ( s_fpKnockEnd > 0.0f || ( st & FPM_KNOCK ) )
++		FPReact_GetUp( pl );
++	if ( s_fpKnockNext - gpGlobals->time > FPR_KNOCK_DUR + FPR_KNOCK_COOLDOWN + 1.0f )
++		s_fpKnockNext = 0.0f;
++}
 diff --git a/dlls/game.cpp b/dlls/game.cpp
-index 7217e1e..e554669 100644
+index 7217e1e..c6cbf7e 100644
 --- a/dlls/game.cpp
 +++ b/dlls/game.cpp
-@@ -40,6 +40,13 @@ cvar_t	teamoverride = {"mp_teamoverride","1" };
+@@ -40,6 +40,14 @@ cvar_t	teamoverride = {"mp_teamoverride","1" };
  cvar_t	defaultteam = {"mp_defaultteam","0" };
  cvar_t	allowmonsters={"mp_allowmonsters","0", FCVAR_SERVER };
  
 +cvar_t sv_buddha = { "sv_buddha", "1", FCVAR_ARCHIVE };	// fpbody: buddha mode (on by default; "buddha" toggles)
 +cvar_t sv_fpbody_anims = { "sv_fpbody_anims", "cz", FCVAR_ARCHIVE };	// fpbody: cz / cs player weapon animations
 +cvar_t sv_fpbody_buddy = { "sv_fpbody_buddy", "0", FCVAR_ARCHIVE };	// fpbody: 1 = the HEV companion
++cvar_t sv_fpbody_knockdown = { "sv_fpbody_knockdown", "1", FCVAR_ARCHIVE };	// fpbody: big enemies knock you down, small ones throw you back (fpbody_react.inl)
 +cvar_t sv_fpbody_regen = { "sv_fpbody_regen", "1", FCVAR_ARCHIVE };			// fpbody: health comes back by itself
 +cvar_t sv_fpbody_regen_delay = { "sv_fpbody_regen_delay", "5", FCVAR_ARCHIVE };	// seconds without getting hurt first
 +cvar_t sv_fpbody_regen_rate = { "sv_fpbody_regen_rate", "5", FCVAR_ARCHIVE };		// health per second
@@ -7816,13 +7963,14 @@ index 7217e1e..e554669 100644
  cvar_t  allow_spectators = { "allow_spectators", "0.0", FCVAR_SERVER };		// 0 prevents players from being spectators
  
  cvar_t  mp_chattime = {"mp_chattime","10", FCVAR_SERVER };
-@@ -523,6 +530,13 @@ void GameDLLInit( void )
+@@ -523,6 +531,14 @@ void GameDLLInit( void )
  
  	CVAR_REGISTER (&displaysoundlist);
  	CVAR_REGISTER( &allow_spectators );
 +	CVAR_REGISTER( &sv_buddha );
 +	CVAR_REGISTER( &sv_fpbody_anims );
 +	CVAR_REGISTER( &sv_fpbody_buddy );
++	CVAR_REGISTER( &sv_fpbody_knockdown );
 +	CVAR_REGISTER( &sv_fpbody_regen );
 +	CVAR_REGISTER( &sv_fpbody_regen_delay );
 +	CVAR_REGISTER( &sv_fpbody_regen_rate );
@@ -7889,7 +8037,7 @@ index 41f0d8f..a181e09 100644
  
  	// govern the rate of charge
 diff --git a/dlls/player.cpp b/dlls/player.cpp
-index 7ac2e0c..f7ff79c 100644
+index 7ac2e0c..620270c 100644
 --- a/dlls/player.cpp
 +++ b/dlls/player.cpp
 @@ -105,6 +105,7 @@ TYPEDESCRIPTION	CBasePlayer::m_playerSaveData[] =
@@ -7909,7 +8057,22 @@ index 7ac2e0c..f7ff79c 100644
  	gmsgTeamNames = REG_USER_MSG( "TeamNames", -1 );
  
  	gmsgStatusText = REG_USER_MSG("StatusText", -1);
-@@ -509,6 +510,14 @@ int CBasePlayer :: TakeDamage( entvars_t *pevInflictor, entvars_t *pevAttacker,
+@@ -445,10 +446,14 @@ void CBasePlayer :: TraceAttack( entvars_t *pevAttacker, float flDamage, Vector
+ #define ARMOR_RATIO	 0.2	// Armor Takes 80% of the damage
+ #define ARMOR_BONUS  0.5	// Each Point of Armor is work 1/x points of health
+ 
++void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage );	// fpbody_react.inl
++void FPReact_Think( CBasePlayer *pl );
++
+ int CBasePlayer :: TakeDamage( entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType )
+ {
+ 	// have suit diagnose the problem - ie: report damage type
+ 	int bitsDamage = bitsDamageType;
++	FPReact_OnDamage( this, pevInflictor, pevAttacker, flDamage );	// fpbody: knocked down / thrown back by who hit us
+ 	int ffound = TRUE;
+ 	int fmajor;
+ 	int fcritical;
+@@ -509,6 +514,14 @@ int CBasePlayer :: TakeDamage( entvars_t *pevInflictor, entvars_t *pevAttacker,
  
  	// this cast to INT is critical!!! If a player ends up with 0.5 health, the engine will get that
  	// as an int (zero) and think the player is dead! (this will incite a clientside screentilt, etc)
@@ -7924,7 +8087,7 @@ index 7ac2e0c..f7ff79c 100644
  	fTookDamage = CBaseMonster::TakeDamage(pevInflictor, pevAttacker, (int)flDamage, bitsDamageType);
  
  	// reset damage time countdown for each type of time based damage player just sustained
-@@ -952,6 +961,29 @@ void CBasePlayer::Killed( entvars_t *pevAttacker, int iGib )
+@@ -952,6 +965,29 @@ void CBasePlayer::Killed( entvars_t *pevAttacker, int iGib )
  
  
  // Set the activity based on an event or current state
@@ -7954,7 +8117,7 @@ index 7ac2e0c..f7ff79c 100644
  void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
  {
  	int animDesired;
-@@ -1045,7 +1077,7 @@ void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
+@@ -1045,7 +1081,7 @@ void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
  		else
  			std::strcpy( szAnim, "ref_shoot_" );
  		std::strcat( szAnim, m_szAnimExtention );
@@ -7963,7 +8126,7 @@ index 7ac2e0c..f7ff79c 100644
  		if (animDesired == -1)
  			animDesired = 0;
  
-@@ -1073,7 +1105,7 @@ void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
+@@ -1073,7 +1109,7 @@ void CBasePlayer::SetAnimation( PLAYER_ANIM playerAnim )
  			else
  				std::strcpy( szAnim, "ref_aim_" );
  			std::strcat( szAnim, m_szAnimExtention );
@@ -7972,7 +8135,7 @@ index 7ac2e0c..f7ff79c 100644
  			if (animDesired == -1)
  				animDesired = 0;
  			m_Activity = ACT_WALK;
-@@ -1588,6 +1620,7 @@ void CBasePlayer::PlayerUse ( void )
+@@ -1588,6 +1624,7 @@ void CBasePlayer::PlayerUse ( void )
  			if ( caps & FCAP_CONTINUOUS_USE )
  				m_afPhysicsFlags |= PFLAG_USING;
  
@@ -7980,7 +8143,7 @@ index 7ac2e0c..f7ff79c 100644
  			pObject->Use( this, this, USE_SET, 1 );
  		}
  		// UNDONE: Send different USE codes for ON/OFF.  Cache last ONOFF_USE object to send 'off' if you turn away
-@@ -2569,8 +2602,12 @@ void CBasePlayer :: UpdatePlayerSound ( void )
+@@ -2569,8 +2606,13 @@ void CBasePlayer :: UpdatePlayerSound ( void )
  }
  
  
@@ -7989,11 +8152,12 @@ index 7ac2e0c..f7ff79c 100644
  void CBasePlayer::PostThink()
  {
 +	FPMoves_Think();	// fpbody: kick, redeploy after holster-all
++	FPReact_Think( this );	// fpbody: knocked down / getting up
 +	FPBuddy_PlayerThink( this );	// fpbody: the HEV companion
  	if ( g_fGameOver )
  		goto pt_end;         // intermission or finale
  
-@@ -3436,6 +3473,7 @@ void CBasePlayer::ImpulseCommands( )
+@@ -3436,6 +3478,7 @@ void CBasePlayer::ImpulseCommands( )
  	PlayerUse();
  		
  	int iImpulse = (int)pev->impulse;
@@ -8001,7 +8165,7 @@ index 7ac2e0c..f7ff79c 100644
  	switch (iImpulse)
  	{
  	case 99:
-@@ -3945,7 +3983,7 @@ void CBasePlayer::SendAmmoUpdate(void)
+@@ -3945,7 +3988,7 @@ void CBasePlayer::SendAmmoUpdate(void)
  			// send "Ammo" update message
  			MESSAGE_BEGIN( MSG_ONE, gmsgAmmoX, NULL, pev );
  				WRITE_BYTE( i );
@@ -8010,7 +8174,7 @@ index 7ac2e0c..f7ff79c 100644
  			MESSAGE_END();
  		}
  	}
-@@ -3962,6 +4000,8 @@ ForceClientDllUpdate to ensure the demo gets messages
+@@ -3962,6 +4005,8 @@ ForceClientDllUpdate to ensure the demo gets messages
  reflecting all of the HUD state info.
  =========================================================
  */
@@ -8019,7 +8183,7 @@ index 7ac2e0c..f7ff79c 100644
  void CBasePlayer :: UpdateClientData( void )
  {
  	if (m_fInitHUD)
-@@ -4063,7 +4103,7 @@ void CBasePlayer :: UpdateClientData( void )
+@@ -4063,7 +4108,7 @@ void CBasePlayer :: UpdateClientData( void )
  		}
  
  		// only send down damage type that have hud art
@@ -8028,7 +8192,7 @@ index 7ac2e0c..f7ff79c 100644
  
  		MESSAGE_BEGIN( MSG_ONE, gmsgDamage, NULL, pev );
  			WRITE_BYTE( pev->dmg_save );
-@@ -4163,9 +4203,9 @@ void CBasePlayer :: UpdateClientData( void )
+@@ -4163,9 +4208,9 @@ void CBasePlayer :: UpdateClientData( void )
  			MESSAGE_BEGIN( MSG_ONE, gmsgWeaponList, NULL, pev );  
  				WRITE_STRING(pszName);			// string	weapon name
  				WRITE_BYTE(GetAmmoIndex(II.pszAmmo1));	// byte		Ammo Type
@@ -8040,11 +8204,12 @@ index 7ac2e0c..f7ff79c 100644
  				WRITE_BYTE(II.iSlot);					// byte		bucket
  				WRITE_BYTE(II.iPosition);				// byte		bucket pos
  				WRITE_BYTE(II.iId);						// byte		id (bit index into pev->weapons)
-@@ -4906,3 +4946,4 @@ void CInfoIntermission::Think ( void )
+@@ -4906,3 +4951,5 @@ void CInfoIntermission::Think ( void )
  
  LINK_ENTITY_TO_CLASS( info_intermission, CInfoIntermission );
  
 +#include "fpbody_moves.inl"	// fpbody: Freeman moves (kick, holster all)
++#include "fpbody_react.inl"	// fpbody: knocked down by big enemies, thrown back by small ones
 diff --git a/dlls/player.h b/dlls/player.h
 index a6b2a68..7560f55 100644
 --- a/dlls/player.h
@@ -8370,10 +8535,10 @@ index 0000000..a1ec328
 +1 ICON "icon.ico"
 diff --git a/pm_shared/fpbody_pm.h b/pm_shared/fpbody_pm.h
 new file mode 100644
-index 0000000..d096c53
+index 0000000..5f66d75
 --- /dev/null
 +++ b/pm_shared/fpbody_pm.h
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,94 @@
 +/***
 +*
 +*	fpbody_pm.h - player movement for the "True First Person" mod: prone,
@@ -8410,6 +8575,7 @@ index 0000000..d096c53
 +#define FPM_BARNACLE		131072	// set by the server: a barnacle has us (fuser4 needs 24 bits in delta.lst)
 +#define FPM_ROPE			262144	// set by the server: hanging on a rope (Opposing Force)
 +#define FPM_JOB_SHIFT		19		// 3 bits, set by the server: an Opposing Force job (FPM_JOB_*)
++#define FPM_KNOCK			4194304	// set by the server: knocked down by a big enemy (dlls/fpbody_react.inl; bit 22, the last that fits in fuser4's 24 signed bits)
 +#define FPM_SPRINT_SCALE	1.25f	// speed while sprinting (320 -> 400)
 +
 +// Moves that are switched off (1 = on): prone (pm_prone, double-tap duck) and
@@ -8447,6 +8613,7 @@ index 0000000..d096c53
 +#define FPM_JOB_DUR_CUTGRATE	5.7f
 +#define FPM_JOB_DUR_OPENGRATE	1.6f
 +#define FPM_JOB_DUR_STORE	3.3f
++#define FPM_KNOCK_DUR		3.5f	// fm_knockdown: falling, a moment down, getting up
 +#define FPM_JOB( st )		( ( ( st ) >> FPM_JOB_SHIFT ) & 7 )
 +
 +#define FPM_STATE( pm )		( (int)( pm )->fuser4 )

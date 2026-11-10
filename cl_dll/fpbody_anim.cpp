@@ -1900,8 +1900,13 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 		oneShot = g_ovSeq >= 0 && g_ovKind == OVK_MOVE;
 	}
 
+	// knocked down by a big enemy (dlls/fpbody_react.inl): on the back, a
+	// moment down, back up; a model without fm_knockdown is thrown back instead
+	if ( ( started & FPM_KNOCK ) && !StartOverlayKind( "fm_knockdown", OVK_MOVE, FPM_KNOCK_DUR ) )
+		StartOverlayKind( "fm_blast", OVK_EASE, 1.4f );
+
 	// one-off moves, in order of importance
-	if ( job )
+	if ( job || ( st & FPM_KNOCK ) )
 		;
 	else if ( started & FPM_VAULT )
 	{

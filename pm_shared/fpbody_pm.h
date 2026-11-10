@@ -34,6 +34,7 @@
 #define FPM_BARNACLE		131072	// set by the server: a barnacle has us (fuser4 needs 24 bits in delta.lst)
 #define FPM_ROPE			262144	// set by the server: hanging on a rope (Opposing Force)
 #define FPM_JOB_SHIFT		19		// 3 bits, set by the server: an Opposing Force job (FPM_JOB_*)
+#define FPM_KNOCK			4194304	// set by the server: knocked down by a big enemy (dlls/fpbody_react.inl; bit 22, the last that fits in fuser4's 24 signed bits)
 #define FPM_SPRINT_SCALE	1.25f	// speed while sprinting (320 -> 400)
 
 // Moves that are switched off (1 = on): prone (pm_prone, double-tap duck) and
@@ -71,6 +72,7 @@
 #define FPM_JOB_DUR_CUTGRATE	5.7f
 #define FPM_JOB_DUR_OPENGRATE	1.6f
 #define FPM_JOB_DUR_STORE	3.3f
+#define FPM_KNOCK_DUR		3.5f	// fm_knockdown: falling, a moment down, getting up
 #define FPM_JOB( st )		( ( ( st ) >> FPM_JOB_SHIFT ) & 7 )
 
 #define FPM_STATE( pm )		( (int)( pm )->fuser4 )
