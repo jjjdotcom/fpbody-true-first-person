@@ -75,8 +75,13 @@ def main(in_path, out_path, pack, gmod, labels=DEFAULT):
             s['fps'] = float(a['fps'])
             s['linearmovement'] = [0, 0, 0]
             done.append(s['label'])
-    M.write(out_path, seqs)
-    textures_last(out_path)
+    import os
+    from compact import compact
+    tmp = out_path + '.tmp'
+    M.write(tmp, seqs)
+    textures_last(tmp)
+    compact(tmp, out_path)
+    os.remove(tmp)
     print('wrote', out_path, '- idle in', done, len(fr), 'frames at', a['fps'], 'fps')
 
 
