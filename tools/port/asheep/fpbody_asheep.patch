@@ -720,10 +720,10 @@ index 3f124ac..51d8203 100644
  }
 diff --git a/cl_dll/fpbody.cpp b/cl_dll/fpbody.cpp
 new file mode 100644
-index 0000000..ef620ea
+index 0000000..27c283d
 --- /dev/null
 +++ b/cl_dll/fpbody.cpp
-@@ -0,0 +1,1172 @@
+@@ -0,0 +1,1192 @@
 +// fpbody.cpp - "True first person" / body awareness for Half-Life.
 +//
 +// How it works
@@ -1392,6 +1392,18 @@ index 0000000..ef620ea
 +#endif
 +}
 +
++// fp_helmet: a suit model's helmeted version, <name>_helmet.mdl (tools/gmod_anims/make_helmet.py)
++static struct model_s *FPBody_TryHelmet( const char *name, int &state )
++{
++	char h[ 96 ];
++	size_t n = strlen( name );
++	if ( !FPAnim_HelmetOn() || n < 4 || n + 8 >= sizeof( h ) )
++		return NULL;
++	memcpy( h, name, n - 4 );
++	strcpy( h + n - 4, "_helmet.mdl" );
++	return FPBody_TryModel( h, state );
++}
++
 +// what the last call decided, for fp_debug
 +static const char *g_szOutfitReason = "not called yet";
 +static struct model_s *g_pOutfitLast;
@@ -1408,6 +1420,7 @@ index 0000000..ef620ea
 +	// cl_fpbody_hls 1 (GMod animations only): suit, presuit
 +	static const char *hlsNames[ 2 ] = { "models/fpbody_hls_suit.mdl", "models/fpbody_hls_presuit.mdl" };
 +	static int hlsStates[ 2 ];
++	static int helmetStates[ 2 ], hlsHelmetState;	// the helmeted suits
 +
 +	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 +	if ( !local || playerNumber != local->index )
@@ -1433,16 +1446,23 @@ index 0000000..ef620ea
 +		if ( hls )
 +		{
 +			int k = FPBody_IsSuited() ? 0 : 1;
-+			m = FPBody_TryModel( hlsNames[ k ], hlsStates[ k ] );
-+			if ( m )
++			if ( k == 0 && ( m = FPBody_TryHelmet( hlsNames[ 0 ], hlsHelmetState ) ) != NULL )
++				g_szOutfitReason = "suited, helmet on: HL:S suit outfit with the helmet";
++			else if ( ( m = FPBody_TryModel( hlsNames[ k ], hlsStates[ k ] ) ) != NULL )
 +				g_szOutfitReason = k == 0 ? "suited: HL:S suit outfit" : "not suited: HL:S pre-suit outfit";
 +		}
 +		if ( m )
 +			;
 +		else if ( FPBody_IsSuited() )
 +		{
-+			m = FPBody_TryModel( names[ c ][ 0 ], states[ c ][ 0 ] );
-+			g_szOutfitReason = m ? "suited: suit outfit" : "suited, no suit outfit model";
++			m = FPBody_TryHelmet( names[ c ][ 0 ], helmetStates[ c ] );
++			if ( m )
++				g_szOutfitReason = "suited, helmet on: suit outfit with the helmet";
++			else
++			{
++				m = FPBody_TryModel( names[ c ][ 0 ], states[ c ][ 0 ] );
++				g_szOutfitReason = m ? "suited: suit outfit" : "suited, no suit outfit model";
++			}
 +		}
 +		else
 +		{
@@ -1898,10 +1918,10 @@ index 0000000..ef620ea
 +}
 diff --git a/cl_dll/fpbody.h b/cl_dll/fpbody.h
 new file mode 100644
-index 0000000..ad1af3c
+index 0000000..c6dd98f
 --- /dev/null
 +++ b/cl_dll/fpbody.h
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,82 @@
 +// fpbody.h - "True first person" / body awareness for Half-Life.
 +//
 +// The engine draws the local player's third-person model (player.mdl and the
@@ -1960,6 +1980,11 @@ index 0000000..ad1af3c
 +// cl_fpbody_classic: Half-Life's original player animations, left as they are
 +int FPBody_Classic( void );
 +
++// the suit is on (the outfit is the suit model)
++int FPBody_IsSuited( void );
++// fp_helmet: the helmet is on (the suit models' <name>_helmet.mdl)
++int FPAnim_HelmetOn( void );
++
 +// cl_fpbody_stabilize (0..1), also damps the head-rotation view wobble
 +float FPBody_Stabilize( void );
 +
@@ -1981,10 +2006,10 @@ index 0000000..ad1af3c
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..c3ad202
+index 0000000..b748c3d
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4518 @@
+@@ -0,0 +1,4590 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -2024,6 +2049,8 @@ index 0000000..c3ad202
 +//   cl_fpbody_glreload  1    reload the 9mmAR grenade launcher after every shot (body animation)
 +//   cl_fpbody_pickup    1    bend down and grab anything you pick up (ammo, weapons, health, batteries, items)
 +//   cl_fpbody_freemanreload 1  GMod mode: the Freeman mod's (Garry's Mod's) reloads for every gun
++//   fp_helmet                 put the HEV helmet on / take it off (hands to the head; the suit's
++//                             <name>_helmet.mdl while it's on); cl_fpbody_helmet 1 = it's on
 +//                            that has one, before the Left 4 Dead / Counter-Strike: Source ones
 +//   cl_fpbody_l4dreload 1    Left 4 Dead reloads for pistols, rifles and the shotgun (GMod mode)
 +//   cl_fpbody_reloads   cz   classic mode third-person reloads: cz = Condition Zero first,
@@ -2220,6 +2247,13 @@ index 0000000..c3ad202
 +static cvar_t *cl_fpbody_grip_side;
 +static cvar_t *cl_fpbody_swimhold;
 +static cvar_t *cl_fpbody_fingers;
++static cvar_t *cl_fpbody_helmet;			// fp_helmet: 1 = the helmet is on (saved)
++static float g_helmetStart = -1.0f;			// fp_helmet: when the hands went up (-1 = not now)
++static int g_helmetTo;						// ... putting it on (1) or taking it off (0)
++static bool g_helmetSwapped;
++#define HELMET_DUR		1.4f				// hands up, helmet on / off, hands down
++#define HELMET_SWAP		0.65f				// when the model changes (the hands are at the head)
++static void FP_HelmetCmd( void );
 +static float g_relaxW;			// how far the at-ease hold is in (0..1), for fp_gun_relax
 +static void FP_GripCmd( void );
 +static void FP_GripSetCmd( void );
@@ -2505,6 +2539,7 @@ index 0000000..c3ad202
 +	cl_fpbody_grip_side = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_side", "0", FCVAR_ARCHIVE );
 +	cl_fpbody_swimhold  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_swimhold", "1", FCVAR_ARCHIVE );
 +	cl_fpbody_fingers   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_fingers", "1", FCVAR_ARCHIVE );
++	cl_fpbody_helmet    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_helmet", "0", FCVAR_ARCHIVE );
 +
 +	cl_fpbody_moves     = gEngfuncs.pfnRegisterVariable( "cl_fpbody_moves", "1", FCVAR_ARCHIVE );
 +	cl_fpbody_atease    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_atease", "1", FCVAR_ARCHIVE );
@@ -2528,6 +2563,7 @@ index 0000000..c3ad202
 +		gEngfuncs.pfnAddCommand( "pm_prone", PM_ProneCmd );
 +	gEngfuncs.pfnAddCommand( "pm_atease", PM_AtEaseCmd );
 +	gEngfuncs.pfnAddCommand( "fp_grip", FP_GripCmd );
++	gEngfuncs.pfnAddCommand( "fp_helmet", FP_HelmetCmd );
 +	gEngfuncs.pfnAddCommand( "fp_grip_set", FP_GripSetCmd );
 +	gEngfuncs.pfnAddCommand( "fp_gun", FP_GunCmd );
 +	gEngfuncs.pfnAddCommand( "fp_gun_relax", FP_GunRelaxCmd );
@@ -4068,12 +4104,29 @@ index 0000000..c3ad202
 +		g_useHoldW = 0.0f; g_usePalmW = 0.0f; g_aimW = 0.0f; g_quickTime = -100.0f;
 +		g_mvFallStart = -1.0f; g_prevFadeStart = -10.0f;
 +		g_lastHeadTime = g_headOfsTime = -10.0f; g_hookTime = -10.0f;
++		if ( g_helmetStart >= 0.0f && !g_helmetSwapped && cl_fpbody_helmet )
++			gEngfuncs.Cvar_SetValue( "cl_fpbody_helmet", (float)g_helmetTo );	// finish it at once
++		g_helmetStart = -1.0f;
 +		StopOverlay();
 +	}
 +	s_lastNow = g_now;
 +	g_frameTime = Clamp( pparams->frametime, 0.0f, 0.1f );
 +
 +	PollViewModel();
++
++	// fp_helmet: the helmet goes on / comes off when the hands reach the head
++	if ( g_helmetStart >= 0.0f )
++	{
++		float t = g_now - g_helmetStart;
++		if ( !g_helmetSwapped && t >= HELMET_SWAP )
++		{
++			g_helmetSwapped = true;
++			gEngfuncs.Cvar_SetValue( "cl_fpbody_helmet", (float)g_helmetTo );
++			gEngfuncs.pfnPlaySoundByName( (char *)( g_helmetTo ? "items/suitchargeok1.wav" : "common/wpn_select.wav" ), 0.6f );
++		}
++		if ( t >= HELMET_DUR || t < 0.0f )
++			g_helmetStart = -1.0f;
++	}
 +
 +	g_speed2D = (float)sqrt( pparams->simvel[ 0 ] * pparams->simvel[ 0 ] + pparams->simvel[ 1 ] * pparams->simvel[ 1 ] );
 +
@@ -6130,6 +6183,29 @@ index 0000000..c3ad202
 +		}
 +	}
 +
++	// fp_helmet: both hands (the left alone while holding a gun) go up to the
++	// sides of the head, lower the helmet on / lift it off, and come down
++	if ( g_helmetStart >= 0.0f && !fullAct && headBone >= 0 )
++	{
++		float t = now - g_helmetStart;
++		float w = t < 0.45f ? t / 0.45f : t < 0.85f ? 1.0f : 1.0f - ( t - 0.85f ) / ( HELMET_DUR - 0.85f );
++		w = Clamp01( w );
++		w = w * w * ( 3.0f - 2.0f * w );
++		// on: from above the head down onto it; off: up and away
++		float k = g_helmetTo ? Clamp01( ( t - 0.3f ) / ( HELMET_SWAP - 0.3f ) ) : Clamp01( ( t - HELMET_SWAP ) / 0.3f );
++		float up = g_helmetTo ? 10.0f - 8.0f * k : 2.0f + 8.0f * k;
++		float H[ 3 ], tl[ 3 ], tr[ 3 ];
++		BoneOrigin( light, headBone, H );
++		for ( int i = 0; i < 3; i++ )
++		{
++			tl[ i ] = H[ i ] + u[ i ] * up + f[ i ] * 1.5f - r[ i ] * 8.0f;
++			tr[ i ] = H[ i ] + u[ i ] * up + f[ i ] * 1.5f + r[ i ] * 8.0f;
++		}
++		ReachArm( bone, light, tl, w, false, 0.0f );
++		if ( weaponmodel <= 0 )
++			ReachArm( bone, light, tr, w, true, 0.0f );
++	}
++
 +	// the forearms roll with the hands (one bone per vertex: see ShareWristTwist)
 +	if ( !FPBody_Classic() && cl_fpbody_wristtwist && cl_fpbody_wristtwist->value > 0.0f )
 +	{
@@ -6502,6 +6578,27 @@ index 0000000..c3ad202
 +		state[ k ] = cache[ k ] ? 1 : -1;
 +	}
 +	return cache[ k ];
++}
++
++// fp_helmet: put the HEV helmet on / take it off (the suit models'
++// <name>_helmet.mdl while it's on, cl_dll/fpbody.cpp); cl_fpbody_helmet keeps it
++int FPAnim_HelmetOn( void )
++{
++	return cl_fpbody_helmet && cl_fpbody_helmet->value != 0.0f;
++}
++
++static void FP_HelmetCmd( void )
++{
++	if ( !FPBody_Active() || !FPBody_IsSuited() )
++	{
++		gEngfuncs.Con_Printf( "fp_helmet: only with the HEV suit on, in first-person body mode\n" );
++		return;
++	}
++	if ( g_helmetStart >= 0.0f )
++		return;									// already at it
++	g_helmetTo = FPAnim_HelmetOn() ? 0 : 1;
++	g_helmetStart = gEngfuncs.GetClientTime();
++	g_helmetSwapped = false;
 +}
 diff --git a/cl_dll/fpbody_anim.h b/cl_dll/fpbody_anim.h
 new file mode 100644

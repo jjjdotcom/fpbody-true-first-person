@@ -56,6 +56,11 @@ void FPBody_HolsterHideBones( const fpholster_t *h, void *studiohdr, float ( *bo
 // cl_fpbody_classic: Half-Life's original player animations, left as they are
 int FPBody_Classic( void );
 
+// the suit is on (the outfit is the suit model)
+int FPBody_IsSuited( void );
+// fp_helmet: the helmet is on (the suit models' <name>_helmet.mdl)
+int FPAnim_HelmetOn( void );
+
 // cl_fpbody_stabilize (0..1), also damps the head-rotation view wobble
 float FPBody_Stabilize( void );
 

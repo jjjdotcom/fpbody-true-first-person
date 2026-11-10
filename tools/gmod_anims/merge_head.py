@@ -1,6 +1,11 @@
 """Put another fpbody model's head on a body (both on the fpbody skeleton).
 
-  python3 -I merge_head.py <body.mdl> <head.mdl> <out.mdl>
+  python3 -I merge_head.py <body.mdl> <head.mdl> <out.mdl> [head submodel] [corners]
+
+[head submodel] picks the head model's submodel (default 0; Half-Life's
+multiplayer models keep the full-detail mesh in 1). [corners] (default 2) is
+how many corners on the head make a triangle the head's: 1 also swaps the
+neck (strips joining the head to the collar), for a helmet.
 
 The body's triangles on the head (two or more corners skinned to "Bip01 Head"
 or a bone under it) are dropped and the head model's are added, with their
@@ -31,8 +36,8 @@ def textures(d):
     return out
 
 
-def tris(path):
-    """-> skeleton bone names, textures, [(local verts, local normals, st, texture, bones)] of body 0"""
+def tris(path, sub=0):
+    """-> skeleton bone names, textures, [(local verts, local normals, st, texture, bones)] of submodel sub"""
     G = GoldSrcModel(path)
     d = bytes(G.d)
     nsr, nsf, si = struct.unpack_from('<3i', d, 192)
@@ -40,7 +45,8 @@ def tris(path):
     out = []
     nbp, bpi = struct.unpack_from('<2i', d, 204)
     for bp in range(nbp):
-        _, _, mi = struct.unpack_from('<3i', d, bpi + bp * 76 + 64)
+        nm, _, mi = struct.unpack_from('<3i', d, bpi + bp * 76 + 64)
+        mi += min(sub, nm - 1) * 112
         nummesh, meshindex, numverts, vinfo, vindex, numnorms, ninfo, nindex = struct.unpack_from('<8i', d, mi + 72)
         vb = d[vinfo:vinfo + numverts]
         nb = d[ninfo:ninfo + numnorms]
@@ -81,15 +87,16 @@ class _Tex:
         self.textures = t
 
 
-def main(body_path, head_path, out_path):
+def main(body_path, head_path, out_path, sub='0', corners='2'):
+    sub, corners = int(sub), int(corners)
     bn, bp, btex, btris = tris(body_path)
-    hn, hp, htex, htris = tris(head_path)
+    hn, hp, htex, htris = tris(head_path, sub)
     bh, hh = head_set(bn, bp), head_set(hn, hp)
-    keep = [t for t in btris if sum(1 for b in t[4] if b in bh) < 2]
+    keep = [t for t in btris if sum(1 for b in t[4] if b in bh) < corners]
     # head bones by name onto the body's skeleton
     remap = {i: bn.index(n) for i, n in enumerate(hn) if n in bn}
     add = [(P, N, st, tex + len(btex), [remap.get(b, bn.index('Bip01 Head')) for b in bones])
-           for P, N, st, tex, bones in htris if sum(1 for b in bones if b in hh) >= 2]
+           for P, N, st, tex, bones in htris if sum(1 for b in bones if b in hh) >= corners]
     used = sorted({t[3] for t in keep + add})
     alltex = btex + htex
     idx = {k: i for i, k in enumerate(used)}
@@ -99,4 +106,4 @@ def main(body_path, head_path, out_path):
 
 
 if __name__ == '__main__':
-    main(*sys.argv[1:4])
+    main(*sys.argv[1:6])

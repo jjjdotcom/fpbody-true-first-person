@@ -666,6 +666,18 @@ int FPBody_IsSuited( void )
 #endif
 }
 
+// fp_helmet: a suit model's helmeted version, <name>_helmet.mdl (tools/gmod_anims/make_helmet.py)
+static struct model_s *FPBody_TryHelmet( const char *name, int &state )
+{
+	char h[ 96 ];
+	size_t n = strlen( name );
+	if ( !FPAnim_HelmetOn() || n < 4 || n + 8 >= sizeof( h ) )
+		return NULL;
+	memcpy( h, name, n - 4 );
+	strcpy( h + n - 4, "_helmet.mdl" );
+	return FPBody_TryModel( h, state );
+}
+
 // what the last call decided, for fp_debug
 static const char *g_szOutfitReason = "not called yet";
 static struct model_s *g_pOutfitLast;
@@ -682,6 +694,7 @@ struct model_s *FPBody_GetOutfitModel( int playerNumber )
 	// cl_fpbody_hls 1 (GMod animations only): suit, presuit
 	static const char *hlsNames[ 2 ] = { "models/fpbody_hls_suit.mdl", "models/fpbody_hls_presuit.mdl" };
 	static int hlsStates[ 2 ];
+	static int helmetStates[ 2 ], hlsHelmetState;	// the helmeted suits
 
 	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 	if ( !local || playerNumber != local->index )
@@ -707,16 +720,23 @@ struct model_s *FPBody_GetOutfitModel( int playerNumber )
 		if ( hls )
 		{
 			int k = FPBody_IsSuited() ? 0 : 1;
-			m = FPBody_TryModel( hlsNames[ k ], hlsStates[ k ] );
-			if ( m )
+			if ( k == 0 && ( m = FPBody_TryHelmet( hlsNames[ 0 ], hlsHelmetState ) ) != NULL )
+				g_szOutfitReason = "suited, helmet on: HL:S suit outfit with the helmet";
+			else if ( ( m = FPBody_TryModel( hlsNames[ k ], hlsStates[ k ] ) ) != NULL )
 				g_szOutfitReason = k == 0 ? "suited: HL:S suit outfit" : "not suited: HL:S pre-suit outfit";
 		}
 		if ( m )
 			;
 		else if ( FPBody_IsSuited() )
 		{
-			m = FPBody_TryModel( names[ c ][ 0 ], states[ c ][ 0 ] );
-			g_szOutfitReason = m ? "suited: suit outfit" : "suited, no suit outfit model";
+			m = FPBody_TryHelmet( names[ c ][ 0 ], helmetStates[ c ] );
+			if ( m )
+				g_szOutfitReason = "suited, helmet on: suit outfit with the helmet";
+			else
+			{
+				m = FPBody_TryModel( names[ c ][ 0 ], states[ c ][ 0 ] );
+				g_szOutfitReason = m ? "suited: suit outfit" : "suited, no suit outfit model";
+			}
 		}
 		else
 		{
