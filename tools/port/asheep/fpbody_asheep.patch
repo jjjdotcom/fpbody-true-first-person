@@ -7221,10 +7221,10 @@ index 38b0581..da7cf84 100644
  void CCrossbow::Holster( int skiplocal /* = 0 */ )
 diff --git a/dlls/fpbody_buddy.inl b/dlls/fpbody_buddy.inl
 new file mode 100644
-index 0000000..6c00bf8
+index 0000000..7122369
 --- /dev/null
 +++ b/dlls/fpbody_buddy.inl
-@@ -0,0 +1,374 @@
+@@ -0,0 +1,521 @@
 +// fpbody: the HEV companion (sv_fpbody_buddy 1).
 +//
 +// Included at the end of barney.cpp: monster_fpbody_buddy is a security guard
@@ -7244,6 +7244,10 @@ index 0000000..6c00bf8
 +//
 +// SDK flavours, defined before the include: FPB_SDK_UPDATED (Half-Life
 +// Updated: bool returns), FPB_SDK_FI (Featureful: Field Intensity).
++// FPB_DECAY (Half-Life: Decay, tools/port/fpbody_decay.py): the companion is
++// Colette (models/fpbody_colette.mdl), always there in single player, and she
++// does her half of the puzzles - Decay's triggers for "player 2" take her
++// (FPDecay_Id) and she goes to them herself (DecayGoal).
 +
 +#if defined( FPB_SDK_UPDATED ) || defined( FPB_SDK_FI )
 +#define FPB_BOOL bool
@@ -7268,7 +7272,13 @@ index 0000000..6c00bf8
 +
 +extern cvar_t sv_fpbody_buddy;
 +
++#ifdef FPB_DECAY
++#define FPB_MODEL		"models/fpbody_colette.mdl"
++#define FPB_ON()		( gpGlobals->maxClients == 1 )	// Colette: always, in single player
++#else
 +#define FPB_MODEL		"models/fpbody_buddy.mdl"
++#define FPB_ON()		( sv_fpbody_buddy.value != 0 )
++#endif
 +#define FPB_GUN_GROUP	1
 +#define FPB_GUN_PISTOL	1	// the revolver in his hand
 +#define FPB_GUN_MP5		3	// the MP5 (fpbody_buddy.mdl's own submodel)
@@ -7290,6 +7300,11 @@ index 0000000..6c00bf8
 +	bool Teleport( CBaseEntity *pPlayer );
 +	void FireMP5( void );
 +	void ChooseWeapon( void );
++#ifdef FPB_DECAY
++	bool DecayGoal( CBaseEntity *pPlayer );
++	EHANDLE m_hGoal;			// the puzzle trigger she's going to / standing in
++	float m_flGoalTime, m_flGoalSeen;
++#endif
 +
 +	FPB_SAVE Save( CSave &save ) FPB_OVERRIDE;
 +	FPB_SAVE Restore( CRestore &restore ) FPB_OVERRIDE;
@@ -7520,6 +7535,10 @@ index 0000000..6c00bf8
 +{
 +	if ( m_MonsterState == MONSTERSTATE_SCRIPT || m_MonsterState == MONSTERSTATE_DEAD || pev->deadflag != DEAD_NO )
 +		return;
++#ifdef FPB_DECAY
++	if ( DecayGoal( pPlayer ) )
++		return;		// at (or on her way to) her half of a puzzle
++#endif
 +	if ( !m_iStay && !FPB_FOLLOWING() && m_MonsterState != MONSTERSTATE_PRONE )
 +	{
 +		// back to following, quietly (a new map, or he gave up on a path)
@@ -7561,7 +7580,7 @@ index 0000000..6c00bf8
 +void FPBuddy_Precache( void )
 +{
 +	g_fpBuddyPrecached = 0;
-+	if ( sv_fpbody_buddy.value )
++	if ( FPB_ON() )
 +		UTIL_PrecacheOther( "monster_fpbody_buddy" );
 +}
 +
@@ -7578,12 +7597,12 @@ index 0000000..6c00bf8
 +	CBaseEntity *e = NULL;
 +	while ( ( e = UTIL_FindEntityByClassname( e, "monster_fpbody_buddy" ) ) != NULL )
 +	{
-+		if ( !sv_fpbody_buddy.value || keep )
++		if ( !FPB_ON() || keep )
 +			UTIL_Remove( e );		// switched off, or one too many (a map visited again)
 +		else
 +			keep = (CFPBuddy *)e;
 +	}
-+	if ( !sv_fpbody_buddy.value )
++	if ( !FPB_ON() )
 +		return;
 +	if ( keep )
 +	{
@@ -7597,8 +7616,136 @@ index 0000000..6c00bf8
 +		return;
 +	CBaseEntity *b = CBaseEntity::Create( (char *)"monster_fpbody_buddy", spot, Vector( 0, pPlayer->pev->v_angle.y, 0 ), NULL );
 +	if ( b )
++	{
 +		( (CFPBuddy *)b )->m_flNextTeleport = gpGlobals->time + 2;
++#ifdef FPB_DECAY
++		// the map's "player 2 has spawned" triggers (trigger_clientspawn)
++		CBaseEntity *t = NULL;
++		while ( ( t = UTIL_FindEntityByClassname( t, "trigger_clientspawn" ) ) != NULL )
++			t->Use( b, b, USE_TOGGLE, 0 );
++#endif
++	}
 +}
++
++#ifdef FPB_DECAY
++// Decay's puzzles: 1 = Gina (the player), 2 = Colette, 0 = anyone else
++int FPDecay_Id( CBaseEntity *pEnt )
++{
++	if ( !pEnt )
++		return 0;
++	if ( pEnt->IsPlayer() )
++		return ( (CBasePlayer *)pEnt )->m_iDecayId;
++	if ( FClassnameIs( pEnt->pev, "monster_fpbody_buddy" ) )
++		return 2;
++	return 0;
++}
++
++#define FPB_SPECIFICPLAYER	256		// Decay's "check the player index" trigger flag
++
++static bool FPDecay_Inside( CBaseEntity *t, const Vector &p, float pad )
++{
++	return p.x >= t->pev->absmin.x - pad && p.x <= t->pev->absmax.x + pad &&
++		   p.y >= t->pev->absmin.y - pad && p.y <= t->pev->absmax.y + pad &&
++		   p.z >= t->pev->absmin.z - pad && p.z <= t->pev->absmax.z + pad;
++}
++
++// gina_inside -> colette_inside, cross_p1in -> cross_p2in, player1 -> player2
++static void FPDecay_Partner( const char *in, char *out, int size )
++{
++	static const char *const from[] = { "gina", "Gina", "p1", "P1", "player1" };
++	static const char *const to[] = { "colette", "Colette", "p2", "P2", "player2" };
++	out[ 0 ] = 0;
++	if ( !in || !in[ 0 ] )
++		return;
++	for ( int k = 0; k < 5; k++ )
++	{
++		const char *hit = strstr( in, from[ k ] );
++		if ( hit )
++		{
++			snprintf( out, size, "%.*s%s%s", (int)( hit - in ), in, to[ k ], hit + strlen( from[ k ] ) );
++			return;
++		}
++	}
++}
++
++// Colette's half of a puzzle: a "both players" trigger Gina stands in, or the
++// Colette trigger that pairs (by name) with the Gina trigger she stands in.
++// Colette runs there - or appears there if she can't get there in a few
++// seconds - and stays until Gina has left hers for a moment.
++bool CFPBuddy::DecayGoal( CBaseEntity *pPlayer )
++{
++	Vector pp = pPlayer->pev->origin;
++	CBaseEntity *goal = NULL;
++	static const char *const kinds[] = { "trigger_multiple", "trigger_once" };
++	for ( int k = 0; k < 2 && !goal; k++ )
++	{
++		CBaseEntity *t = NULL;
++		while ( !goal && ( t = UTIL_FindEntityByClassname( t, kinds[ k ] ) ) != NULL )
++		{
++			if ( !( t->pev->spawnflags & FPB_SPECIFICPLAYER ) || t->pev->solid == SOLID_NOT || !FPDecay_Inside( t, pp, 0 ) )
++				continue;
++			int idx = ( (CBaseToggle *)t )->m_iPlayerIndex;
++			if ( idx == 0 )
++				goal = t;			// both of us, here
++			else if ( idx == 1 )
++			{
++				char want[ 64 ], wantTarget[ 64 ];
++				FPDecay_Partner( STRING( t->pev->targetname ), want, sizeof( want ) );
++				FPDecay_Partner( STRING( t->pev->target ), wantTarget, sizeof( wantTarget ) );
++				for ( int j = 0; j < 2 && !goal; j++ )
++				{
++					CBaseEntity *u = NULL;
++					while ( ( u = UTIL_FindEntityByClassname( u, kinds[ j ] ) ) != NULL )
++					{
++						if ( !( u->pev->spawnflags & FPB_SPECIFICPLAYER ) || ( (CBaseToggle *)u )->m_iPlayerIndex != 2 || u->pev->solid == SOLID_NOT )
++							continue;
++						if ( ( want[ 0 ] && FStrEq( want, STRING( u->pev->targetname ) ) ) ||
++							 ( wantTarget[ 0 ] && FStrEq( wantTarget, STRING( u->pev->target ) ) ) )
++						{
++							goal = u;
++							break;
++						}
++					}
++				}
++			}
++		}
++	}
++	if ( goal )
++		m_flGoalSeen = gpGlobals->time;
++	else if ( m_hGoal != NULL && gpGlobals->time - m_flGoalSeen < 1.5 )
++		goal = m_hGoal;		// Gina stepped out for a moment
++	if ( !goal )
++	{
++		m_hGoal = NULL;
++		return false;
++	}
++	// where to stand: the middle of the trigger, on the floor
++	Vector c = ( goal->pev->absmin + goal->pev->absmax ) * 0.5;
++	TraceResult tr;
++	UTIL_TraceHull( Vector( c.x, c.y, goal->pev->absmax.z - 36 ), Vector( c.x, c.y, goal->pev->absmin.z - 64 ),
++		dont_ignore_monsters, human_hull, ENT( pev ), &tr );
++	Vector spot = tr.vecEndPos - Vector( 0, 0, 36 );
++	if ( (CBaseEntity *)m_hGoal != goal )
++	{
++		m_hGoal = goal;
++		m_flGoalTime = gpGlobals->time;
++		m_hTargetEnt = NULL;			// stop following
++		ClearSchedule();
++		MoveToLocation( ACT_RUN, 2, spot );
++	}
++	if ( FPDecay_Inside( goal, pev->origin + Vector( 0, 0, 36 ), 0 ) )
++		return true;					// there
++	if ( gpGlobals->time - m_flGoalTime > 4 && !tr.fStartSolid && !tr.fAllSolid )
++	{
++		SET_ORIGIN( ENT( pev ), spot );	// couldn't get there: appear there
++		pev->velocity = g_vecZero;
++		RouteClear();
++		ClearSchedule();
++		m_flGoalTime = gpGlobals->time;
++	}
++	return true;
++}
++#endif
 diff --git a/dlls/fpbody_moves.inl b/dlls/fpbody_moves.inl
 new file mode 100644
 index 0000000..950eb20
