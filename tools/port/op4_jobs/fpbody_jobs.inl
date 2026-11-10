@@ -118,6 +118,7 @@ static const FPJobEvt s_heal[] = {
 };
 
 #define FPJ_N( a ) ( (int)( sizeof( a ) / sizeof( a[ 0 ] ) ) )
+static int s_fpJobProps;		// 1 = p_torch, 2 = p_needle precached on this map (FPJobs_Precache)
 
 static const FPJobDef s_fpJobs[] = {
 	{ "of2a3", false, NULL, NULL, Vector( -1104, 448, 0 ), Vector( -1150, 418, 2 ), Vector( -1150, 478, 92 ),
@@ -470,7 +471,8 @@ void CBasePlayer::FPJobs_Think( void )
 			EMIT_SOUND( ENT( pev ), CHAN_ITEM, e.str, 1.0f, ATTN_NORM );
 			break;
 		case FJE_PROP:
-			pev->weaponmodel = e.str ? MAKE_STRING( e.str ) : iStringNull;
+			// a prop this map didn't precache: the client draws it
+			pev->weaponmodel = e.str && ( s_fpJobProps & ( strstr( e.str, "needle" ) ? 2 : 1 ) ) ? MAKE_STRING( e.str ) : iStringNull;
 			break;
 		case FJE_HEAL:
 			if ( m_hFPJobTarget != NULL && m_hFPJobTarget->IsAlive() )
@@ -519,10 +521,20 @@ void CBasePlayer::FPJobs_After( void )
 		m_iFPJob = 0;
 }
 
+// The props count against the map's 512 model limit (of4a4 went over it), so
+// they're precached only on the maps whose jobs use them; elsewhere the client
+// draws them itself (cl_dll/fpbody_anim.cpp, FPAnim_JobProp).
 void FPJobs_Precache( void )
 {
-	PRECACHE_MODEL( "models/p_torch.mdl" );
-	PRECACHE_MODEL( "models/p_needle.mdl" );
+	s_fpJobProps = 0;
+	const char *map = STRING( gpGlobals->mapname );
+	for ( int i = 0; i < FPJ_N( s_fpJobs ); i++ )
+		if ( map && !stricmp( map, s_fpJobs[ i ].map ) )
+			s_fpJobProps |= s_fpJobs[ i ].heal ? 2 : 1;
+	if ( s_fpJobProps & 1 )
+		PRECACHE_MODEL( "models/p_torch.mdl" );
+	if ( s_fpJobProps & 2 )
+		PRECACHE_MODEL( "models/p_needle.mdl" );
 	PRECACHE_SOUND( "fgrunt/torch_light.wav" );
 	PRECACHE_SOUND( "fgrunt/torch_cut_loop.wav" );
 	PRECACHE_SOUND( "fgrunt/medic_give_shot.wav" );

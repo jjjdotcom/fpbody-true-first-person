@@ -44,6 +44,7 @@ int FPAnim_RemapSelf( void );
 void FPAnim_SwimHold( const void *fromHdr, const void *toHdr, int srvSeq, int weaponmodel, int entindex, int *seq, int *gait );
 void FPAnim_DebugSeq( const void *fromHdr, const void *toHdr, int seq, int gait, int mseq, int mgait );
 void FPAnim_AdjustWeapon( void *studiohdr, float ( *bt )[ 3 ][ 4 ], float ( *lt )[ 3 ][ 4 ], struct model_s *weapon, int entindex );
+struct model_s *FPAnim_JobProp( int entindex );	// the Opposing Force job props when the server has none (fpbody_jobs.inl)
 // 1 while the renderer has the local entity's sequence translated into the drawn model
 extern int g_fpSeqRemapped;
 

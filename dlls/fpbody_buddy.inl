@@ -94,7 +94,18 @@ static int g_fpBuddyPrecached;
 
 void CFPBuddy::Precache( void )
 {
+#ifdef FPB_SDK_UPDATED
+	// CBarney's own, without models/barney.mdl: every model counts against the
+	// map's 512 limit (Opposing Force's of4a4 is right at it)
+	static const char *const snd[] = { "barney/ba_attack1.wav", "barney/ba_attack2.wav", "barney/ba_pain1.wav",
+		"barney/ba_pain2.wav", "barney/ba_pain3.wav", "barney/ba_die1.wav", "barney/ba_die2.wav", "barney/ba_die3.wav" };
+	for ( int i = 0; i < (int)( sizeof( snd ) / sizeof( snd[ 0 ] ) ); i++ )
+		PRECACHE_SOUND( (char *)snd[ i ] );
+	TalkInit();
+	CTalkMonster::Precache();
+#else
 	CBarney::Precache();
+#endif
 	PRECACHE_MODEL( (char *)FPB_MODEL );
 	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun1.wav" );
 	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun2.wav" );
@@ -103,9 +114,26 @@ void CFPBuddy::Precache( void )
 
 void CFPBuddy::Spawn( void )
 {
+#ifdef FPB_SDK_UPDATED
+	// CBarney::Spawn with our model (it sets models/barney.mdl, which we don't precache)
+	Precache();
+	SET_MODEL( ENT( pev ), FPB_MODEL );
+	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
+	pev->solid = SOLID_SLIDEBOX;
+	pev->movetype = MOVETYPE_STEP;
+	m_bloodColor = BLOOD_COLOR_RED;
+	pev->health = gSkillData.barneyHealth;
+	pev->view_ofs = Vector( 0, 0, 50 );
+	m_flFieldOfView = VIEW_FIELD_WIDE;
+	m_MonsterState = MONSTERSTATE_NONE;
+	pev->body = 0;
+	m_afCapability = bits_CAP_HEAR | bits_CAP_TURN_HEAD | bits_CAP_DOORS_GROUP;
+	MonsterInit();
+#else
 	CBarney::Spawn();
 	SET_MODEL( ENT( pev ), FPB_MODEL );
 	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
+#endif
 	pev->takedamage = DAMAGE_NO;		// invincible
 	m_fGunDrawn = true;					// the gun is always out
 	m_iWeapon = FPB_GUN_MP5;

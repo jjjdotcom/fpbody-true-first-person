@@ -1981,10 +1981,10 @@ index 0000000..ad1af3c
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..a341f53
+index 0000000..c8a764b
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4481 @@
+@@ -0,0 +1,4513 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -6466,12 +6466,44 @@ index 0000000..a341f53
 +{
 +	return g_ovSeq >= 0 && g_ovFull && g_ovKind == OVK_USER && cl_fpbody_actcam && cl_fpbody_actcam->value != 0.0f;
 +}
++
++// Opposing Force jobs: the torch / needle in the player's hand. The server
++// only precaches them on the maps whose scripted jobs need them (each counts
++// against the map's 512 model limit), so the rest of the time (crouch + use
++// to give any hurt friendly a shot) the client loads and draws them itself,
++// on the same timing as the server's job events (dlls/fpbody_jobs.inl).
++extern engine_studio_api_t IEngineStudio;
++struct model_s *FPAnim_JobProp( int entindex )
++{
++	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
++	if ( !local || entindex != local->index || g_ovSeq < 0 || g_ovKind != OVK_MOVE )
++		return NULL;
++	float t = gEngfuncs.GetClientTime() - g_ovStart;
++	const char *name = NULL;
++	if ( OverlayIs( "fm_job_heal" ) )
++		name = ( t >= 0.6f && t < 7.0f ) ? "models/p_needle.mdl" : NULL;
++	else if ( OverlayIs( "fm_job_pull_torch" ) )
++		name = t >= 1.3f ? "models/p_torch.mdl" : NULL;
++	else if ( OverlayIs( "fm_job_cut_door" ) || OverlayIs( "fm_job_cut_grate" ) || OverlayIs( "fm_job_open_grate" ) || OverlayIs( "fm_job_store_torch" ) )
++		name = "models/p_torch.mdl";
++	if ( !name )
++		return NULL;
++	static int state[ 2 ];
++	static struct model_s *cache[ 2 ];
++	int k = name[ 9 ] == 'n' ? 1 : 0;	// "models/p_n..."
++	if ( state[ k ] == 0 )
++	{
++		cache[ k ] = IEngineStudio.Mod_ForName( name, 0 );
++		state[ k ] = cache[ k ] ? 1 : -1;
++	}
++	return cache[ k ];
++}
 diff --git a/cl_dll/fpbody_anim.h b/cl_dll/fpbody_anim.h
 new file mode 100644
-index 0000000..8d5283b
+index 0000000..55a3cb8
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.h
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,69 @@
 +// fpbody_anim.h - procedural body animations for the "True First Person" mod.
 +//
 +// Half-Life's player.mdl has no reload / weapon-switch / use animations, so
@@ -6518,6 +6550,7 @@ index 0000000..8d5283b
 +void FPAnim_SwimHold( const void *fromHdr, const void *toHdr, int srvSeq, int weaponmodel, int entindex, int *seq, int *gait );
 +void FPAnim_DebugSeq( const void *fromHdr, const void *toHdr, int seq, int gait, int mseq, int mgait );
 +void FPAnim_AdjustWeapon( void *studiohdr, float ( *bt )[ 3 ][ 4 ], float ( *lt )[ 3 ][ 4 ], struct model_s *weapon, int entindex );
++struct model_s *FPAnim_JobProp( int entindex );	// the Opposing Force job props when the server has none (fpbody_jobs.inl)
 +// 1 while the renderer has the local entity's sequence translated into the drawn model
 +extern int g_fpSeqRemapped;
 +
@@ -7028,10 +7061,10 @@ index 38b0581..da7cf84 100644
  void CCrossbow::Holster( int skiplocal /* = 0 */ )
 diff --git a/dlls/fpbody_buddy.inl b/dlls/fpbody_buddy.inl
 new file mode 100644
-index 0000000..d4d2951
+index 0000000..6c00bf8
 --- /dev/null
 +++ b/dlls/fpbody_buddy.inl
-@@ -0,0 +1,346 @@
+@@ -0,0 +1,374 @@
 +// fpbody: the HEV companion (sv_fpbody_buddy 1).
 +//
 +// Included at the end of barney.cpp: monster_fpbody_buddy is a security guard
@@ -7128,7 +7161,18 @@ index 0000000..d4d2951
 +
 +void CFPBuddy::Precache( void )
 +{
++#ifdef FPB_SDK_UPDATED
++	// CBarney's own, without models/barney.mdl: every model counts against the
++	// map's 512 limit (Opposing Force's of4a4 is right at it)
++	static const char *const snd[] = { "barney/ba_attack1.wav", "barney/ba_attack2.wav", "barney/ba_pain1.wav",
++		"barney/ba_pain2.wav", "barney/ba_pain3.wav", "barney/ba_die1.wav", "barney/ba_die2.wav", "barney/ba_die3.wav" };
++	for ( int i = 0; i < (int)( sizeof( snd ) / sizeof( snd[ 0 ] ) ); i++ )
++		PRECACHE_SOUND( (char *)snd[ i ] );
++	TalkInit();
++	CTalkMonster::Precache();
++#else
 +	CBarney::Precache();
++#endif
 +	PRECACHE_MODEL( (char *)FPB_MODEL );
 +	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun1.wav" );
 +	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun2.wav" );
@@ -7137,9 +7181,26 @@ index 0000000..d4d2951
 +
 +void CFPBuddy::Spawn( void )
 +{
++#ifdef FPB_SDK_UPDATED
++	// CBarney::Spawn with our model (it sets models/barney.mdl, which we don't precache)
++	Precache();
++	SET_MODEL( ENT( pev ), FPB_MODEL );
++	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
++	pev->solid = SOLID_SLIDEBOX;
++	pev->movetype = MOVETYPE_STEP;
++	m_bloodColor = BLOOD_COLOR_RED;
++	pev->health = gSkillData.barneyHealth;
++	pev->view_ofs = Vector( 0, 0, 50 );
++	m_flFieldOfView = VIEW_FIELD_WIDE;
++	m_MonsterState = MONSTERSTATE_NONE;
++	pev->body = 0;
++	m_afCapability = bits_CAP_HEAR | bits_CAP_TURN_HEAD | bits_CAP_DOORS_GROUP;
++	MonsterInit();
++#else
 +	CBarney::Spawn();
 +	SET_MODEL( ENT( pev ), FPB_MODEL );
 +	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
++#endif
 +	pev->takedamage = DAMAGE_NO;		// invincible
 +	m_fGunDrawn = true;					// the gun is always out
 +	m_iWeapon = FPB_GUN_MP5;

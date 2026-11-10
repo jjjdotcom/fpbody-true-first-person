@@ -4479,3 +4479,35 @@ int FPAnim_ActCamActive( void )
 {
 	return g_ovSeq >= 0 && g_ovFull && g_ovKind == OVK_USER && cl_fpbody_actcam && cl_fpbody_actcam->value != 0.0f;
 }
+
+// Opposing Force jobs: the torch / needle in the player's hand. The server
+// only precaches them on the maps whose scripted jobs need them (each counts
+// against the map's 512 model limit), so the rest of the time (crouch + use
+// to give any hurt friendly a shot) the client loads and draws them itself,
+// on the same timing as the server's job events (dlls/fpbody_jobs.inl).
+extern engine_studio_api_t IEngineStudio;
+struct model_s *FPAnim_JobProp( int entindex )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( !local || entindex != local->index || g_ovSeq < 0 || g_ovKind != OVK_MOVE )
+		return NULL;
+	float t = gEngfuncs.GetClientTime() - g_ovStart;
+	const char *name = NULL;
+	if ( OverlayIs( "fm_job_heal" ) )
+		name = ( t >= 0.6f && t < 7.0f ) ? "models/p_needle.mdl" : NULL;
+	else if ( OverlayIs( "fm_job_pull_torch" ) )
+		name = t >= 1.3f ? "models/p_torch.mdl" : NULL;
+	else if ( OverlayIs( "fm_job_cut_door" ) || OverlayIs( "fm_job_cut_grate" ) || OverlayIs( "fm_job_open_grate" ) || OverlayIs( "fm_job_store_torch" ) )
+		name = "models/p_torch.mdl";
+	if ( !name )
+		return NULL;
+	static int state[ 2 ];
+	static struct model_s *cache[ 2 ];
+	int k = name[ 9 ] == 'n' ? 1 : 0;	// "models/p_n..."
+	if ( state[ k ] == 0 )
+	{
+		cache[ k ] = IEngineStudio.Mod_ForName( name, 0 );
+		state[ k ] = cache[ k ] ? 1 : -1;
+	}
+	return cache[ k ];
+}
