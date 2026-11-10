@@ -32,15 +32,19 @@ def main():
     ap.add_argument('--roots', default='')
     ap.add_argument('--tint', type=float, default=None)
     ap.add_argument('--sat', type=float, default=1.0)
+    ap.add_argument('--corners', default='1', help="merge_head.py's corners: 2 leaves the suit's own collar")
+    ap.add_argument('--own-skeleton', action='store_true', help='hls_body.py --own-skeleton (a suit model built that way)')
     a = ap.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
         body = os.path.join(tmp, 'helmet_body.mdl')
         cmd = [sys.executable, '-I', os.path.join(HERE, 'hls_body.py'), a.suit, a.helmet, body, a.ref, '--roots', a.roots]
         if a.tint is not None:
             cmd += ['--tint', str(a.tint), '--sat', str(a.sat)]
+        if a.own_skeleton:
+            cmd += ['--own-skeleton']
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
         merged = os.path.join(tmp, 'merged.mdl')
-        merge_head.main(a.suit, body, merged, '0', '1')
+        merge_head.main(a.suit, body, merged, '0', a.corners)
         compact(merged, a.out)
     print('wrote', a.out)
 

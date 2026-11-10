@@ -50,9 +50,50 @@ def emat(e):
     return quat_to_mat(euler_to_quat(*e))
 
 
-def build_skeleton(P, ref):
+def own_proportions(rt, P, ref, S):
+    """The source model's own joint positions in place of the Garry's Mod
+    player's (--own-skeleton): a model built smaller or slimmer (a woman) keeps
+    its neck, arms and hands together. Joints the model lacks (toes, some
+    fingers) keep the reference's offset from their parent, scaled to the
+    model's height; the direction corrections and height scale follow."""
+    _, Tsrc = S.bind_world()
+    old = rt.Ts0.copy()
+    pel, foot = retarget.VB + 'Pelvis', retarget.VB + 'L_Foot'
+    hr = old[ref.bone_by_name[pel]][2] - old[ref.bone_by_name[foot]][2]
+    hs = Tsrc[S.bone_by_name[pel]][2] - Tsrc[S.bone_by_name[foot]][2]
+    k = hs / hr
+    for i, b in enumerate(ref.bones):
+        j = S.bone_by_name.get(b['name'])
+        if j is not None:
+            rt.Ts0[i] = Tsrc[j]
+        elif b['parent'] >= 0:
+            rt.Ts0[i] = rt.Ts0[b['parent']] + (old[i] - old[b['parent']]) * k
+    for tn, sn in retarget.MAP:
+        ti = P.bone_by_name[tn]
+        ch = retarget.DIR_CHILD.get(tn)
+        if ch is None:
+            continue
+        ci = P.bone_by_name[ch]
+        dv = rt.Ts0[rt.src_of[ci]] - rt.Ts0[rt.src_of[ti]]
+        # a joint on top of its child (Extended Workforce: Spine4 on Spine2)
+        # has no direction: aim at the next joint along instead
+        while np.linalg.norm(dv) < 0.5 and retarget.DIR_CHILD.get(P.bones[ci]['name']):
+            ci = P.bone_by_name[retarget.DIR_CHILD[P.bones[ci]['name']]]
+            dv = rt.Ts0[rt.src_of[ci]] - rt.Ts0[rt.src_of[ti]]
+        rt.C[ti] = retarget.rot_between(rt.Tt0[ci] - rt.Tt0[ti], dv)
+    for tn, sn in retarget.MAP:
+        ti = P.bone_by_name[tn]
+        if retarget.DIR_CHILD.get(tn) is None:
+            rt.C[ti] = rt.C.get(P.bones[ti]['parent'], np.eye(3))
+    rt.scale /= k
+    print('own skeleton: height', round(k, 3), 'of the reference')
+
+
+def build_skeleton(P, ref, S=None):
     """New local positions and the bind pose (world R, T) of P's bones."""
     rt = PackRetargeter(ref, P, ref)
+    if S is not None:
+        own_proportions(rt, P, ref, S)
     rest = P.rest_local()
     n = P.numbones
     tgt_of_src = {}
@@ -367,6 +408,8 @@ def main():
     ap.add_argument('--hands-body', default='')
     ap.add_argument('--tint', type=float, default=None)
     ap.add_argument('--sat', type=float, default=1.0)
+    ap.add_argument('--own-skeleton', action='store_true',
+                    help="the source model's own proportions instead of the Garry's Mod player's")
     a = ap.parse_args()
 
     def parse(txt):
@@ -380,7 +423,7 @@ def main():
     ref = SourceModel(a.ref, a.ref[:-4].replace('_gmod', '') + '.ani')
     S = SourceMesh(a.source, [r for r in a.roots.split(',') if r])
 
-    rt, newpos, W, X = build_skeleton(P, ref)
+    rt, newpos, W, X = build_skeleton(P, ref, S if a.own_skeleton else None)
     seqs = existing_sequences(P)
     resequence(P, seqs, rt, newpos)
     tmp = a.out + '.tmp'
