@@ -239,6 +239,8 @@ static cvar_t *cl_fpbody_helmet;			// fp_helmet: 1 = the helmet is on (saved)
 static float g_helmetStart = -1.0f;			// fp_helmet: when the hands went up (-1 = not now)
 static int g_helmetTo;						// ... putting it on (1) or taking it off (0)
 static bool g_helmetSwapped;
+static float g_helmetProp[ 3 ][ 4 ];		// the helmet in the hands: world matrix (head's turn, between the hands)
+static bool g_helmetPropOn;
 #define HELMET_DUR		1.4f				// hands up, helmet on / off, hands down
 #define HELMET_SWAP		0.65f				// when the model changes (the hands are at the head)
 static void FP_HelmetCmd( void );
@@ -4192,7 +4194,33 @@ void FPAnim_ApplyBones( void *studiohdr, float ( *bone )[ 3 ][ 4 ], float ( *lig
 		ReachArm( bone, light, tl, w, false, 0.0f );
 		if ( weaponmodel <= 0 )
 			ReachArm( bone, light, tr, w, true, 0.0f );
+
+		// the helmet in the hands: in them until it's on, from when it's off
+		g_helmetPropOn = g_helmetTo ? t < HELMET_SWAP : t >= HELMET_SWAP;
+		if ( g_helmetPropOn && g_skel.lHand >= 0 )
+		{
+			float L[ 3 ], C[ 3 ];
+			BoneOrigin( light, g_skel.lHand, L );
+			if ( weaponmodel <= 0 && g_skel.rHand >= 0 )
+			{
+				float R[ 3 ];
+				BoneOrigin( light, g_skel.rHand, R );
+				for ( int i = 0; i < 3; i++ )
+					C[ i ] = ( L[ i ] + R[ i ] ) * 0.5f;
+			}
+			else
+				for ( int i = 0; i < 3; i++ )
+					C[ i ] = L[ i ] + r[ i ] * 8.0f;		// held by the left hand alone
+			for ( int i = 0; i < 3; i++ )
+			{
+				for ( int c = 0; c < 3; c++ )
+					g_helmetProp[ i ][ c ] = light[ headBone ][ i ][ c ];	// upright as on the head
+				g_helmetProp[ i ][ 3 ] = C[ i ] + u[ i ] * 4.0f;			// the palms hold it a little above the wrists
+			}
+		}
 	}
+	else
+		g_helmetPropOn = false;
 
 	// the forearms roll with the hands (one bone per vertex: see ShareWristTwist)
 	if ( !FPBody_Classic() && cl_fpbody_wristtwist && cl_fpbody_wristtwist->value > 0.0f )
@@ -4587,4 +4615,25 @@ static void FP_HelmetCmd( void )
 	g_helmetTo = FPAnim_HelmetOn() ? 0 : 1;
 	g_helmetStart = gEngfuncs.GetClientTime();
 	g_helmetSwapped = false;
+}
+
+int FPAnim_HelmetProp( int playerNumber, fpholster_t *out )
+{
+	static int state;			// 0 = not tried, 1 = loaded, -1 = missing
+	static struct model_s *prop;
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	if ( !g_helmetPropOn || g_helmetStart < 0.0f || !local || playerNumber != local->index )
+		return 0;
+	if ( state == 0 )
+	{
+		prop = IEngineStudio.Mod_ForName( "models/fpbody_helmet_prop.mdl", 0 );
+		state = prop ? 1 : -1;
+	}
+	if ( !prop )
+		return 0;
+	memset( out, 0, sizeof( *out ) );
+	out->model = prop;
+	out->anchor = -1;
+	out->local = (const float ( * )[ 4 ])g_helmetProp;
+	return 1;
 }

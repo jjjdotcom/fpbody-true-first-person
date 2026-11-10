@@ -1149,6 +1149,11 @@ int FPBody_GetHolsters( int playerNumber, int weaponmodel, void *playerStudioHdr
 
 void FPBody_HolsterMatrix( const fpholster_t *h, const float ( *playerLight )[ 3 ][ 4 ], float ( *out )[ 4 ] )
 {
+	if ( h->anchor < 0 )	// placed in the world already (the fp_helmet prop)
+	{
+		memcpy( out, h->local, sizeof( float ) * 12 );
+		return;
+	}
 	const float ( *A )[ 4 ] = playerLight[ h->anchor ];
 	float Lr[ 3 ][ 4 ];
 	const float ( *L )[ 4 ] = h->local;

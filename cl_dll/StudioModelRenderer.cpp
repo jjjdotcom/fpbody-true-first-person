@@ -2085,6 +2085,8 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 			studiohdr_t *playerHdr = (studiohdr_t *)IEngineStudio.Mod_Extradata( m_pRenderModel );
 			int numHolsters = IEngineStudio.IsHardware() ?
 				FPBody_GetHolsters( pplayer->number, pplayer->weaponmodel, playerHdr, holsters, FPBODY_MAX_HOLSTERS ) : 0;
+			if ( IEngineStudio.IsHardware() && numHolsters < FPBODY_MAX_HOLSTERS )
+				numHolsters += FPAnim_HelmetProp( pplayer->number, &holsters[ numHolsters ] );	// fp_helmet: the helmet in the hands
 			if ( numHolsters > 0 )
 			{
 				cl_entity_t saveent = *m_pCurrentEntity;

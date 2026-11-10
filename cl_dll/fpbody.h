@@ -60,6 +60,8 @@ int FPBody_Classic( void );
 int FPBody_IsSuited( void );
 // fp_helmet: the helmet is on (the suit models' <name>_helmet.mdl)
 int FPAnim_HelmetOn( void );
+// ... and the helmet in the hands while it goes on / comes off (anchor -1: local is the world matrix)
+int FPAnim_HelmetProp( int playerNumber, fpholster_t *out );
 
 // cl_fpbody_stabilize (0..1), also damps the head-rotation view wobble
 float FPBody_Stabilize( void );

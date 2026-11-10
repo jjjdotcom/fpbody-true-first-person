@@ -150,7 +150,7 @@ index 98013eb..e7238e8 100644
    ${COMMON_DIR}/parsemsg.cpp
    ${DLLS_DIR}/crossbow.cpp
 diff --git a/cl_dll/StudioModelRenderer.cpp b/cl_dll/StudioModelRenderer.cpp
-index ada72c7..23591db 100644
+index ada72c7..b35ddaa 100644
 --- a/cl_dll/StudioModelRenderer.cpp
 +++ b/cl_dll/StudioModelRenderer.cpp
 @@ -21,6 +21,59 @@
@@ -387,7 +387,7 @@ index ada72c7..23591db 100644
  
  			IEngineStudio.StudioSetupLighting (&lighting);
  
-@@ -1929,6 +2076,47 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1929,6 +2076,49 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  			StudioCalcAttachments( );
  
  			*m_pCurrentEntity = saveent;
@@ -400,6 +400,8 @@ index ada72c7..23591db 100644
 +			studiohdr_t *playerHdr = (studiohdr_t *)IEngineStudio.Mod_Extradata( m_pRenderModel );
 +			int numHolsters = IEngineStudio.IsHardware() ?
 +				FPBody_GetHolsters( pplayer->number, pplayer->weaponmodel, playerHdr, holsters, FPBODY_MAX_HOLSTERS ) : 0;
++			if ( IEngineStudio.IsHardware() && numHolsters < FPBODY_MAX_HOLSTERS )
++				numHolsters += FPAnim_HelmetProp( pplayer->number, &holsters[ numHolsters ] );	// fp_helmet: the helmet in the hands
 +			if ( numHolsters > 0 )
 +			{
 +				cl_entity_t saveent = *m_pCurrentEntity;
@@ -720,10 +722,10 @@ index 3f124ac..51d8203 100644
  }
 diff --git a/cl_dll/fpbody.cpp b/cl_dll/fpbody.cpp
 new file mode 100644
-index 0000000..27c283d
+index 0000000..48f03cc
 --- /dev/null
 +++ b/cl_dll/fpbody.cpp
-@@ -0,0 +1,1192 @@
+@@ -0,0 +1,1197 @@
 +// fpbody.cpp - "True first person" / body awareness for Half-Life.
 +//
 +// How it works
@@ -1875,6 +1877,11 @@ index 0000000..27c283d
 +
 +void FPBody_HolsterMatrix( const fpholster_t *h, const float ( *playerLight )[ 3 ][ 4 ], float ( *out )[ 4 ] )
 +{
++	if ( h->anchor < 0 )	// placed in the world already (the fp_helmet prop)
++	{
++		memcpy( out, h->local, sizeof( float ) * 12 );
++		return;
++	}
 +	const float ( *A )[ 4 ] = playerLight[ h->anchor ];
 +	float Lr[ 3 ][ 4 ];
 +	const float ( *L )[ 4 ] = h->local;
@@ -1918,10 +1925,10 @@ index 0000000..27c283d
 +}
 diff --git a/cl_dll/fpbody.h b/cl_dll/fpbody.h
 new file mode 100644
-index 0000000..c6dd98f
+index 0000000..73cdbd7
 --- /dev/null
 +++ b/cl_dll/fpbody.h
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,84 @@
 +// fpbody.h - "True first person" / body awareness for Half-Life.
 +//
 +// The engine draws the local player's third-person model (player.mdl and the
@@ -1984,6 +1991,8 @@ index 0000000..c6dd98f
 +int FPBody_IsSuited( void );
 +// fp_helmet: the helmet is on (the suit models' <name>_helmet.mdl)
 +int FPAnim_HelmetOn( void );
++// ... and the helmet in the hands while it goes on / comes off (anchor -1: local is the world matrix)
++int FPAnim_HelmetProp( int playerNumber, fpholster_t *out );
 +
 +// cl_fpbody_stabilize (0..1), also damps the head-rotation view wobble
 +float FPBody_Stabilize( void );
@@ -2006,10 +2015,10 @@ index 0000000..c6dd98f
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..b748c3d
+index 0000000..021ca80
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4590 @@
+@@ -0,0 +1,4639 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -2251,6 +2260,8 @@ index 0000000..b748c3d
 +static float g_helmetStart = -1.0f;			// fp_helmet: when the hands went up (-1 = not now)
 +static int g_helmetTo;						// ... putting it on (1) or taking it off (0)
 +static bool g_helmetSwapped;
++static float g_helmetProp[ 3 ][ 4 ];		// the helmet in the hands: world matrix (head's turn, between the hands)
++static bool g_helmetPropOn;
 +#define HELMET_DUR		1.4f				// hands up, helmet on / off, hands down
 +#define HELMET_SWAP		0.65f				// when the model changes (the hands are at the head)
 +static void FP_HelmetCmd( void );
@@ -6204,7 +6215,33 @@ index 0000000..b748c3d
 +		ReachArm( bone, light, tl, w, false, 0.0f );
 +		if ( weaponmodel <= 0 )
 +			ReachArm( bone, light, tr, w, true, 0.0f );
++
++		// the helmet in the hands: in them until it's on, from when it's off
++		g_helmetPropOn = g_helmetTo ? t < HELMET_SWAP : t >= HELMET_SWAP;
++		if ( g_helmetPropOn && g_skel.lHand >= 0 )
++		{
++			float L[ 3 ], C[ 3 ];
++			BoneOrigin( light, g_skel.lHand, L );
++			if ( weaponmodel <= 0 && g_skel.rHand >= 0 )
++			{
++				float R[ 3 ];
++				BoneOrigin( light, g_skel.rHand, R );
++				for ( int i = 0; i < 3; i++ )
++					C[ i ] = ( L[ i ] + R[ i ] ) * 0.5f;
++			}
++			else
++				for ( int i = 0; i < 3; i++ )
++					C[ i ] = L[ i ] + r[ i ] * 8.0f;		// held by the left hand alone
++			for ( int i = 0; i < 3; i++ )
++			{
++				for ( int c = 0; c < 3; c++ )
++					g_helmetProp[ i ][ c ] = light[ headBone ][ i ][ c ];	// upright as on the head
++				g_helmetProp[ i ][ 3 ] = C[ i ] + u[ i ] * 4.0f;			// the palms hold it a little above the wrists
++			}
++		}
 +	}
++	else
++		g_helmetPropOn = false;
 +
 +	// the forearms roll with the hands (one bone per vertex: see ShareWristTwist)
 +	if ( !FPBody_Classic() && cl_fpbody_wristtwist && cl_fpbody_wristtwist->value > 0.0f )
@@ -6599,6 +6636,27 @@ index 0000000..b748c3d
 +	g_helmetTo = FPAnim_HelmetOn() ? 0 : 1;
 +	g_helmetStart = gEngfuncs.GetClientTime();
 +	g_helmetSwapped = false;
++}
++
++int FPAnim_HelmetProp( int playerNumber, fpholster_t *out )
++{
++	static int state;			// 0 = not tried, 1 = loaded, -1 = missing
++	static struct model_s *prop;
++	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
++	if ( !g_helmetPropOn || g_helmetStart < 0.0f || !local || playerNumber != local->index )
++		return 0;
++	if ( state == 0 )
++	{
++		prop = IEngineStudio.Mod_ForName( "models/fpbody_helmet_prop.mdl", 0 );
++		state = prop ? 1 : -1;
++	}
++	if ( !prop )
++		return 0;
++	memset( out, 0, sizeof( *out ) );
++	out->model = prop;
++	out->anchor = -1;
++	out->local = (const float ( * )[ 4 ])g_helmetProp;
++	return 1;
 +}
 diff --git a/cl_dll/fpbody_anim.h b/cl_dll/fpbody_anim.h
 new file mode 100644
