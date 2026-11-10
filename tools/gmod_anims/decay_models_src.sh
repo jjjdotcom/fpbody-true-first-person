@@ -14,6 +14,7 @@
 #     (its skeleton, sequences, guns)
 # Usage: decay_models_src.sh <gina.mdl> <colette.mdl> <body choice> <bs models dir> <hl fpbody_hls_suit.mdl> <fpbody_buddy.mdl>
 #        <p_crowbar.mdl> <workshop dir> <m_anm_gmod.mdl> <out dir>
+# Optional: IDLE=<female idle pack .mdl> in the environment (see the end).
 # The results contain the games' model data: keep them local.
 set -e
 GINA=$1; COL=$2; BODY=$3; BS=$4; HLS=$5; BUDDY=$6; REFP=$7; W=$8; REF=$9
@@ -35,4 +36,12 @@ for m in fpbody_hls_suit fpbody_suit fpbody_classic_suit; do
   python3 -I "$T/make_helmet.py" "$OUT/$m.mdl" "$W/107768377/models/player/hl1/helmet.mdl" "$OUT/${m}_helmet.mdl" "$REF" --roots "$R" --tint 35 --sat 0.35 --own-skeleton
 done
 python3 -I "$T/make_helmet_prop.py" "$OUT/fpbody_hls_suit_helmet.mdl" "$REFP" "$OUT/fpbody_helmet_prop.mdl"
+# IDLE=<f_anm_slot_019.mdl> (Workshop 3270357830, [xdR] idle Re-animation2
+# female): the women's standing idle (add_idle.py)
+if [ -n "$IDLE" ]; then
+  for f in "$OUT"/fpbody_*suit*.mdl; do
+    python3 -I "$T/add_idle.py" "$f" "$f" "$IDLE" "$REF"
+  done
+  python3 -I "$T/add_idle.py" "$OUT/fpbody_colette.mdl" "$OUT/fpbody_colette.mdl" "$IDLE" "$REF" idle1,idle2,idle3,idle4
+fi
 rm -rf "$TMP"
