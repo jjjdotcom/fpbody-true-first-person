@@ -44,6 +44,11 @@
 #include "player.h"
 
 extern cvar_t sv_fpbody_buddy;
+extern cvar_t sv_fpbody_buddy_solid;
+// iuser4 tag: pm_shared leaves the companion out of the player's collision
+// (sv_fpbody_buddy_solid 0), so you walk through him
+#define FPB_PASSTHRU	0x46504253
+#define FPB_SETSOLID()	( pev->iuser4 = sv_fpbody_buddy_solid.value != 0 ? 0 : FPB_PASSTHRU )
 
 #ifdef FPB_DECAY
 #define FPB_MODEL		"models/fpbody_colette.mdl"
@@ -170,6 +175,7 @@ void CFPBuddy::Spawn( void )
 	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
 #endif
 	pev->takedamage = DAMAGE_NO;		// invincible
+	FPB_SETSOLID();
 	m_fGunDrawn = true;					// the gun is always out
 	m_iWeapon = FPB_GUN_MP5;
 	SetBodygroup( FPB_GUN_GROUP, m_iWeapon );
@@ -198,6 +204,7 @@ void CFPBuddy::ChooseWeapon( void )
 
 void CFPBuddy::RunAI( void )
 {
+	FPB_SETSOLID();
 	pev->takedamage = DAMAGE_NO;
 	m_fGunDrawn = true;
 	ChooseWeapon();

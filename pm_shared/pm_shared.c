@@ -3338,6 +3338,22 @@ void PM_Move ( struct playermove_s *ppmove, int server )
 
 	pmove = ppmove;
 	
+	// fpbody: the companion (iuser4 FPB_PASSTHRU, dlls/fpbody_buddy.inl) is left
+	// out of the player's collision: walk through him
+	{
+		int i, n = 1;
+		for ( i = 1; i < pmove->numphysent; i++ )
+		{
+			if ( pmove->physents[ i ].iuser4 == 0x46504253 )
+				continue;
+			if ( n != i )
+				pmove->physents[ n ] = pmove->physents[ i ];
+			n++;
+		}
+		if ( pmove->numphysent > 0 )
+			pmove->numphysent = n;
+	}
+
 	PM_PlayerMove( ( server != 0 ) ? true : false );
 
 	if ( pmove->onground != -1 )

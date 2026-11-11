@@ -2018,10 +2018,10 @@ index 0000000..73cdbd7
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..7093eaf
+index 0000000..47faf2d
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4713 @@
+@@ -0,0 +1,4741 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -6419,6 +6419,34 @@ index 0000000..7093eaf
 +			return;
 +		}
 +	}
++	// in the air: Garry's Mod's jump for the weapon in your hands (jump_<hold
++	// type>, as gm_jump_<hold> in the model: tools/gmod_anims/add_jumps.py);
++	// empty hands its "normal" hold's, jump_slam
++	if ( !stricmp( label, "jump" ) || !stricmp( label, "long_jump" ) )
++	{
++		static const char *jumps[][ 2 ] = {
++			{ "crowbar", "melee" }, { "pipe_wrench", "melee" }, { "knife", "knife" }, { "onehanded", "revolver" },
++			{ "python", "revolver" }, { "shotgun", "shotgun" }, { "mp5", "smg1" }, { "rifle", "smg1" },
++			{ "m249", "ar2" }, { "saw", "ar2" }, { "sniper", "ar2" }, { "bow", "crossbow" }, { "rpg", "rpg" },
++			{ "gauss", "physgun" }, { "egon", "physgun" }, { "displacer", "physgun" }, { "hive", "ar2" },
++			{ "squeak", "grenade" }, { "penguin", "grenade" }, { "grenade", "grenade" }, { "trip", "slam" },
++			{ "c4", "slam" }, { "bgrap", "pistol" },
++		};
++		const char *hold = "slam";
++		if ( weaponmodel > 0 && g_lastHoldExt[ 0 ] && stricmp( g_lastHoldExt, "unarmed" ) )
++		{
++			hold = "smg1";
++			for ( int i = 0; i < (int)( sizeof( jumps ) / sizeof( jumps[ 0 ] ) ); i++ )
++				if ( !stricmp( g_lastHoldExt, jumps[ i ][ 0 ] ) )
++					hold = jumps[ i ][ 1 ];
++		}
++		char want[ 48 ];
++		snprintf( want, sizeof( want ), "gm_jump_%s", hold );
++		int m = FindSeq( to, want );
++		if ( m >= 0 )
++			*seq = m;
++		return;
++	}
 +	if ( weaponmodel <= 0 || !g_lastHoldExt[ 0 ] || !cl_fpbody_swimhold || cl_fpbody_swimhold->value == 0.0f )
 +		return;
 +	if ( stricmp( label, "swim" ) && stricmp( label, "treadwater" ) )
@@ -7321,10 +7349,10 @@ index 38b0581..da7cf84 100644
  void CCrossbow::Holster( int skiplocal /* = 0 */ )
 diff --git a/dlls/fpbody_buddy.inl b/dlls/fpbody_buddy.inl
 new file mode 100644
-index 0000000..d64127b
+index 0000000..6cafad5
 --- /dev/null
 +++ b/dlls/fpbody_buddy.inl
-@@ -0,0 +1,618 @@
+@@ -0,0 +1,625 @@
 +// fpbody: the HEV companion (sv_fpbody_buddy 1).
 +//
 +// Included at the end of barney.cpp: monster_fpbody_buddy is a security guard
@@ -7371,6 +7399,11 @@ index 0000000..d64127b
 +#include "player.h"
 +
 +extern cvar_t sv_fpbody_buddy;
++extern cvar_t sv_fpbody_buddy_solid;
++// iuser4 tag: pm_shared leaves the companion out of the player's collision
++// (sv_fpbody_buddy_solid 0), so you walk through him
++#define FPB_PASSTHRU	0x46504253
++#define FPB_SETSOLID()	( pev->iuser4 = sv_fpbody_buddy_solid.value != 0 ? 0 : FPB_PASSTHRU )
 +
 +#ifdef FPB_DECAY
 +#define FPB_MODEL		"models/fpbody_colette.mdl"
@@ -7497,6 +7530,7 @@ index 0000000..d64127b
 +	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
 +#endif
 +	pev->takedamage = DAMAGE_NO;		// invincible
++	FPB_SETSOLID();
 +	m_fGunDrawn = true;					// the gun is always out
 +	m_iWeapon = FPB_GUN_MP5;
 +	SetBodygroup( FPB_GUN_GROUP, m_iWeapon );
@@ -7525,6 +7559,7 @@ index 0000000..d64127b
 +
 +void CFPBuddy::RunAI( void )
 +{
++	FPB_SETSOLID();
 +	pev->takedamage = DAMAGE_NO;
 +	m_fGunDrawn = true;
 +	ChooseWeapon();
@@ -8509,16 +8544,17 @@ index 0000000..c112e2f
 +
 +#endif
 diff --git a/dlls/game.cpp b/dlls/game.cpp
-index 7217e1e..afdd05e 100644
+index 7217e1e..21225cc 100644
 --- a/dlls/game.cpp
 +++ b/dlls/game.cpp
-@@ -40,6 +40,14 @@ cvar_t	teamoverride = {"mp_teamoverride","1" };
+@@ -40,6 +40,15 @@ cvar_t	teamoverride = {"mp_teamoverride","1" };
  cvar_t	defaultteam = {"mp_defaultteam","0" };
  cvar_t	allowmonsters={"mp_allowmonsters","0", FCVAR_SERVER };
  
 +cvar_t sv_buddha = { "sv_buddha", "1", FCVAR_ARCHIVE };	// fpbody: buddha mode (on by default; "buddha" toggles)
 +cvar_t sv_fpbody_anims = { "sv_fpbody_anims", "cz", FCVAR_ARCHIVE };	// fpbody: cz / cs player weapon animations
 +cvar_t sv_fpbody_buddy = { "sv_fpbody_buddy", "1", FCVAR_ARCHIVE };	// fpbody: 1 = the HEV companion
++cvar_t sv_fpbody_buddy_solid = { "sv_fpbody_buddy_solid", "0", FCVAR_ARCHIVE };	// fpbody: 1 = the companion blocks you (0: you walk through him)
 +cvar_t sv_fpbody_knockdown = { "sv_fpbody_knockdown", "1", FCVAR_ARCHIVE };	// fpbody: big enemies knock you down, small ones throw you back (fpbody_react.inl)
 +cvar_t sv_fpbody_regen = { "sv_fpbody_regen", "1", FCVAR_ARCHIVE };			// fpbody: health comes back by itself
 +cvar_t sv_fpbody_regen_delay = { "sv_fpbody_regen_delay", "5", FCVAR_ARCHIVE };	// seconds without getting hurt first
@@ -8527,13 +8563,14 @@ index 7217e1e..afdd05e 100644
  cvar_t  allow_spectators = { "allow_spectators", "0.0", FCVAR_SERVER };		// 0 prevents players from being spectators
  
  cvar_t  mp_chattime = {"mp_chattime","10", FCVAR_SERVER };
-@@ -523,6 +531,14 @@ void GameDLLInit( void )
+@@ -523,6 +532,15 @@ void GameDLLInit( void )
  
  	CVAR_REGISTER (&displaysoundlist);
  	CVAR_REGISTER( &allow_spectators );
 +	CVAR_REGISTER( &sv_buddha );
 +	CVAR_REGISTER( &sv_fpbody_anims );
 +	CVAR_REGISTER( &sv_fpbody_buddy );
++	CVAR_REGISTER( &sv_fpbody_buddy_solid );
 +	CVAR_REGISTER( &sv_fpbody_knockdown );
 +	CVAR_REGISTER( &sv_fpbody_regen );
 +	CVAR_REGISTER( &sv_fpbody_regen_delay );
@@ -9567,7 +9604,7 @@ index 0000000..cc9ca1f
 +		pmove->view_ofs[ 2 ] = 12.0f;		// got up from prone but still ducking (VEC_DUCK_VIEW)
 +}
 diff --git a/pm_shared/pm_shared.c b/pm_shared/pm_shared.c
-index 32ffcd5..72248b6 100644
+index 32ffcd5..b5aea24 100644
 --- a/pm_shared/pm_shared.c
 +++ b/pm_shared/pm_shared.c
 @@ -19,6 +19,7 @@
@@ -9608,3 +9645,26 @@ index 32ffcd5..72248b6 100644
  	
  	// Don't run ladder code if dead or on a train
  	if ( !pmove->dead && !(pmove->flags & FL_ONTRAIN) )
+@@ -3336,6 +3345,22 @@ void PM_Move ( struct playermove_s *ppmove, int server )
+ 
+ 	pmove = ppmove;
+ 	
++	// fpbody: the companion (iuser4 FPB_PASSTHRU, dlls/fpbody_buddy.inl) is left
++	// out of the player's collision: walk through him
++	{
++		int i, n = 1;
++		for ( i = 1; i < pmove->numphysent; i++ )
++		{
++			if ( pmove->physents[ i ].iuser4 == 0x46504253 )
++				continue;
++			if ( n != i )
++				pmove->physents[ n ] = pmove->physents[ i ];
++			n++;
++		}
++		if ( pmove->numphysent > 0 )
++			pmove->numphysent = n;
++	}
++
+ 	PM_PlayerMove( ( server != 0 ) ? true : false );
+ 
+ 	if ( pmove->onground != -1 )

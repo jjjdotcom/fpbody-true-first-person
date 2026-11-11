@@ -4395,6 +4395,34 @@ void FPAnim_SwimHold( const void *fromHdr, const void *toHdr, int srvSeq, int we
 			return;
 		}
 	}
+	// in the air: Garry's Mod's jump for the weapon in your hands (jump_<hold
+	// type>, as gm_jump_<hold> in the model: tools/gmod_anims/add_jumps.py);
+	// empty hands its "normal" hold's, jump_slam
+	if ( !stricmp( label, "jump" ) || !stricmp( label, "long_jump" ) )
+	{
+		static const char *jumps[][ 2 ] = {
+			{ "crowbar", "melee" }, { "pipe_wrench", "melee" }, { "knife", "knife" }, { "onehanded", "revolver" },
+			{ "python", "revolver" }, { "shotgun", "shotgun" }, { "mp5", "smg1" }, { "rifle", "smg1" },
+			{ "m249", "ar2" }, { "saw", "ar2" }, { "sniper", "ar2" }, { "bow", "crossbow" }, { "rpg", "rpg" },
+			{ "gauss", "physgun" }, { "egon", "physgun" }, { "displacer", "physgun" }, { "hive", "ar2" },
+			{ "squeak", "grenade" }, { "penguin", "grenade" }, { "grenade", "grenade" }, { "trip", "slam" },
+			{ "c4", "slam" }, { "bgrap", "pistol" },
+		};
+		const char *hold = "slam";
+		if ( weaponmodel > 0 && g_lastHoldExt[ 0 ] && stricmp( g_lastHoldExt, "unarmed" ) )
+		{
+			hold = "smg1";
+			for ( int i = 0; i < (int)( sizeof( jumps ) / sizeof( jumps[ 0 ] ) ); i++ )
+				if ( !stricmp( g_lastHoldExt, jumps[ i ][ 0 ] ) )
+					hold = jumps[ i ][ 1 ];
+		}
+		char want[ 48 ];
+		snprintf( want, sizeof( want ), "gm_jump_%s", hold );
+		int m = FindSeq( to, want );
+		if ( m >= 0 )
+			*seq = m;
+		return;
+	}
 	if ( weaponmodel <= 0 || !g_lastHoldExt[ 0 ] || !cl_fpbody_swimhold || cl_fpbody_swimhold->value == 0.0f )
 		return;
 	if ( stricmp( label, "swim" ) && stricmp( label, "treadwater" ) )
