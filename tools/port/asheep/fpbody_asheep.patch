@@ -722,10 +722,10 @@ index 3f124ac..51d8203 100644
  }
 diff --git a/cl_dll/fpbody.cpp b/cl_dll/fpbody.cpp
 new file mode 100644
-index 0000000..48f03cc
+index 0000000..f32eade
 --- /dev/null
 +++ b/cl_dll/fpbody.cpp
-@@ -0,0 +1,1197 @@
+@@ -0,0 +1,1200 @@
 +// fpbody.cpp - "True first person" / body awareness for Half-Life.
 +//
 +// How it works
@@ -861,6 +861,8 @@ index 0000000..48f03cc
 +	FPAnim_Init();
 +}
 +
++void FPAnim_ViewModelRate( void );
++
 +void FPBody_BeginFrame( struct ref_params_s *pparams )
 +{
 +	g_bFrameAllowed = 1;
@@ -882,6 +884,7 @@ index 0000000..48f03cc
 +		g_bHaveSmoothed = false;
 +	}
 +
++	FPAnim_ViewModelRate();					// cl_fpbody_reload_speed
 +	if ( FPBody_Active() )
 +		FPAnim_Frame( pparams );
 +}
@@ -2015,10 +2018,10 @@ index 0000000..73cdbd7
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..626c4a2
+index 0000000..c8eff56
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4630 @@
+@@ -0,0 +1,4705 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -2057,7 +2060,9 @@ index 0000000..626c4a2
 +//                            tilted down in our own view (0 = as in Condition Zero)
 +//   cl_fpbody_glreload  1    reload the 9mmAR grenade launcher after every shot (body animation)
 +//   cl_fpbody_pickup    1    bend down and grab anything you pick up (ammo, weapons, health, batteries, items)
-+//   cl_fpbody_freemanreload 1  GMod mode: the Freeman mod's (Garry's Mod's) reloads for every gun
++//   cl_fpbody_freemanreload 1  GMod mode: the Freeman mod's reloads for every gun
++//   cl_fpbody_reload_speed 1   reload speed for every gun: 0.5 = half speed (the reload takes
++//                            twice as long, body and view model slowed to match), 0.1 - 4
 +//   fp_helmet                 put the HEV helmet on / take it off (hands to the head; the suit's
 +//                             <name>_helmet.mdl while it's on); cl_fpbody_helmet 1 = it's on
 +//                            that has one, before the Left 4 Dead / Counter-Strike: Source ones
@@ -2170,6 +2175,7 @@ index 0000000..626c4a2
 +static cvar_t *cl_fpbody_glreload;
 +static cvar_t *cl_fpbody_l4dreload;
 +static cvar_t *cl_fpbody_freemanreload;
++static cvar_t *cl_fpbody_reload_speed;
 +static cvar_t *cl_fpbody_pickup;
 +static bool g_pickupPending;			// the HUD got a pickup message
 +static float g_pickupUntil;			// the pickup reach is playing
@@ -2539,6 +2545,7 @@ index 0000000..626c4a2
 +	cl_fpbody_reloadset = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloadset", "css", FCVAR_ARCHIVE );
 +	cl_fpbody_l4dreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_l4dreload", "1", FCVAR_ARCHIVE );
 +	cl_fpbody_freemanreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_freemanreload", "1", FCVAR_ARCHIVE );
++	cl_fpbody_reload_speed = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reload_speed", "1", FCVAR_ARCHIVE );
 +	cl_fpbody_pickup    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pickup", "1", FCVAR_ARCHIVE );
 +	cl_fpbody_gunlower  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gunlower", "20", FCVAR_ARCHIVE );
 +	cl_fpbody_grip_fwd  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_fwd", "0", FCVAR_ARCHIVE );
@@ -2733,6 +2740,26 @@ index 0000000..626c4a2
 +	g_cur = c;
 +}
 +
++// cl_fpbody_reload_speed: how many times longer a reload takes
++static float ReloadScale( void )
++{
++	float s = cl_fpbody_reload_speed ? cl_fpbody_reload_speed->value : 1.0f;
++	if ( s <= 0.0f )
++		return 1.0f;
++	return 1.0f / Clamp( s, 0.1f, 4.0f );
++}
++
++// the same for the client's weapon prediction (dlls/fpbody_reload.h)
++float FPReloadSpeedCvar( void )
++{
++	return cl_fpbody_reload_speed ? cl_fpbody_reload_speed->value : 1.0f;
++}
++
++static bool IsReloadClip( int type )
++{
++	return type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL;
++}
++
 +static void HandleWeaponAnim( model_t *model, int iAnim )
 +{
 +	if ( !model || model->type != mod_studio )
@@ -2753,6 +2780,8 @@ index 0000000..626c4a2
 +	int variant;
 +	float strength;
 +	int type = Classify( modelName, seqName, &variant, &strength );
++	if ( IsReloadClip( type ) )
++		seqDur *= ReloadScale();				// cl_fpbody_reload_speed: the view model is slowed as much
 +
 +	// 9mmAR grenade launcher: the kick, then a reload of the launcher after every
 +	// shot (the view model has no reload for it)
@@ -2825,15 +2854,28 @@ index 0000000..626c4a2
 +		}
 +	}
 +
-+	// The Freeman mod's reloads (Garry's Mod's reload gestures) first: every gun
-+	// with a close match; the shotgun inserts each shell with Garry's Mod's
-+	// shotgun reload. cl_fpbody_freemanreload 0 = Left 4 Dead / CS:S first.
-+	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL ) && g_bGmodModel && g_playerHdr &&
-+		 cl_fpbody_gmod->value != 0.0f && cl_fpbody_freemanreload->value != 0.0f && !MoveBusy() )
++	// The Freeman mod's reloads first (Half-Life 2: Freeman with its default
++	// Counter-Strike: Source stance, hl2_pm_stance css): the Glock and the Desert
++	// Eagle Garry's Mod's pistol reload, the .357 its revolver reload, the 9mmAR
++	// the MP5's, the crossbow and the sniper rifle the sniper's, the M249 and the
++	// RPG the M249 box; the shotgun Counter-Strike: Source's shell inserts, then
++	// the end of Garry's Mod's shotgun reload for the pump. A model without one
++	// falls back to Garry's Mod's. cl_fpbody_freemanreload 0 = Left 4 Dead /
++	// Counter-Strike: Source first.
++	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL || type == CLIP_PUMP ) && g_bGmodModel &&
++		 g_playerHdr && cl_fpbody_gmod->value != 0.0f && cl_fpbody_freemanreload->value != 0.0f && !MoveBusy() )
 +	{
-+		const char *gm = NULL;
++		const char *fm = NULL, *gm = NULL;
++		bool pump = false;
 +		if ( Has( modelName, "v_shotgun" ) )
-+			gm = ( type == CLIP_SHELL_START || type == CLIP_SHELL ) ? "gm_reload_shotgun" : NULL;
++		{
++			if ( type == CLIP_SHELL_START )
++				fm = "css_reload_shotgun_start", gm = "gm_reload_shotgun";
++			else if ( type == CLIP_SHELL )
++				fm = "css_reload_shotgun_loop", gm = "gm_reload_shotgun";
++			else if ( type == CLIP_PUMP && FindSeq( g_playerHdr, "css_reload_shotgun_loop" ) >= 0 )
++				gm = "gm_reload_shotgun", pump = true;
++		}
 +		else if ( type == CLIP_RELOAD )
 +		{
 +			if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_desert_eagle" ) )
@@ -2841,15 +2883,21 @@ index 0000000..626c4a2
 +			else if ( Has( modelName, "v_357" ) )
 +				gm = "gm_reload_revolver";
 +			else if ( Has( modelName, "v_9mmar" ) )
-+				gm = "gm_reload_smg1";
-+			else if ( Has( modelName, "v_crossbow" ) || Has( modelName, "v_m40a1" ) || Has( modelName, "v_saw" ) )
-+				gm = "gm_reload_ar2";
-+			else if ( Has( modelName, "v_rpg" ) || Has( modelName, "v_spore_launcher" ) )
++				fm = "css_reload_smg", gm = "gm_reload_smg1";
++			else if ( Has( modelName, "v_crossbow" ) || Has( modelName, "v_m40a1" ) )
++				fm = "css_reload_sniper", gm = "gm_reload_ar2";
++			else if ( Has( modelName, "v_saw" ) || Has( modelName, "v_rpg" ) )
++				fm = "css_reload_m249", gm = Has( modelName, "v_rpg" ) ? "gm_reload_smg1_alt" : "gm_reload_ar2";
++			else if ( Has( modelName, "v_spore_launcher" ) )
 +				gm = "gm_reload_smg1_alt";
 +		}
-+		if ( gm && FindSeq( g_playerHdr, gm ) >= 0 && StartOverlay( gm, false, seqDur ) )
++		const char *name = ( fm && FindSeq( g_playerHdr, fm ) >= 0 ) ? fm : gm;
++		if ( name && FindSeq( g_playerHdr, name ) >= 0 && StartOverlay( name, false, pump ? 0.0f : seqDur ) )
 +		{
-+			g_ovLoop = false;
++			g_ovLoop = false;							// one shell per insert
++			if ( pump )
++				g_ovStart -= 0.7f * g_ovDur;			// just the pump at the end
++			g_l4dShellAt = ( type == CLIP_SHELL_START || type == CLIP_SHELL ) ? g_now : -10.0f;
 +			StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
 +			return;
 +		}
@@ -3051,6 +3099,36 @@ index 0000000..626c4a2
 +	FPDbg( "weapon anim %d on %s\n", iAnim, model ? model->name : "(no model)" );
 +
 +	HandleWeaponAnim( model, iAnim );
++}
++
++// cl_fpbody_reload_speed: the view model's reload animations play slower (or
++// faster) to match the reload's length. Every frame, body mode or not.
++void FPAnim_ViewModelRate( void )
++{
++	cl_entity_t *view = gEngfuncs.GetViewModel();
++	if ( !view || !view->model || view->model->type != mod_studio )
++		return;
++	studiohdr_t *hdr = (studiohdr_t *)IEngineStudio.Mod_Extradata( view->model );
++	if ( !hdr || view->curstate.sequence < 0 || view->curstate.sequence >= hdr->numseq )
++		return;
++	mstudioseqdesc_t *seq = (mstudioseqdesc_t *)( (byte *)hdr + hdr->seqindex ) + view->curstate.sequence;
++	char seqName[ 32 ], modelName[ 64 ];
++	Lower( seq->label, seqName, sizeof( seqName ) );
++	Lower( view->model->name, modelName, sizeof( modelName ) );
++	int variant;
++	float strength;
++	static bool s_slowed;
++	float k = ReloadScale();
++	if ( IsReloadClip( Classify( modelName, seqName, &variant, &strength ) ) && ( k < 0.99f || k > 1.01f ) )
++	{
++		view->curstate.framerate = 1.0f / k;
++		s_slowed = true;
++	}
++	else if ( s_slowed )
++	{
++		view->curstate.framerate = 1.0f;		// back to normal after the reload
++		s_slowed = false;
++	}
 +}
 +
 +// Fallback when client weapon prediction is off (cl_lw 0): watch the view
@@ -6452,7 +6530,7 @@ index 0000000..626c4a2
 +
 +	g_ovSeq = seq;
 +	g_ovStart = gEngfuncs.GetClientTime();
-+	g_ovRate = ( wantDur > 0.05f ) ? Clamp( dur / wantDur, 0.5f, 2.0f ) : 1.0f;
++	g_ovRate = ( wantDur > 0.05f ) ? Clamp( dur / wantDur, 0.2f, 2.0f ) : 1.0f;
 +	g_ovDur = dur / g_ovRate;
 +	g_ovLoop = ( sd->flags & STUDIO_LOOPING ) != 0;
 +	g_ovFull = !IsUpperBodyAct( sd->label );
@@ -6946,7 +7024,7 @@ index f75b2f4..b49f71e 100644
  	vec3_t vecFrom;
  
 diff --git a/cl_dll/hl/hl_weapons.cpp b/cl_dll/hl/hl_weapons.cpp
-index 82b9967..f8c51d3 100644
+index 82b9967..da86bd8 100644
 --- a/cl_dll/hl/hl_weapons.cpp
 +++ b/cl_dll/hl/hl_weapons.cpp
 @@ -46,6 +46,12 @@ static globalvars_t	Globals;
@@ -6961,6 +7039,29 @@ index 82b9967..f8c51d3 100644
 +
  float g_flApplyVel = 0.0;
  int   g_irunninggausspred = 0;
+ 
+@@ -683,6 +689,8 @@ HUD_WeaponsPostThink
+ Run Weapon firing code on client
+ =====================
+ */
++#include "fpbody_reload.h"	// cl_fpbody_reload_speed
++
+ void HUD_WeaponsPostThink( local_state_s *from, local_state_s *to, usercmd_t *cmd, double time, unsigned int random_seed )
+ {
+ 	int i;
+@@ -920,7 +928,12 @@ void HUD_WeaponsPostThink( local_state_s *from, local_state_s *to, usercmd_t *cm
+ 	{
+ 		if ( !player.IsSwitchingWeapon() && player.m_flNextAttack <= 0 )
+ 		{
+-			pWeapon->ItemPostFrame();
++			{
++				FPReloadSnap fps;
++				FPReloadBefore( pWeapon, &player, fps );
++				pWeapon->ItemPostFrame();
++				FPReloadAfter( pWeapon, &player, fps );	// cl_fpbody_reload_speed
++			}
+ 		}
+ 	}
  
 diff --git a/cl_dll/hud.h b/cl_dll/hud.h
 index 385c1d2..fdbf903 100644
@@ -8334,6 +8435,71 @@ index 0000000..8b92c68
 +	if ( s_fpKnockNext - gpGlobals->time > FPR_KNOCK_DUR + FPR_KNOCK_COOLDOWN + 1.0f )
 +		s_fpKnockNext = 0.0f;
 +}
+diff --git a/dlls/fpbody_reload.h b/dlls/fpbody_reload.h
+new file mode 100644
+index 0000000..c112e2f
+--- /dev/null
++++ b/dlls/fpbody_reload.h
+@@ -0,0 +1,59 @@
++// fpbody: cl_fpbody_reload_speed - reloads take 1 / speed as long (0.5 = twice as long).
++// The timers a weapon sets while it is reloading are stretched; called round
++// the weapon's ItemPostFrame on the server (player.cpp) and in the client's
++// prediction (cl_dll/hl/hl_weapons.cpp) alike, so the two stay in step.
++#ifndef FPBODY_RELOAD_H
++#define FPBODY_RELOAD_H
++
++#ifdef CLIENT_DLL
++float FPReloadSpeedCvar( void );		// cl_dll/fpbody_anim.cpp
++#endif
++
++inline float FPReloadScale( void )
++{
++#ifdef CLIENT_DLL
++	float s = FPReloadSpeedCvar();
++#else
++	float s = CVAR_GET_FLOAT( "cl_fpbody_reload_speed" );
++#endif
++	if ( s <= 0.0f )
++		return 1.0f;					// not set (a dedicated server)
++	if ( s < 0.1f ) s = 0.1f;
++	if ( s > 4.0f ) s = 4.0f;
++	return 1.0f / s;
++}
++
++struct FPReloadSnap
++{
++	float nextAttack, idle, nextPrimary, nextSecondary;
++	int inReload, inSpecial;
++};
++
++inline void FPReloadBefore( CBasePlayerWeapon *w, CBasePlayer *pl, FPReloadSnap &s )
++{
++	s.nextAttack = pl->m_flNextAttack;
++	s.idle = w->m_flTimeWeaponIdle;
++	s.nextPrimary = w->m_flNextPrimaryAttack;
++	s.nextSecondary = w->m_flNextSecondaryAttack;
++	s.inReload = w->m_fInReload;
++	s.inSpecial = w->m_fInSpecialReload;
++}
++
++inline void FPReloadAfter( CBasePlayerWeapon *w, CBasePlayer *pl, const FPReloadSnap &s )
++{
++	float k = FPReloadScale();
++	if ( k > 0.99f && k < 1.01f )
++		return;
++	if ( !w->m_fInReload && !w->m_fInSpecialReload )
++		return;							// not reloading (or just finished)
++	float t = UTIL_WeaponTimeBase();
++	// a timer the weapon set this frame, while reloading: stretch what is left of it
++#define FPR_STRETCH( v, old ) if ( ( v ) != ( old ) && ( v ) > t ) ( v ) = t + ( ( v ) - t ) * k
++	FPR_STRETCH( pl->m_flNextAttack, s.nextAttack );
++	FPR_STRETCH( w->m_flTimeWeaponIdle, s.idle );
++	FPR_STRETCH( w->m_flNextPrimaryAttack, s.nextPrimary );
++	FPR_STRETCH( w->m_flNextSecondaryAttack, s.nextSecondary );
++#undef FPR_STRETCH
++}
++
++#endif
 diff --git a/dlls/game.cpp b/dlls/game.cpp
 index 7217e1e..afdd05e 100644
 --- a/dlls/game.cpp
@@ -8427,7 +8593,7 @@ index 41f0d8f..a181e09 100644
  
  	// govern the rate of charge
 diff --git a/dlls/player.cpp b/dlls/player.cpp
-index 7ac2e0c..620270c 100644
+index 7ac2e0c..06d386b 100644
 --- a/dlls/player.cpp
 +++ b/dlls/player.cpp
 @@ -105,6 +105,7 @@ TYPEDESCRIPTION	CBasePlayer::m_playerSaveData[] =
@@ -8555,7 +8721,31 @@ index 7ac2e0c..620270c 100644
  	switch (iImpulse)
  	{
  	case 99:
-@@ -3945,7 +3988,7 @@ void CBasePlayer::SendAmmoUpdate(void)
+@@ -3870,6 +3913,8 @@ ItemPostFrame
+ Called every frame by the player PostThink
+ ============
+ */
++#include "fpbody_reload.h"	// cl_fpbody_reload_speed
++
+ void CBasePlayer::ItemPostFrame()
+ {
+ 	static int fInSelect = FALSE;
+@@ -3897,7 +3942,13 @@ void CBasePlayer::ItemPostFrame()
+ 	if (!m_pActiveItem)
+ 		return;
+ 
+-	m_pActiveItem->ItemPostFrame( );
++	{
++		CBasePlayerWeapon *fpw = (CBasePlayerWeapon *)m_pActiveItem->GetWeaponPtr();
++		FPReloadSnap fps;
++		if ( fpw ) FPReloadBefore( fpw, this, fps );
++		m_pActiveItem->ItemPostFrame();
++		if ( fpw ) FPReloadAfter( fpw, this, fps );	// cl_fpbody_reload_speed
++	}
+ }
+ 
+ int CBasePlayer::AmmoInventory( int iAmmoIndex )
+@@ -3945,7 +3996,7 @@ void CBasePlayer::SendAmmoUpdate(void)
  			// send "Ammo" update message
  			MESSAGE_BEGIN( MSG_ONE, gmsgAmmoX, NULL, pev );
  				WRITE_BYTE( i );
@@ -8564,7 +8754,7 @@ index 7ac2e0c..620270c 100644
  			MESSAGE_END();
  		}
  	}
-@@ -3962,6 +4005,8 @@ ForceClientDllUpdate to ensure the demo gets messages
+@@ -3962,6 +4013,8 @@ ForceClientDllUpdate to ensure the demo gets messages
  reflecting all of the HUD state info.
  =========================================================
  */
@@ -8573,7 +8763,7 @@ index 7ac2e0c..620270c 100644
  void CBasePlayer :: UpdateClientData( void )
  {
  	if (m_fInitHUD)
-@@ -4063,7 +4108,7 @@ void CBasePlayer :: UpdateClientData( void )
+@@ -4063,7 +4116,7 @@ void CBasePlayer :: UpdateClientData( void )
  		}
  
  		// only send down damage type that have hud art
@@ -8582,7 +8772,7 @@ index 7ac2e0c..620270c 100644
  
  		MESSAGE_BEGIN( MSG_ONE, gmsgDamage, NULL, pev );
  			WRITE_BYTE( pev->dmg_save );
-@@ -4163,9 +4208,9 @@ void CBasePlayer :: UpdateClientData( void )
+@@ -4163,9 +4216,9 @@ void CBasePlayer :: UpdateClientData( void )
  			MESSAGE_BEGIN( MSG_ONE, gmsgWeaponList, NULL, pev );  
  				WRITE_STRING(pszName);			// string	weapon name
  				WRITE_BYTE(GetAmmoIndex(II.pszAmmo1));	// byte		Ammo Type
@@ -8594,7 +8784,7 @@ index 7ac2e0c..620270c 100644
  				WRITE_BYTE(II.iSlot);					// byte		bucket
  				WRITE_BYTE(II.iPosition);				// byte		bucket pos
  				WRITE_BYTE(II.iId);						// byte		id (bit index into pev->weapons)
-@@ -4906,3 +4951,5 @@ void CInfoIntermission::Think ( void )
+@@ -4906,3 +4959,5 @@ void CInfoIntermission::Think ( void )
  
  LINK_ENTITY_TO_CLASS( info_intermission, CInfoIntermission );
  
