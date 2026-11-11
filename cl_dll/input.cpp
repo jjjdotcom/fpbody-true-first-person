@@ -41,6 +41,7 @@ void VectorAngles( const float *forward, float *angles );
 int CL_ButtonBits( int );
 int FPBody_SprintAllowed( int bits );	// fpbody: sprint (cl_dll/fpbody_anim.cpp)
 void FPBody_DuckPressed( int fresh );	// fpbody: double-tap duck = prone
+void FPBody_SpeedPressed( int fresh );	// fpbody: double-tap walk (Shift / LB) = prone
 void FPBody_ReloadPressed( int fresh );	// fpbody: double-tap reload = holster all
 
 // xxx need client dll function to get and clear impuse
@@ -444,7 +445,7 @@ void IN_MoverightUp(void)
 	KeyUp(&in_moveright);
 	gHUD.m_Spectator.HandleButtonsUp( IN_MOVERIGHT );
 }
-void IN_SpeedDown(void) {KeyDown(&in_speed);}
+void IN_SpeedDown(void) {FPBody_SpeedPressed( !( in_speed.state & 1 ) );	/* fpbody */ KeyDown(&in_speed);}
 void IN_SpeedUp(void) {KeyUp(&in_speed);}
 void IN_StrafeDown(void) {KeyDown(&in_strafe);}
 void IN_StrafeUp(void) {KeyUp(&in_strafe);}

@@ -64,7 +64,7 @@
 //                            falls, landings, slide, draws)
 //   cl_fpbody_atease    1    lower the gun after a few quiet seconds (at ease)
 //   cl_fpbody_atease_delay 4 seconds without shooting, reloading or getting hurt
-//   cl_fpbody_doubletap 1    double-tap duck = prone, double-tap reload = holster all
+//   cl_fpbody_doubletap 1    double-tap walk (Shift / LB) = prone, double-tap reload = holster all
 //   cl_fpbody_epa       1    ExtendedER Player Animations: fidgets, pickups, panic, flinches,
 //                            climbing off ladders, raising the gun when a hostile is in view
 //   cl_fpbody_epa_fidget_idle 3    seconds standing around before fidgets can start
@@ -82,7 +82,7 @@
 //
 // Console commands (the Freeman mod's moves; bound in fpbody's autoexec.cfg)
 //   pm_kick           kick (look down to stomp, jump first for a drop kick)
-//   pm_prone          lie down / get up (or double-tap duck)
+//   pm_prone          lie down / get up (or double-tap walk: Shift / LB)
 //   pm_atease         lower / raise the gun
 //   pm_holster        put the gun away (empty hands); again, or fire, takes it out
 //   Vaulting: jump at a ledge or low wall holding forward. Wall climbing: jump at
@@ -1905,7 +1905,12 @@ static bool DoubleTap( float &last )
 	return false;
 }
 
+// prone is a double-tap of walk (+speed: Shift, LB on a controller), not of duck
 void FPBody_DuckPressed( int fresh )
+{
+}
+
+void FPBody_SpeedPressed( int fresh )
 {
 	if ( FPM_ENABLE_PRONE && fresh && cl_fpbody_doubletap && cl_fpbody_doubletap->value != 0.0f && FPBody_Active() &&
 		 DoubleTap( g_mvLastDuck ) )
@@ -1928,7 +1933,7 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	g_mvOnGround = onground;
 	Sprint_Frame( st );
 
-	// double-taps (duck = prone, reload = holster all) are caught as the keys go
+	// double-taps (walk = prone, reload = holster all) are caught as the keys go
 	// down, in FPBody_DuckPressed / FPBody_ReloadPressed (input.cpp)
 	bool reloadDown = ( in_reload.state & 1 ) != 0;
 

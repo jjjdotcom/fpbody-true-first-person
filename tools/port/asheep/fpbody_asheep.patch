@@ -2048,10 +2048,10 @@ index 0000000..73cdbd7
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..47faf2d
+index 0000000..39ac13a
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4741 @@
+@@ -0,0 +1,4746 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -2118,7 +2118,7 @@ index 0000000..47faf2d
 +//                            falls, landings, slide, draws)
 +//   cl_fpbody_atease    1    lower the gun after a few quiet seconds (at ease)
 +//   cl_fpbody_atease_delay 4 seconds without shooting, reloading or getting hurt
-+//   cl_fpbody_doubletap 1    double-tap duck = prone, double-tap reload = holster all
++//   cl_fpbody_doubletap 1    double-tap walk (Shift / LB) = prone, double-tap reload = holster all
 +//   cl_fpbody_epa       1    ExtendedER Player Animations: fidgets, pickups, panic, flinches,
 +//                            climbing off ladders, raising the gun when a hostile is in view
 +//   cl_fpbody_epa_fidget_idle 3    seconds standing around before fidgets can start
@@ -2136,7 +2136,7 @@ index 0000000..47faf2d
 +//
 +// Console commands (the Freeman mod's moves; bound in fpbody's autoexec.cfg)
 +//   pm_kick           kick (look down to stomp, jump first for a drop kick)
-+//   pm_prone          lie down / get up (or double-tap duck)
++//   pm_prone          lie down / get up (or double-tap walk: Shift / LB)
 +//   pm_atease         lower / raise the gun
 +//   pm_holster        put the gun away (empty hands); again, or fire, takes it out
 +//   Vaulting: jump at a ledge or low wall holding forward. Wall climbing: jump at
@@ -3959,7 +3959,12 @@ index 0000000..47faf2d
 +	return false;
 +}
 +
++// prone is a double-tap of walk (+speed: Shift, LB on a controller), not of duck
 +void FPBody_DuckPressed( int fresh )
++{
++}
++
++void FPBody_SpeedPressed( int fresh )
 +{
 +	if ( FPM_ENABLE_PRONE && fresh && cl_fpbody_doubletap && cl_fpbody_doubletap->value != 0.0f && FPBody_Active() &&
 +		 DoubleTap( g_mvLastDuck ) )
@@ -3982,7 +3987,7 @@ index 0000000..47faf2d
 +	g_mvOnGround = onground;
 +	Sprint_Frame( st );
 +
-+	// double-taps (duck = prone, reload = holster all) are caught as the keys go
++	// double-taps (walk = prone, reload = holster all) are caught as the keys go
 +	// down, in FPBody_DuckPressed / FPBody_ReloadPressed (input.cpp)
 +	bool reloadDown = ( in_reload.state & 1 ) != 0;
 +
@@ -7182,20 +7187,30 @@ index 70a20b2..37acfd1 100644
  
  void CL_DLLEXPORT CL_CameraOffset( float *ofs )
 diff --git a/cl_dll/input.cpp b/cl_dll/input.cpp
-index e3e5eac..99e530a 100644
+index e3e5eac..5b4bca2 100644
 --- a/cl_dll/input.cpp
 +++ b/cl_dll/input.cpp
-@@ -39,6 +39,9 @@ void IN_Shutdown( void );
+@@ -39,6 +39,10 @@ void IN_Shutdown( void );
  void V_Init( void );
  void VectorAngles( const float *forward, float *angles );
  int CL_ButtonBits( int );
 +int FPBody_SprintAllowed( int bits );	// fpbody: sprint (cl_dll/fpbody_anim.cpp)
 +void FPBody_DuckPressed( int fresh );	// fpbody: double-tap duck = prone
++void FPBody_SpeedPressed( int fresh );	// fpbody: double-tap walk (Shift / LB) = prone
 +void FPBody_ReloadPressed( int fresh );	// fpbody: double-tap reload = holster all
  
  // xxx need client dll function to get and clear impuse
  extern cvar_t *in_joystick;
-@@ -476,12 +479,17 @@ void IN_JumpDown (void)
+@@ -441,7 +445,7 @@ void IN_MoverightUp(void)
+ 	KeyUp(&in_moveright);
+ 	gHUD.m_Spectator.HandleButtonsUp( IN_MOVERIGHT );
+ }
+-void IN_SpeedDown(void) {KeyDown(&in_speed);}
++void IN_SpeedDown(void) {FPBody_SpeedPressed( !( in_speed.state & 1 ) );	/* fpbody */ KeyDown(&in_speed);}
+ void IN_SpeedUp(void) {KeyUp(&in_speed);}
+ void IN_StrafeDown(void) {KeyDown(&in_strafe);}
+ void IN_StrafeUp(void) {KeyUp(&in_strafe);}
+@@ -476,12 +480,17 @@ void IN_JumpDown (void)
  void IN_JumpUp (void) {KeyUp(&in_jump);}
  void IN_DuckDown(void)
  {
@@ -7214,7 +7229,7 @@ index e3e5eac..99e530a 100644
  void IN_ReloadUp(void) {KeyUp(&in_reload);}
  void IN_Alt1Down(void) {KeyDown(&in_alt1);}
  void IN_Alt1Up(void) {KeyUp(&in_alt1);}
-@@ -857,7 +865,8 @@ int CL_ButtonBits( int bResetState )
+@@ -857,7 +866,8 @@ int CL_ButtonBits( int bResetState )
  
  	if (in_alt1.state & 3)
  	{
