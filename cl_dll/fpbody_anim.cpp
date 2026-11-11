@@ -36,7 +36,9 @@
 //                            tilted down in our own view (0 = as in Condition Zero)
 //   cl_fpbody_glreload  1    reload the 9mmAR grenade launcher after every shot (body animation)
 //   cl_fpbody_pickup    1    bend down and grab anything you pick up (ammo, weapons, health, batteries, items)
-//   cl_fpbody_freemanreload 1  GMod mode: the Freeman mod's (Garry's Mod's) reloads for every gun
+//   cl_fpbody_freemanreload 1  GMod mode: the Freeman mod's reloads for every gun
+//   cl_fpbody_reload_speed 1   reload speed for every gun: 0.5 = half speed (the reload takes
+//                            twice as long, body and view model slowed to match), 0.1 - 4
 //   fp_helmet                 put the HEV helmet on / take it off (hands to the head; the suit's
 //                             <name>_helmet.mdl while it's on); cl_fpbody_helmet 1 = it's on
 //                            that has one, before the Left 4 Dead / Counter-Strike: Source ones
@@ -149,6 +151,7 @@ static cvar_t *cl_fpbody_reloads;
 static cvar_t *cl_fpbody_glreload;
 static cvar_t *cl_fpbody_l4dreload;
 static cvar_t *cl_fpbody_freemanreload;
+static cvar_t *cl_fpbody_reload_speed;
 static cvar_t *cl_fpbody_pickup;
 static bool g_pickupPending;			// the HUD got a pickup message
 static float g_pickupUntil;			// the pickup reach is playing
@@ -518,6 +521,7 @@ void FPAnim_Init( void )
 	cl_fpbody_reloadset = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reloadset", "css", FCVAR_ARCHIVE );
 	cl_fpbody_l4dreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_l4dreload", "1", FCVAR_ARCHIVE );
 	cl_fpbody_freemanreload = gEngfuncs.pfnRegisterVariable( "cl_fpbody_freemanreload", "1", FCVAR_ARCHIVE );
+	cl_fpbody_reload_speed = gEngfuncs.pfnRegisterVariable( "cl_fpbody_reload_speed", "1", FCVAR_ARCHIVE );
 	cl_fpbody_pickup    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_pickup", "1", FCVAR_ARCHIVE );
 	cl_fpbody_gunlower  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_gunlower", "20", FCVAR_ARCHIVE );
 	cl_fpbody_grip_fwd  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_fwd", "0", FCVAR_ARCHIVE );
@@ -712,6 +716,26 @@ static void StartClip( int type, int variant, float strength, float seqDur )
 	g_cur = c;
 }
 
+// cl_fpbody_reload_speed: how many times longer a reload takes
+static float ReloadScale( void )
+{
+	float s = cl_fpbody_reload_speed ? cl_fpbody_reload_speed->value : 1.0f;
+	if ( s <= 0.0f )
+		return 1.0f;
+	return 1.0f / Clamp( s, 0.1f, 4.0f );
+}
+
+// the same for the client's weapon prediction (dlls/fpbody_reload.h)
+float FPReloadSpeedCvar( void )
+{
+	return cl_fpbody_reload_speed ? cl_fpbody_reload_speed->value : 1.0f;
+}
+
+static bool IsReloadClip( int type )
+{
+	return type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL;
+}
+
 static void HandleWeaponAnim( model_t *model, int iAnim )
 {
 	if ( !model || model->type != mod_studio )
@@ -732,6 +756,8 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 	int variant;
 	float strength;
 	int type = Classify( modelName, seqName, &variant, &strength );
+	if ( IsReloadClip( type ) )
+		seqDur *= ReloadScale();				// cl_fpbody_reload_speed: the view model is slowed as much
 
 	// 9mmAR grenade launcher: the kick, then a reload of the launcher after every
 	// shot (the view model has no reload for it)
@@ -804,15 +830,28 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 		}
 	}
 
-	// The Freeman mod's reloads (Garry's Mod's reload gestures) first: every gun
-	// with a close match; the shotgun inserts each shell with Garry's Mod's
-	// shotgun reload. cl_fpbody_freemanreload 0 = Left 4 Dead / CS:S first.
-	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL ) && g_bGmodModel && g_playerHdr &&
-		 cl_fpbody_gmod->value != 0.0f && cl_fpbody_freemanreload->value != 0.0f && !MoveBusy() )
+	// The Freeman mod's reloads first (Half-Life 2: Freeman with its default
+	// Counter-Strike: Source stance, hl2_pm_stance css): the Glock and the Desert
+	// Eagle Garry's Mod's pistol reload, the .357 its revolver reload, the 9mmAR
+	// the MP5's, the crossbow and the sniper rifle the sniper's, the M249 and the
+	// RPG the M249 box; the shotgun Counter-Strike: Source's shell inserts, then
+	// the end of Garry's Mod's shotgun reload for the pump. A model without one
+	// falls back to Garry's Mod's. cl_fpbody_freemanreload 0 = Left 4 Dead /
+	// Counter-Strike: Source first.
+	if ( ( type == CLIP_RELOAD || type == CLIP_SHELL_START || type == CLIP_SHELL || type == CLIP_PUMP ) && g_bGmodModel &&
+		 g_playerHdr && cl_fpbody_gmod->value != 0.0f && cl_fpbody_freemanreload->value != 0.0f && !MoveBusy() )
 	{
-		const char *gm = NULL;
+		const char *fm = NULL, *gm = NULL;
+		bool pump = false;
 		if ( Has( modelName, "v_shotgun" ) )
-			gm = ( type == CLIP_SHELL_START || type == CLIP_SHELL ) ? "gm_reload_shotgun" : NULL;
+		{
+			if ( type == CLIP_SHELL_START )
+				fm = "css_reload_shotgun_start", gm = "gm_reload_shotgun";
+			else if ( type == CLIP_SHELL )
+				fm = "css_reload_shotgun_loop", gm = "gm_reload_shotgun";
+			else if ( type == CLIP_PUMP && FindSeq( g_playerHdr, "css_reload_shotgun_loop" ) >= 0 )
+				gm = "gm_reload_shotgun", pump = true;
+		}
 		else if ( type == CLIP_RELOAD )
 		{
 			if ( Has( modelName, "v_9mmhandgun" ) || Has( modelName, "v_desert_eagle" ) )
@@ -820,15 +859,21 @@ static void HandleWeaponAnim( model_t *model, int iAnim )
 			else if ( Has( modelName, "v_357" ) )
 				gm = "gm_reload_revolver";
 			else if ( Has( modelName, "v_9mmar" ) )
-				gm = "gm_reload_smg1";
-			else if ( Has( modelName, "v_crossbow" ) || Has( modelName, "v_m40a1" ) || Has( modelName, "v_saw" ) )
-				gm = "gm_reload_ar2";
-			else if ( Has( modelName, "v_rpg" ) || Has( modelName, "v_spore_launcher" ) )
+				fm = "css_reload_smg", gm = "gm_reload_smg1";
+			else if ( Has( modelName, "v_crossbow" ) || Has( modelName, "v_m40a1" ) )
+				fm = "css_reload_sniper", gm = "gm_reload_ar2";
+			else if ( Has( modelName, "v_saw" ) || Has( modelName, "v_rpg" ) )
+				fm = "css_reload_m249", gm = Has( modelName, "v_rpg" ) ? "gm_reload_smg1_alt" : "gm_reload_ar2";
+			else if ( Has( modelName, "v_spore_launcher" ) )
 				gm = "gm_reload_smg1_alt";
 		}
-		if ( gm && FindSeq( g_playerHdr, gm ) >= 0 && StartOverlay( gm, false, seqDur ) )
+		const char *name = ( fm && FindSeq( g_playerHdr, fm ) >= 0 ) ? fm : gm;
+		if ( name && FindSeq( g_playerHdr, name ) >= 0 && StartOverlay( name, false, pump ? 0.0f : seqDur ) )
 		{
-			g_ovLoop = false;
+			g_ovLoop = false;							// one shell per insert
+			if ( pump )
+				g_ovStart -= 0.7f * g_ovDur;			// just the pump at the end
+			g_l4dShellAt = ( type == CLIP_SHELL_START || type == CLIP_SHELL ) ? g_now : -10.0f;
 			StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
 			return;
 		}
@@ -1030,6 +1075,36 @@ void FPAnim_OnWeaponAnim( int iAnim, int viewmodelIndex )
 	FPDbg( "weapon anim %d on %s\n", iAnim, model ? model->name : "(no model)" );
 
 	HandleWeaponAnim( model, iAnim );
+}
+
+// cl_fpbody_reload_speed: the view model's reload animations play slower (or
+// faster) to match the reload's length. Every frame, body mode or not.
+void FPAnim_ViewModelRate( void )
+{
+	cl_entity_t *view = gEngfuncs.GetViewModel();
+	if ( !view || !view->model || view->model->type != mod_studio )
+		return;
+	studiohdr_t *hdr = (studiohdr_t *)IEngineStudio.Mod_Extradata( view->model );
+	if ( !hdr || view->curstate.sequence < 0 || view->curstate.sequence >= hdr->numseq )
+		return;
+	mstudioseqdesc_t *seq = (mstudioseqdesc_t *)( (byte *)hdr + hdr->seqindex ) + view->curstate.sequence;
+	char seqName[ 32 ], modelName[ 64 ];
+	Lower( seq->label, seqName, sizeof( seqName ) );
+	Lower( view->model->name, modelName, sizeof( modelName ) );
+	int variant;
+	float strength;
+	static bool s_slowed;
+	float k = ReloadScale();
+	if ( IsReloadClip( Classify( modelName, seqName, &variant, &strength ) ) && ( k < 0.99f || k > 1.01f ) )
+	{
+		view->curstate.framerate = 1.0f / k;
+		s_slowed = true;
+	}
+	else if ( s_slowed )
+	{
+		view->curstate.framerate = 1.0f;		// back to normal after the reload
+		s_slowed = false;
+	}
 }
 
 // Fallback when client weapon prediction is off (cl_lw 0): watch the view
@@ -4431,7 +4506,7 @@ static bool StartOverlay( const char *name, bool user, float wantDur )
 
 	g_ovSeq = seq;
 	g_ovStart = gEngfuncs.GetClientTime();
-	g_ovRate = ( wantDur > 0.05f ) ? Clamp( dur / wantDur, 0.5f, 2.0f ) : 1.0f;
+	g_ovRate = ( wantDur > 0.05f ) ? Clamp( dur / wantDur, 0.2f, 2.0f ) : 1.0f;
 	g_ovDur = dur / g_ovRate;
 	g_ovLoop = ( sd->flags & STUDIO_LOOPING ) != 0;
 	g_ovFull = !IsUpperBodyAct( sd->label );

@@ -133,6 +133,8 @@ void FPBody_Init( void )
 	FPAnim_Init();
 }
 
+void FPAnim_ViewModelRate( void );
+
 void FPBody_BeginFrame( struct ref_params_s *pparams )
 {
 	g_bFrameAllowed = 1;
@@ -154,6 +156,7 @@ void FPBody_BeginFrame( struct ref_params_s *pparams )
 		g_bHaveSmoothed = false;
 	}
 
+	FPAnim_ViewModelRate();					// cl_fpbody_reload_speed
 	if ( FPBody_Active() )
 		FPAnim_Frame( pparams );
 }

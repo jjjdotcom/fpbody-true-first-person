@@ -670,6 +670,8 @@ HUD_WeaponsPostThink
 Run Weapon firing code on client
 =====================
 */
+#include "fpbody_reload.h"	// cl_fpbody_reload_speed
+
 void HUD_WeaponsPostThink( local_state_s *from, local_state_s *to, usercmd_t *cmd, double time, unsigned int random_seed )
 {
 	int i;
@@ -866,7 +868,12 @@ void HUD_WeaponsPostThink( local_state_s *from, local_state_s *to, usercmd_t *cm
 	{
 		if ( player.m_flNextAttack <= 0 )
 		{
-			pWeapon->ItemPostFrame();
+			{
+				FPReloadSnap fps;
+				FPReloadBefore( pWeapon, &player, fps );
+				pWeapon->ItemPostFrame();
+				FPReloadAfter( pWeapon, &player, fps );	// cl_fpbody_reload_speed
+			}
 		}
 	}
 

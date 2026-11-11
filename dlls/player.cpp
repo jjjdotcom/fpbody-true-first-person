@@ -4050,6 +4050,8 @@ ItemPostFrame
 Called every frame by the player PostThink
 ============
 */
+#include "fpbody_reload.h"	// cl_fpbody_reload_speed
+
 void CBasePlayer::ItemPostFrame()
 {
 	static int fInSelect = FALSE;
@@ -4072,7 +4074,13 @@ void CBasePlayer::ItemPostFrame()
 	if (!m_pActiveItem)
 		return;
 
-	m_pActiveItem->ItemPostFrame( );
+	{
+		CBasePlayerWeapon *fpw = (CBasePlayerWeapon *)m_pActiveItem->GetWeaponPtr();
+		FPReloadSnap fps;
+		if ( fpw ) FPReloadBefore( fpw, this, fps );
+		m_pActiveItem->ItemPostFrame();
+		if ( fpw ) FPReloadAfter( fpw, this, fps );	// cl_fpbody_reload_speed
+	}
 }
 
 int CBasePlayer::AmmoInventory( int iAmmoIndex )
