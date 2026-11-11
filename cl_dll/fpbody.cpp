@@ -650,6 +650,17 @@ static int FPBody_MapNumber( void )
 }
 #endif
 
+// the Hazard Course's maps: t0a0, t0a0a, t0a0b1 ...
+static bool FPBody_IsTraining( void )
+{
+	const char *level = gEngfuncs.pfnGetLevelName();
+	if ( !level || !*level )
+		return false;
+	const char *base = strrchr( level, '/' );
+	base = base ? base + 1 : level;
+	return !strnicmp( base, "t0a0", 4 );
+}
+
 int FPBody_IsSuited( void )
 {
 #ifdef FPBODY_SUIT_MAP_PREFIX
@@ -710,7 +721,20 @@ struct model_s *FPBody_GetOutfitModel( int playerNumber )
 	int c = ( cl_fpbody_classic && cl_fpbody_classic->value != 0.0f ) ? 1 : 0;
 
 	struct model_s *m = NULL;
-	if ( cl_fpbody_outfit && cl_fpbody_outfit->value != 0.0f )
+	// the Hazard Course (t0a0*): Gordon in his everyday clothes, no lab coat
+	// (models/fpbody_training.mdl; fpbody_classic_training.mdl with
+	// cl_fpbody_classic 1) - in any game that has the model
+	static int trainingStates[ 2 ];
+	if ( cl_fpbody_outfit && cl_fpbody_outfit->value != 0.0f && FPBody_IsTraining() )
+	{
+		static const char *const trainingNames[ 2 ] = { "models/fpbody_training.mdl", "models/fpbody_classic_training.mdl" };
+		m = FPBody_TryModel( trainingNames[ c ], trainingStates[ c ] );
+		if ( m )
+			g_szOutfitReason = "the Hazard Course: training outfit";
+	}
+	if ( m )
+		;
+	else if ( cl_fpbody_outfit && cl_fpbody_outfit->value != 0.0f )
 	{
 		bool hls = c == 0 && cl_fpbody_hls && cl_fpbody_hls->value != 0.0f;
 #if FPBODY_SUIT_NO_HLS

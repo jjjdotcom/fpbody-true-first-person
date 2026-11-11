@@ -50,7 +50,7 @@ def emat(e):
     return quat_to_mat(euler_to_quat(*e))
 
 
-def own_proportions(rt, P, ref, S):
+def own_proportions(rt, P, ref, S, classic=False):
     """The source model's own joint positions in place of the Garry's Mod
     player's (--own-skeleton): a model built smaller or slimmer (a woman) keeps
     its neck, arms and hands together. Joints the model lacks (toes, some
@@ -74,6 +74,12 @@ def own_proportions(rt, P, ref, S):
     # against the Garry's Mod player) - their joints are close together and
     # their directions say little (a pelvis-to-spine step that leans back
     # 30 degrees would tilt the hips and stretch the waist)
+    if classic:
+        # Half-Life's own animations (cl_fpbody_classic) were made on its rest
+        # pose, not turned against the Garry's Mod player's: the torso and head
+        # stand in it as the model stands in its own bind pose
+        for tn, sn in retarget.MAP:
+            rt.C[P.bone_by_name[tn]] = np.eye(3)
     limbs = [n for n in retarget.DIR_CHILD if n.split()[-1].rstrip('0123456789') in ('Arm', 'Hand', 'Leg', 'Foot')
              or n.split()[-1] in ('Arm1', 'Arm2', 'Leg1')]
     for tn in limbs:
@@ -90,11 +96,11 @@ def own_proportions(rt, P, ref, S):
     print('own skeleton: height', round(k, 3), 'of the reference')
 
 
-def build_skeleton(P, ref, S=None):
+def build_skeleton(P, ref, S=None, classic=False):
     """New local positions and the bind pose (world R, T) of P's bones."""
     rt = PackRetargeter(ref, P, ref)
     if S is not None:
-        own_proportions(rt, P, ref, S)
+        own_proportions(rt, P, ref, S, classic)
     rest = P.rest_local()
     n = P.numbones
     tgt_of_src = {}
@@ -428,6 +434,8 @@ def main():
     ap.add_argument('--sat', type=float, default=1.0)
     ap.add_argument('--player-color', default='',
                     help="R,G,B (0-255): Garry's Mod's player colour on the textures tinted by it")
+    ap.add_argument('--classic', action='store_true',
+                    help="with --own-skeleton: <base> has Half-Life's own animations (fpbody_classic*.mdl)")
     ap.add_argument('--own-skeleton', action='store_true',
                     help="the source model's own proportions instead of the Garry's Mod player's")
     a = ap.parse_args()
@@ -446,7 +454,7 @@ def main():
     ref = SourceModel(a.ref, a.ref[:-4].replace('_gmod', '') + '.ani')
     S = SourceMesh(a.source, [r for r in a.roots.split(',') if r])
 
-    rt, newpos, W, X = build_skeleton(P, ref, S if a.own_skeleton else None)
+    rt, newpos, W, X = build_skeleton(P, ref, S if a.own_skeleton else None, a.classic)
     seqs = existing_sequences(P)
     resequence(P, seqs, rt, newpos)
     tmp = a.out + '.tmp'
