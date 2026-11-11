@@ -234,6 +234,8 @@ static cvar_t *cl_fpbody_wristtwist;
 static cvar_t *cl_fpbody_pump;
 static cvar_t *cl_fpbody_grip_side;
 static cvar_t *cl_fpbody_swimhold;
+static cvar_t *cl_fpbody_swimarm;
+static bool g_swimOneArm;			// swimming with a gun, the left arm swims
 static cvar_t *cl_fpbody_fingers;
 static cvar_t *cl_fpbody_helmet;			// fp_helmet: 1 = the helmet is on (saved)
 static float g_helmetStart = -1.0f;			// fp_helmet: when the hands went up (-1 = not now)
@@ -528,6 +530,7 @@ void FPAnim_Init( void )
 	cl_fpbody_grip_down = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_down", "0", FCVAR_ARCHIVE );
 	cl_fpbody_grip_side = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_side", "0", FCVAR_ARCHIVE );
 	cl_fpbody_swimhold  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_swimhold", "1", FCVAR_ARCHIVE );
+	cl_fpbody_swimarm = gEngfuncs.pfnRegisterVariable( "cl_fpbody_swimarm", "1", FCVAR_ARCHIVE );
 	cl_fpbody_fingers   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_fingers", "1", FCVAR_ARCHIVE );
 	cl_fpbody_helmet    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_helmet", "0", FCVAR_ARCHIVE );
 
@@ -3611,6 +3614,8 @@ static bool PassiveTwoHanded( void )
 
 static bool OffHandBusy( float now )
 {
+	if ( g_swimOneArm )
+		return true;				// swimming: the left arm strokes
 	bool passive = PassiveTwoHanded();
 	if ( g_ovSeq >= 0 && !passive )
 		return true;
@@ -4389,6 +4394,7 @@ void FPAnim_SwimHold( const void *fromHdr, const void *toHdr, int srvSeq, int we
 	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 	if ( !from || !to || !local || entindex != local->index || srvSeq < 0 || srvSeq >= from->numseq )
 		return;
+	g_swimOneArm = false;
 	const char *label = ( (const mstudioseqdesc_t *)( (const byte *)from + from->seqindex ) )[ srvSeq ].label;
 	static const char *holds[] = { "ref_aim_", "ref_shoot_", "crouch_aim_", "crouch_shoot_" };
 	for ( int i = 0; i < 4; i++ )
@@ -4438,6 +4444,7 @@ void FPAnim_SwimHold( const void *fromHdr, const void *toHdr, int srvSeq, int we
 	if ( m < 0 )
 		return;
 	*gait = *seq;			// the swim kicks the legs
+	g_swimOneArm = cl_fpbody_swimarm && cl_fpbody_swimarm->value != 0.0f;	// and the left arm swims
 	*seq = m;				// the arms hold the gun
 }
 
@@ -4664,6 +4671,39 @@ float FPAnim_HunchWeight( void )
 	last = now;
 	w += ( ( on ? 1.0f : 0.0f ) - w ) * Clamp01( dt * ( on ? 12.0f : 5.0f ) );
 	return w;
+}
+
+// cl_fpbody_fixedcam: a hard landing / landing roll keeps the camera at eye
+// height (it doesn't follow the head down and round); eased in and out
+float FPAnim_FixedCamWeight( void )
+{
+	static cvar_t *fixed;
+	if ( !fixed )
+		fixed = gEngfuncs.pfnRegisterVariable( "cl_fpbody_fixedcam", "1", FCVAR_ARCHIVE );
+	static float w = 0.0f, last = -1.0f;
+	float now = gEngfuncs.GetClientTime();
+	bool on = fixed && fixed->value != 0.0f && g_ovSeq >= 0 && g_ovKind == OVK_MOVE &&
+			  ( OverlayIs( "fm_hardland" ) || OverlayIs( "fm_roll" ) );
+	float dt = ( last < 0.0f || now < last ) ? 0.0f : Clamp( now - last, 0.0f, 0.1f );
+	last = now;
+	w += ( ( on ? 1.0f : 0.0f ) - w ) * Clamp01( dt * ( on ? 14.0f : 4.0f ) );
+	return w;
+}
+
+// swimming with a gun (cl_fpbody_swimarm): the right hand holds it, the left
+// arm swims - the renderer lets the swim (the gait) drive the left arm too
+int FPAnim_SwimOneArm( int entindex )
+{
+	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
+	return ( g_swimOneArm && local && entindex == local->index ) ? 1 : 0;
+}
+
+int FPAnim_LeftArmBone( const char *name )
+{
+	if ( strncmp( name, "Bip01 L ", 8 ) )
+		return 0;
+	return !strstr( name, "Leg" ) && !strstr( name, "Foot" ) && !strstr( name, "Toe" ) && !strstr( name, "Thigh" ) &&
+		   !strstr( name, "Calf" );
 }
 
 int FPAnim_ActCamActive( void )

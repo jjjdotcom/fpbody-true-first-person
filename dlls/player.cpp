@@ -443,14 +443,14 @@ void CBasePlayer :: TraceAttack( entvars_t *pevAttacker, float flDamage, Vector 
 #define ARMOR_RATIO	 0.2	// Armor Takes 80% of the damage
 #define ARMOR_BONUS  0.5	// Each Point of Armor is work 1/x points of health
 
-void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage );	// fpbody_react.inl
+void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType );	// fpbody_react.inl
 void FPReact_Think( CBasePlayer *pl );
 
 int CBasePlayer :: TakeDamage( entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType )
 {
 	// have suit diagnose the problem - ie: report damage type
 	int bitsDamage = bitsDamageType;
-	FPReact_OnDamage( this, pevInflictor, pevAttacker, flDamage );	// fpbody: knocked down / thrown back by who hit us
+	FPReact_OnDamage( this, pevInflictor, pevAttacker, flDamage, bitsDamageType );	// fpbody: knocked down / thrown back by who hit us
 	int ffound = TRUE;
 	int fmajor;
 	int fcritical;

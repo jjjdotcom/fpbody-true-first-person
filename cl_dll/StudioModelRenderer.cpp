@@ -984,6 +984,7 @@ void CStudioModelRenderer::StudioSetupBones ( void )
 
 		panim = StudioGetAnim( m_pRenderModel, pseqdesc );
 		StudioCalcRotations( pos2, q2, pseqdesc, panim, m_pPlayerInfo->gaitframe );
+		int fpSwimArm = FPAnim_SwimOneArm( m_pCurrentEntity->index );	// fpbody: swimming with a gun, the left arm swims
 
 		for ( i = 0; i < m_pStudioHeader->numbones; i++ )
 		{
@@ -996,7 +997,7 @@ void CStudioModelRenderer::StudioSetupBones ( void )
 				copy = 1;
 			}
 				
-			if ( copy || FPBody_WholeBodyGait() )	// fpbody: unarmed, arms swing with the gait
+			if ( copy || FPBody_WholeBodyGait() || ( fpSwimArm && FPAnim_LeftArmBone( pbones[ i ].name ) ) )	// fpbody: unarmed, arms swing with the gait
 			{
 				memcpy( pos[i], pos2[i], sizeof( pos[i] ) );
 				memcpy( q[i], q2[i], sizeof( q[i] ) );

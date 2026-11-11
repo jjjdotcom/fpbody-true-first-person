@@ -3,6 +3,8 @@
 *	fpbody_react.inl - hit reactions by who hit us (sv_fpbody_knockdown 1).
 *	Included at the end of player.cpp, after fpbody_moves.inl.
 *
+*	A gargantua's stomp knocks the player down too, its flames throw him back.
+*
 *	Big enemies (every zombie, bullsquids, gargantuas, alien grunts,
 *	tentacles ... and anything with a big hull) knock the player flat when
 *	they hit him: he falls on his back, lies there a moment and gets back up
@@ -78,7 +80,7 @@ static void FPReact_GetUp( CBasePlayer *pl )
 		pl->m_pActiveItem->Deploy();					// the gun comes back out
 }
 
-void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage )
+void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType )
 {
 	if ( sv_fpbody_knockdown.value == 0.0f || flDamage <= 0.0f || !pl->IsAlive() || pl->pev->takedamage == DAMAGE_NO ||
 		 gpGlobals->maxClients > 1 )
@@ -86,6 +88,13 @@ void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevA
 	CBaseEntity *pAttacker = pevAttacker ? CBaseEntity::Instance( pevAttacker ) : NULL;
 	CBaseEntity *pInflictor = pevInflictor ? CBaseEntity::Instance( pevInflictor ) : NULL;
 	int kind = FPReact_Kind( pAttacker, pInflictor );
+	// a gargantua: its flames throw us back as an explosion does (not a
+	// knockdown on every flame tick); its stomp's energy stream knocks us down
+	bool stomp = pInflictor && FStrEq( STRING( pInflictor->pev->classname ), "garg_stomp" );
+	if ( kind == 2 && ( bitsDamageType & DMG_BURN ) && pAttacker && strstr( STRING( pAttacker->pev->classname ), "garg" ) )
+		kind = 1;
+	if ( stomp )
+		kind = 2;
 	if ( !kind )
 		return;
 	int st = (int)pl->pev->fuser4;
@@ -93,7 +102,7 @@ void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevA
 	{
 		// knocked down by the blow itself (not its hornets, rocks, stomps ...),
 		// standing on the ground and free to fall
-		bool can = pAttacker == pInflictor && s_fpKnockEnd <= 0.0f && gpGlobals->time >= s_fpKnockNext &&
+		bool can = ( pAttacker == pInflictor || stomp ) && s_fpKnockEnd <= 0.0f && gpGlobals->time >= s_fpKnockNext &&
 				   ( pl->pev->flags & FL_ONGROUND ) && !( pl->pev->flags & ( FL_FROZEN | FL_ONTRAIN ) ) &&
 				   pl->pev->waterlevel < 2 && !pl->IsOnLadder() && !FPR_TANK( pl ) &&
 				   !( pl->m_afPhysicsFlags & PFLAG_ONBARNACLE ) && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) );
@@ -112,6 +121,8 @@ void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevA
 		if ( s_fpKnockEnd > 0.0f )
 			return;										// already down
 	}
+	if ( s_fpKnockEnd > 0.0f )
+		return;										// lying down: no blast on top
 	pl->m_bitsDamageType |= DMG_BLAST;					// the client: thrown back as by a blast (fm_blast)
 }
 

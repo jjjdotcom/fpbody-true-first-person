@@ -150,7 +150,7 @@ index 98013eb..e7238e8 100644
    ${COMMON_DIR}/parsemsg.cpp
    ${DLLS_DIR}/crossbow.cpp
 diff --git a/cl_dll/StudioModelRenderer.cpp b/cl_dll/StudioModelRenderer.cpp
-index ada72c7..a9f8a67 100644
+index ada72c7..8504a63 100644
 --- a/cl_dll/StudioModelRenderer.cpp
 +++ b/cl_dll/StudioModelRenderer.cpp
 @@ -21,6 +21,59 @@
@@ -213,16 +213,24 @@ index ada72c7..a9f8a67 100644
  
  extern cvar_t *tfc_newmodels;
  
-@@ -943,7 +996,7 @@ void CStudioModelRenderer::StudioSetupBones ( void )
+@@ -931,6 +984,7 @@ void CStudioModelRenderer::StudioSetupBones ( void )
+ 
+ 		panim = StudioGetAnim( m_pRenderModel, pseqdesc );
+ 		StudioCalcRotations( pos2, q2, pseqdesc, panim, m_pPlayerInfo->gaitframe );
++		int fpSwimArm = FPAnim_SwimOneArm( m_pCurrentEntity->index );	// fpbody: swimming with a gun, the left arm swims
+ 
+ 		for ( i = 0; i < m_pStudioHeader->numbones; i++ )
+ 		{
+@@ -943,7 +997,7 @@ void CStudioModelRenderer::StudioSetupBones ( void )
  				copy = 1;
  			}
  				
 -			if ( copy )
-+			if ( copy || FPBody_WholeBodyGait() )	// fpbody: unarmed, arms swing with the gait
++			if ( copy || FPBody_WholeBodyGait() || ( fpSwimArm && FPAnim_LeftArmBone( pbones[ i ].name ) ) )	// fpbody: unarmed, arms swing with the gait
  			{
  				std::memcpy( pos[i], pos2[i], sizeof( pos[i] ) );
  				std::memcpy( q[i], q2[i], sizeof( q[i] ) );
-@@ -951,6 +1004,27 @@ void CStudioModelRenderer::StudioSetupBones ( void )
+@@ -951,6 +1005,27 @@ void CStudioModelRenderer::StudioSetupBones ( void )
  		}
  	}
  
@@ -250,7 +258,7 @@ index ada72c7..a9f8a67 100644
  	for (i = 0; i < m_pStudioHeader->numbones; i++) 
  	{
  		QuaternionMatrix( q[i], bonematrix );
-@@ -1491,7 +1565,7 @@ void CStudioModelRenderer::StudioProcessGait( entity_state_t *pplayer )
+@@ -1491,7 +1566,7 @@ void CStudioModelRenderer::StudioProcessGait( entity_state_t *pplayer )
  	// calc gait frame
  	if (pseqdesc->linearmovement[0] > 0)
  	{
@@ -259,7 +267,7 @@ index ada72c7..a9f8a67 100644
  	}
  	else
  	{
-@@ -1693,6 +1767,17 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1693,6 +1768,17 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  
  #endif
  
@@ -277,7 +285,7 @@ index ada72c7..a9f8a67 100644
  	if (m_pRenderModel == NULL)
  		return 0;
  
-@@ -1700,6 +1785,51 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1700,6 +1786,51 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  	IEngineStudio.StudioSetHeader( m_pStudioHeader );
  	IEngineStudio.SetRenderModel( m_pRenderModel );
  
@@ -329,7 +337,7 @@ index ada72c7..a9f8a67 100644
  	if (pplayer->gaitsequence)
  	{
  		vec3_t orig_angles;
-@@ -1707,11 +1837,13 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1707,11 +1838,13 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  
  		VectorCopy( m_pCurrentEntity->angles, orig_angles );
  	
@@ -343,7 +351,7 @@ index ada72c7..a9f8a67 100644
  		StudioSetUpTransform( 0 );
  		VectorCopy( orig_angles, m_pCurrentEntity->angles );
  	}
-@@ -1729,13 +1861,14 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1729,13 +1862,14 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  		m_pPlayerInfo = IEngineStudio.PlayerInfo( m_nPlayerIndex );
  		m_pPlayerInfo->gaitsequence = 0;
  
@@ -359,7 +367,7 @@ index ada72c7..a9f8a67 100644
  			return 0;
  
  		(*m_pModelsDrawn)++;
-@@ -1746,7 +1879,19 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1746,7 +1880,19 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  	}
  
  	m_pPlayerInfo = IEngineStudio.PlayerInfo( m_nPlayerIndex );
@@ -379,7 +387,7 @@ index ada72c7..a9f8a67 100644
  	StudioSaveBones( );
  	m_pPlayerInfo->renderframe = m_nFrameCount;
  
-@@ -1870,6 +2015,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1870,6 +2016,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  #endif
  			m_pStudioHeader = (studiohdr_t *)IEngineStudio.Mod_Extradata (pweaponmodel);
  			IEngineStudio.StudioSetHeader( m_pStudioHeader );
@@ -387,7 +395,7 @@ index ada72c7..a9f8a67 100644
  
  #ifdef _TFC		
  			//Do spinning stuff for the HWGuy minigun
-@@ -1921,6 +2067,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1921,6 +2068,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  #endif
  
  			StudioMergeBones( pweaponmodel );
@@ -395,7 +403,7 @@ index ada72c7..a9f8a67 100644
  
  			IEngineStudio.StudioSetupLighting (&lighting);
  
-@@ -1929,6 +2076,49 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1929,6 +2077,49 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  			StudioCalcAttachments( );
  
  			*m_pCurrentEntity = saveent;
@@ -730,10 +738,10 @@ index 3f124ac..51d8203 100644
  }
 diff --git a/cl_dll/fpbody.cpp b/cl_dll/fpbody.cpp
 new file mode 100644
-index 0000000..d241acc
+index 0000000..bd082ba
 --- /dev/null
 +++ b/cl_dll/fpbody.cpp
-@@ -0,0 +1,1248 @@
+@@ -0,0 +1,1257 @@
 +// fpbody.cpp - "True first person" / body awareness for Half-Life.
 +//
 +// How it works
@@ -1250,6 +1258,15 @@ index 0000000..d241acc
 +			+ right[ i ] * cl_fpbody_right->value;
 +	}
 +	target[ 2 ] += upOfs;
++
++	// a hard landing / landing roll: the camera stays at eye height
++	// (cl_fpbody_fixedcam) instead of following the head down and round
++	{
++		float fw = FPAnim_FixedCamWeight();
++		if ( fw > 0.001f )
++			for ( int i = 0; i < 3; i++ )
++				target[ i ] += ( pparams->simorg[ i ] + pparams->viewheight[ i ] - target[ i ] ) * fw;
++	}
 +
 +	// Keep the eyes off the floor: lying down (and looking down, which bends the
 +	// spine) the head comes within the view's near plane (4 units) of the floor
@@ -2074,10 +2091,10 @@ index 0000000..73cdbd7
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..39ac13a
+index 0000000..0afe984
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4746 @@
+@@ -0,0 +1,4786 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -2314,6 +2331,8 @@ index 0000000..39ac13a
 +static cvar_t *cl_fpbody_pump;
 +static cvar_t *cl_fpbody_grip_side;
 +static cvar_t *cl_fpbody_swimhold;
++static cvar_t *cl_fpbody_swimarm;
++static bool g_swimOneArm;			// swimming with a gun, the left arm swims
 +static cvar_t *cl_fpbody_fingers;
 +static cvar_t *cl_fpbody_helmet;			// fp_helmet: 1 = the helmet is on (saved)
 +static float g_helmetStart = -1.0f;			// fp_helmet: when the hands went up (-1 = not now)
@@ -2608,6 +2627,7 @@ index 0000000..39ac13a
 +	cl_fpbody_grip_down = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_down", "0", FCVAR_ARCHIVE );
 +	cl_fpbody_grip_side = gEngfuncs.pfnRegisterVariable( "cl_fpbody_grip_side", "0", FCVAR_ARCHIVE );
 +	cl_fpbody_swimhold  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_swimhold", "1", FCVAR_ARCHIVE );
++	cl_fpbody_swimarm = gEngfuncs.pfnRegisterVariable( "cl_fpbody_swimarm", "1", FCVAR_ARCHIVE );
 +	cl_fpbody_fingers   = gEngfuncs.pfnRegisterVariable( "cl_fpbody_fingers", "1", FCVAR_ARCHIVE );
 +	cl_fpbody_helmet    = gEngfuncs.pfnRegisterVariable( "cl_fpbody_helmet", "0", FCVAR_ARCHIVE );
 +
@@ -5691,6 +5711,8 @@ index 0000000..39ac13a
 +
 +static bool OffHandBusy( float now )
 +{
++	if ( g_swimOneArm )
++		return true;				// swimming: the left arm strokes
 +	bool passive = PassiveTwoHanded();
 +	if ( g_ovSeq >= 0 && !passive )
 +		return true;
@@ -6469,6 +6491,7 @@ index 0000000..39ac13a
 +	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
 +	if ( !from || !to || !local || entindex != local->index || srvSeq < 0 || srvSeq >= from->numseq )
 +		return;
++	g_swimOneArm = false;
 +	const char *label = ( (const mstudioseqdesc_t *)( (const byte *)from + from->seqindex ) )[ srvSeq ].label;
 +	static const char *holds[] = { "ref_aim_", "ref_shoot_", "crouch_aim_", "crouch_shoot_" };
 +	for ( int i = 0; i < 4; i++ )
@@ -6518,6 +6541,7 @@ index 0000000..39ac13a
 +	if ( m < 0 )
 +		return;
 +	*gait = *seq;			// the swim kicks the legs
++	g_swimOneArm = cl_fpbody_swimarm && cl_fpbody_swimarm->value != 0.0f;	// and the left arm swims
 +	*seq = m;				// the arms hold the gun
 +}
 +
@@ -6746,6 +6770,39 @@ index 0000000..39ac13a
 +	return w;
 +}
 +
++// cl_fpbody_fixedcam: a hard landing / landing roll keeps the camera at eye
++// height (it doesn't follow the head down and round); eased in and out
++float FPAnim_FixedCamWeight( void )
++{
++	static cvar_t *fixed;
++	if ( !fixed )
++		fixed = gEngfuncs.pfnRegisterVariable( "cl_fpbody_fixedcam", "1", FCVAR_ARCHIVE );
++	static float w = 0.0f, last = -1.0f;
++	float now = gEngfuncs.GetClientTime();
++	bool on = fixed && fixed->value != 0.0f && g_ovSeq >= 0 && g_ovKind == OVK_MOVE &&
++			  ( OverlayIs( "fm_hardland" ) || OverlayIs( "fm_roll" ) );
++	float dt = ( last < 0.0f || now < last ) ? 0.0f : Clamp( now - last, 0.0f, 0.1f );
++	last = now;
++	w += ( ( on ? 1.0f : 0.0f ) - w ) * Clamp01( dt * ( on ? 14.0f : 4.0f ) );
++	return w;
++}
++
++// swimming with a gun (cl_fpbody_swimarm): the right hand holds it, the left
++// arm swims - the renderer lets the swim (the gait) drive the left arm too
++int FPAnim_SwimOneArm( int entindex )
++{
++	cl_entity_t *local = gEngfuncs.GetLocalPlayer();
++	return ( g_swimOneArm && local && entindex == local->index ) ? 1 : 0;
++}
++
++int FPAnim_LeftArmBone( const char *name )
++{
++	if ( strncmp( name, "Bip01 L ", 8 ) )
++		return 0;
++	return !strstr( name, "Leg" ) && !strstr( name, "Foot" ) && !strstr( name, "Toe" ) && !strstr( name, "Thigh" ) &&
++		   !strstr( name, "Calf" );
++}
++
 +int FPAnim_ActCamActive( void )
 +{
 +	return g_ovSeq >= 0 && g_ovFull && g_ovKind == OVK_USER && cl_fpbody_actcam && cl_fpbody_actcam->value != 0.0f;
@@ -6826,10 +6883,10 @@ index 0000000..39ac13a
 +}
 diff --git a/cl_dll/fpbody_anim.h b/cl_dll/fpbody_anim.h
 new file mode 100644
-index 0000000..55a3cb8
+index 0000000..0b6ee37
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.h
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,72 @@
 +// fpbody_anim.h - procedural body animations for the "True First Person" mod.
 +//
 +// Half-Life's player.mdl has no reload / weapon-switch / use animations, so
@@ -6897,6 +6954,9 @@ index 0000000..55a3cb8
 +// True while a full-body act (taunt, pose, sit...) is shown with the chase camera
 +int FPAnim_ActCamActive( void );
 +float FPAnim_HunchWeight( void );	// 0..1 while a landing / roll / slide folds the body forward
++float FPAnim_FixedCamWeight( void );	// 0..1 while a hard landing / roll plays: the camera stays at eye height
++int FPAnim_SwimOneArm( int entindex );	// swimming with a gun: the left arm swims (the gait drives it)
++int FPAnim_LeftArmBone( const char *name );
 +
 +#endif // FPBODY_ANIM_H
 diff --git a/cl_dll/fpbody_game.h b/cl_dll/fpbody_game.h
@@ -8410,14 +8470,16 @@ index 0000000..950eb20
 +}
 diff --git a/dlls/fpbody_react.inl b/dlls/fpbody_react.inl
 new file mode 100644
-index 0000000..8b92c68
+index 0000000..8f8e01f
 --- /dev/null
 +++ b/dlls/fpbody_react.inl
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,146 @@
 +/***
 +*
 +*	fpbody_react.inl - hit reactions by who hit us (sv_fpbody_knockdown 1).
 +*	Included at the end of player.cpp, after fpbody_moves.inl.
++*
++*	A gargantua's stomp knocks the player down too, its flames throw him back.
 +*
 +*	Big enemies (every zombie, bullsquids, gargantuas, alien grunts,
 +*	tentacles ... and anything with a big hull) knock the player flat when
@@ -8494,7 +8556,7 @@ index 0000000..8b92c68
 +		pl->m_pActiveItem->Deploy();					// the gun comes back out
 +}
 +
-+void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage )
++void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType )
 +{
 +	if ( sv_fpbody_knockdown.value == 0.0f || flDamage <= 0.0f || !pl->IsAlive() || pl->pev->takedamage == DAMAGE_NO ||
 +		 gpGlobals->maxClients > 1 )
@@ -8502,6 +8564,13 @@ index 0000000..8b92c68
 +	CBaseEntity *pAttacker = pevAttacker ? CBaseEntity::Instance( pevAttacker ) : NULL;
 +	CBaseEntity *pInflictor = pevInflictor ? CBaseEntity::Instance( pevInflictor ) : NULL;
 +	int kind = FPReact_Kind( pAttacker, pInflictor );
++	// a gargantua: its flames throw us back as an explosion does (not a
++	// knockdown on every flame tick); its stomp's energy stream knocks us down
++	bool stomp = pInflictor && FStrEq( STRING( pInflictor->pev->classname ), "garg_stomp" );
++	if ( kind == 2 && ( bitsDamageType & DMG_BURN ) && pAttacker && strstr( STRING( pAttacker->pev->classname ), "garg" ) )
++		kind = 1;
++	if ( stomp )
++		kind = 2;
 +	if ( !kind )
 +		return;
 +	int st = (int)pl->pev->fuser4;
@@ -8509,7 +8578,7 @@ index 0000000..8b92c68
 +	{
 +		// knocked down by the blow itself (not its hornets, rocks, stomps ...),
 +		// standing on the ground and free to fall
-+		bool can = pAttacker == pInflictor && s_fpKnockEnd <= 0.0f && gpGlobals->time >= s_fpKnockNext &&
++		bool can = ( pAttacker == pInflictor || stomp ) && s_fpKnockEnd <= 0.0f && gpGlobals->time >= s_fpKnockNext &&
 +				   ( pl->pev->flags & FL_ONGROUND ) && !( pl->pev->flags & ( FL_FROZEN | FL_ONTRAIN ) ) &&
 +				   pl->pev->waterlevel < 2 && !pl->IsOnLadder() && !FPR_TANK( pl ) &&
 +				   !( pl->m_afPhysicsFlags & PFLAG_ONBARNACLE ) && !( st & ( FPM_PRONE | FPM_VAULT | FPM_CLIMB ) );
@@ -8528,6 +8597,8 @@ index 0000000..8b92c68
 +		if ( s_fpKnockEnd > 0.0f )
 +			return;										// already down
 +	}
++	if ( s_fpKnockEnd > 0.0f )
++		return;										// lying down: no blast on top
 +	pl->m_bitsDamageType |= DMG_BLAST;					// the client: thrown back as by a blast (fm_blast)
 +}
 +
@@ -8709,7 +8780,7 @@ index 41f0d8f..a181e09 100644
  
  	// govern the rate of charge
 diff --git a/dlls/player.cpp b/dlls/player.cpp
-index 7ac2e0c..06d386b 100644
+index 7ac2e0c..a3e6bbc 100644
 --- a/dlls/player.cpp
 +++ b/dlls/player.cpp
 @@ -105,6 +105,7 @@ TYPEDESCRIPTION	CBasePlayer::m_playerSaveData[] =
@@ -8733,14 +8804,14 @@ index 7ac2e0c..06d386b 100644
  #define ARMOR_RATIO	 0.2	// Armor Takes 80% of the damage
  #define ARMOR_BONUS  0.5	// Each Point of Armor is work 1/x points of health
  
-+void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage );	// fpbody_react.inl
++void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType );	// fpbody_react.inl
 +void FPReact_Think( CBasePlayer *pl );
 +
  int CBasePlayer :: TakeDamage( entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType )
  {
  	// have suit diagnose the problem - ie: report damage type
  	int bitsDamage = bitsDamageType;
-+	FPReact_OnDamage( this, pevInflictor, pevAttacker, flDamage );	// fpbody: knocked down / thrown back by who hit us
++	FPReact_OnDamage( this, pevInflictor, pevAttacker, flDamage, bitsDamageType );	// fpbody: knocked down / thrown back by who hit us
  	int ffound = TRUE;
  	int fmajor;
  	int fcritical;
