@@ -52,9 +52,17 @@ extern cvar_t sv_fpbody_buddy;
 #define FPB_MODEL		"models/fpbody_buddy.mdl"
 #define FPB_ON()		( sv_fpbody_buddy.value != 0 )
 #endif
+// the companion's model is a Barney that carries a minigun (the HEV Barney
+// Automatic Weapons Pack's Minigunner, tools/gmod_anims/make_minigun_buddy.py):
+// body part 1 is its gun, submodel 1 the minigun in his hands; his firing
+// stance is the model's own (ACT_RANGE_ATTACK1). Long bursts, one minigun
+// sound per burst (sound/fpbody/minigun.wav)
 #define FPB_GUN_GROUP	1
-#define FPB_GUN_PISTOL	1	// the revolver in his hand
-#define FPB_GUN_MP5		3	// the MP5 (fpbody_buddy.mdl's own submodel)
+#define FPB_GUN_PISTOL	1	// the minigun in his hands
+#define FPB_GUN_MP5		1	// (one gun: the minigun)
+#define FPB_BURST		12	// rounds per burst
+#define FPB_BURST_GAP	0.06f	// seconds between them
+#define FPB_GUN_SOUND	"fpbody/minigun.wav"
 #define FPB_PISTOL_DIST	640	// targets further than this: the revolver
 
 class CFPBuddy : public CBarney
@@ -66,6 +74,7 @@ public:
 	void SetActivity( Activity NewActivity ) FPB_OVERRIDE;
 	void StartTask( Task_t *pTask ) FPB_OVERRIDE;
 	void RunTask( Task_t *pTask ) FPB_OVERRIDE;
+	void HandleAnimEvent( MonsterEvent_t *pEvent ) FPB_OVERRIDE;
 	FPB_BOOL FBecomeProne( void ) FPB_OVERRIDE { return false; }
 
 	void EXPORT BuddyUse( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
@@ -132,6 +141,7 @@ void CFPBuddy::Precache( void )
 #ifdef FPB_DECAY
 	ColetteTalk();
 #endif
+	PRECACHE_SOUND( (char *)FPB_GUN_SOUND );
 	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun1.wav" );
 	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun2.wav" );
 	g_fpBuddyPrecached = 1;
@@ -226,8 +236,9 @@ void CFPBuddy::StartTask( Task_t *pTask )
 {
 	if ( pTask->iTask == TASK_RANGE_ATTACK1 )
 	{
-		m_iBurst = ( m_iWeapon == FPB_GUN_MP5 ) ? 3 : 0;
+		m_iBurst = FPB_BURST;
 		m_flNextShot = gpGlobals->time;
+		EMIT_SOUND_DYN( ENT( pev ), CHAN_WEAPON, FPB_GUN_SOUND, 1, ATTN_NORM, 0, PITCH_NORM );
 	}
 	CBarney::StartTask( pTask );
 }
@@ -238,9 +249,18 @@ void CFPBuddy::RunTask( Task_t *pTask )
 	{
 		FireMP5();
 		m_iBurst--;
-		m_flNextShot = gpGlobals->time + 0.1;
+		m_flNextShot = gpGlobals->time + FPB_BURST_GAP;
 	}
 	CBarney::RunTask( pTask );
+}
+
+// the model's own firing events (Barney's: a revolver shot and its sound)
+// are left out - the bursts above are the minigun
+void CFPBuddy::HandleAnimEvent( MonsterEvent_t *pEvent )
+{
+	if ( pEvent->event == 3 )		// BARNEY_AE_SHOOT
+		return;
+	CBarney::HandleAnimEvent( pEvent );
 }
 
 void CFPBuddy::FireMP5( void )
@@ -257,7 +277,6 @@ void CFPBuddy::FireMP5( void )
 #else
 	FireBullets( 1, src, dir, cone, 2048, BULLET_MONSTER_MP5 );
 #endif
-	EMIT_SOUND_DYN( ENT( pev ), CHAN_WEAPON, RANDOM_LONG( 0, 1 ) ? "hgrunt/gr_mgun1.wav" : "hgrunt/gr_mgun2.wav", 1, ATTN_NORM, 0, PITCH_NORM );
 	CSoundEnt::InsertSound( bits_SOUND_COMBAT, pev->origin, 384, 0.3 );
 }
 

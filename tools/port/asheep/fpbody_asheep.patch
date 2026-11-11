@@ -7221,10 +7221,10 @@ index 38b0581..da7cf84 100644
  void CCrossbow::Holster( int skiplocal /* = 0 */ )
 diff --git a/dlls/fpbody_buddy.inl b/dlls/fpbody_buddy.inl
 new file mode 100644
-index 0000000..7122369
+index 0000000..d64127b
 --- /dev/null
 +++ b/dlls/fpbody_buddy.inl
-@@ -0,0 +1,521 @@
+@@ -0,0 +1,618 @@
 +// fpbody: the HEV companion (sv_fpbody_buddy 1).
 +//
 +// Included at the end of barney.cpp: monster_fpbody_buddy is a security guard
@@ -7279,9 +7279,17 @@ index 0000000..7122369
 +#define FPB_MODEL		"models/fpbody_buddy.mdl"
 +#define FPB_ON()		( sv_fpbody_buddy.value != 0 )
 +#endif
++// the companion's model is a Barney that carries a minigun (the HEV Barney
++// Automatic Weapons Pack's Minigunner, tools/gmod_anims/make_minigun_buddy.py):
++// body part 1 is its gun, submodel 1 the minigun in his hands; his firing
++// stance is the model's own (ACT_RANGE_ATTACK1). Long bursts, one minigun
++// sound per burst (sound/fpbody/minigun.wav)
 +#define FPB_GUN_GROUP	1
-+#define FPB_GUN_PISTOL	1	// the revolver in his hand
-+#define FPB_GUN_MP5		3	// the MP5 (fpbody_buddy.mdl's own submodel)
++#define FPB_GUN_PISTOL	1	// the minigun in his hands
++#define FPB_GUN_MP5		1	// (one gun: the minigun)
++#define FPB_BURST		12	// rounds per burst
++#define FPB_BURST_GAP	0.06f	// seconds between them
++#define FPB_GUN_SOUND	"fpbody/minigun.wav"
 +#define FPB_PISTOL_DIST	640	// targets further than this: the revolver
 +
 +class CFPBuddy : public CBarney
@@ -7293,6 +7301,7 @@ index 0000000..7122369
 +	void SetActivity( Activity NewActivity ) FPB_OVERRIDE;
 +	void StartTask( Task_t *pTask ) FPB_OVERRIDE;
 +	void RunTask( Task_t *pTask ) FPB_OVERRIDE;
++	void HandleAnimEvent( MonsterEvent_t *pEvent ) FPB_OVERRIDE;
 +	FPB_BOOL FBecomeProne( void ) FPB_OVERRIDE { return false; }
 +
 +	void EXPORT BuddyUse( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value );
@@ -7301,6 +7310,13 @@ index 0000000..7122369
 +	void FireMP5( void );
 +	void ChooseWeapon( void );
 +#ifdef FPB_DECAY
++	// Colette's own voice (Decay's sound/colette, COL_ sentences) instead of Barney's
++	void ColetteTalk( void );
++	void AlertSound( void ) FPB_OVERRIDE;
++	void PainSound( void ) FPB_OVERRIDE;
++	void DeathSound( void ) FPB_OVERRIDE;
++	void DeclineFollowing( void ) FPB_OVERRIDE;
++	Schedule_t *GetSchedule( void ) FPB_OVERRIDE;
 +	bool DecayGoal( CBaseEntity *pPlayer );
 +	EHANDLE m_hGoal;			// the puzzle trigger she's going to / standing in
 +	float m_flGoalTime, m_flGoalSeen;
@@ -7349,6 +7365,10 @@ index 0000000..7122369
 +	CBarney::Precache();
 +#endif
 +	PRECACHE_MODEL( (char *)FPB_MODEL );
++#ifdef FPB_DECAY
++	ColetteTalk();
++#endif
++	PRECACHE_SOUND( (char *)FPB_GUN_SOUND );
 +	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun1.wav" );
 +	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun2.wav" );
 +	g_fpBuddyPrecached = 1;
@@ -7443,8 +7463,9 @@ index 0000000..7122369
 +{
 +	if ( pTask->iTask == TASK_RANGE_ATTACK1 )
 +	{
-+		m_iBurst = ( m_iWeapon == FPB_GUN_MP5 ) ? 3 : 0;
++		m_iBurst = FPB_BURST;
 +		m_flNextShot = gpGlobals->time;
++		EMIT_SOUND_DYN( ENT( pev ), CHAN_WEAPON, FPB_GUN_SOUND, 1, ATTN_NORM, 0, PITCH_NORM );
 +	}
 +	CBarney::StartTask( pTask );
 +}
@@ -7455,9 +7476,18 @@ index 0000000..7122369
 +	{
 +		FireMP5();
 +		m_iBurst--;
-+		m_flNextShot = gpGlobals->time + 0.1;
++		m_flNextShot = gpGlobals->time + FPB_BURST_GAP;
 +	}
 +	CBarney::RunTask( pTask );
++}
++
++// the model's own firing events (Barney's: a revolver shot and its sound)
++// are left out - the bursts above are the minigun
++void CFPBuddy::HandleAnimEvent( MonsterEvent_t *pEvent )
++{
++	if ( pEvent->event == 3 )		// BARNEY_AE_SHOOT
++		return;
++	CBarney::HandleAnimEvent( pEvent );
 +}
 +
 +void CFPBuddy::FireMP5( void )
@@ -7474,7 +7504,6 @@ index 0000000..7122369
 +#else
 +	FireBullets( 1, src, dir, cone, 2048, BULLET_MONSTER_MP5 );
 +#endif
-+	EMIT_SOUND_DYN( ENT( pev ), CHAN_WEAPON, RANDOM_LONG( 0, 1 ) ? "hgrunt/gr_mgun1.wav" : "hgrunt/gr_mgun2.wav", 1, ATTN_NORM, 0, PITCH_NORM );
 +	CSoundEnt::InsertSound( bits_SOUND_COMBAT, pev->origin, 384, 0.3 );
 +}
 +
@@ -7650,7 +7679,15 @@ index 0000000..7122369
 +}
 +
 +// gina_inside -> colette_inside, cross_p1in -> cross_p2in, player1 -> player2
-+static void FPDecay_Partner( const char *in, char *out, int size )
++// fpbody_decay solo (sv_fpbody_decay_solo 1, the default): Gina does it all -
++// Decay's "both players" triggers fire for her alone and her half of a pair
++// fires Colette's half too (triggers.cpp)
++bool FPDecay_Solo( void )
++{
++	return gpGlobals->maxClients == 1 && CVAR_GET_FLOAT( "sv_fpbody_decay_solo" ) != 0.0f;
++}
++
++void FPDecay_Partner( const char *in, char *out, int size )
 +{
 +	static const char *const from[] = { "gina", "Gina", "p1", "P1", "player1" };
 +	static const char *const to[] = { "colette", "Colette", "p2", "P2", "player2" };
@@ -7666,6 +7703,60 @@ index 0000000..7122369
 +			return;
 +		}
 +	}
++}
++
++// Colette's voice: her lines from Decay's two-player game (bot Colette) -
++// following / waiting, "freeze" at enemies, after a kill - and nothing of
++// Barney's chatter (she has no idle talk, questions or answers)
++void CFPBuddy::ColetteTalk( void )
++{
++	for ( int i = 0; i < TLK_CGROUPS; i++ )
++		m_szGrp[ i ] = NULL;
++	m_szGrp[ TLK_USE ] = "COL_OK";
++	m_szGrp[ TLK_UNUSE ] = "COL_WAIT";
++	m_szGrp[ TLK_STOP ] = "COL_STOP";
++	m_szGrp[ TLK_NOSHOOT ] = "COL_MAD";
++	static const char *const snd[] = { "colette/colette_pain0.wav", "colette/colette_pain1.wav",
++		"colette/colette_pain2.wav", "colette/colette_pain3.wav", "colette/colette_die0.wav",
++		"colette/colette_die1.wav", "colette/colette_die2.wav" };
++	for ( int i = 0; i < (int)( sizeof( snd ) / sizeof( snd[ 0 ] ) ); i++ )
++		PRECACHE_SOUND( (char *)snd[ i ] );
++}
++
++void CFPBuddy::AlertSound( void )
++{
++	if ( m_hEnemy != 0 && FOkToSpeak() )
++		PlaySentence( "COL_ATTACK", RANDOM_FLOAT( 2.8f, 3.2f ), VOL_NORM, ATTN_IDLE );
++}
++
++void CFPBuddy::PainSound( void )
++{
++	if ( gpGlobals->time < m_painTime )
++		return;
++	m_painTime = gpGlobals->time + RANDOM_FLOAT( 0.5f, 0.75f );
++	char snd[ 64 ];
++	snprintf( snd, sizeof( snd ), "colette/colette_pain%d.wav", (int)RANDOM_LONG( 0, 3 ) );
++	EMIT_SOUND_DYN( ENT( pev ), CHAN_VOICE, snd, 1.0f, ATTN_NORM, 0, GetVoicePitch() );
++}
++
++void CFPBuddy::DeathSound( void )
++{
++	char snd[ 64 ];
++	snprintf( snd, sizeof( snd ), "colette/colette_die%d.wav", (int)RANDOM_LONG( 0, 2 ) );
++	EMIT_SOUND_DYN( ENT( pev ), CHAN_VOICE, snd, 1.0f, ATTN_NORM, 0, GetVoicePitch() );
++}
++
++void CFPBuddy::DeclineFollowing( void )
++{
++	PlaySentence( "COL_STOP", 2, VOL_NORM, ATTN_NORM );
++}
++
++Schedule_t *CFPBuddy::GetSchedule( void )
++{
++	// her line after a kill, said first so Barney's ("BA_KILL") finds her talking
++	if ( HasConditions( bits_COND_ENEMY_DEAD ) && FOkToSpeak() )
++		PlaySentence( "COL_KILL", 4, VOL_NORM, ATTN_NORM );
++	return CBarney::GetSchedule();
 +}
 +
 +// Colette's half of a puzzle: a "both players" trigger Gina stands in, or the
@@ -7734,7 +7825,13 @@ index 0000000..7122369
 +		MoveToLocation( ACT_RUN, 2, spot );
 +	}
 +	if ( FPDecay_Inside( goal, pev->origin + Vector( 0, 0, 36 ), 0 ) )
-+		return true;					// there
++	{
++		// there. A monster standing still doesn't touch triggers (only moving
++		// does), and Decay's "both players inside" triggers need both touches
++		// within a tenth of a second: touch it every frame, like Gina does
++		goal->Touch( this );
++		return true;
++	}
 +	if ( gpGlobals->time - m_flGoalTime > 4 && !tr.fStartSolid && !tr.fAllSolid )
 +	{
 +		SET_ORIGIN( ENT( pev ), spot );	// couldn't get there: appear there
@@ -8247,7 +8344,7 @@ index 0000000..8b92c68
 +		s_fpKnockNext = 0.0f;
 +}
 diff --git a/dlls/game.cpp b/dlls/game.cpp
-index 7217e1e..c6cbf7e 100644
+index 7217e1e..afdd05e 100644
 --- a/dlls/game.cpp
 +++ b/dlls/game.cpp
 @@ -40,6 +40,14 @@ cvar_t	teamoverride = {"mp_teamoverride","1" };
@@ -8256,7 +8353,7 @@ index 7217e1e..c6cbf7e 100644
  
 +cvar_t sv_buddha = { "sv_buddha", "1", FCVAR_ARCHIVE };	// fpbody: buddha mode (on by default; "buddha" toggles)
 +cvar_t sv_fpbody_anims = { "sv_fpbody_anims", "cz", FCVAR_ARCHIVE };	// fpbody: cz / cs player weapon animations
-+cvar_t sv_fpbody_buddy = { "sv_fpbody_buddy", "0", FCVAR_ARCHIVE };	// fpbody: 1 = the HEV companion
++cvar_t sv_fpbody_buddy = { "sv_fpbody_buddy", "1", FCVAR_ARCHIVE };	// fpbody: 1 = the HEV companion
 +cvar_t sv_fpbody_knockdown = { "sv_fpbody_knockdown", "1", FCVAR_ARCHIVE };	// fpbody: big enemies knock you down, small ones throw you back (fpbody_react.inl)
 +cvar_t sv_fpbody_regen = { "sv_fpbody_regen", "1", FCVAR_ARCHIVE };			// fpbody: health comes back by itself
 +cvar_t sv_fpbody_regen_delay = { "sv_fpbody_regen_delay", "5", FCVAR_ARCHIVE };	// seconds without getting hurt first

@@ -34,7 +34,7 @@ p = 'dlls/game.cpp'; s = rd(p); n = nl(s)
 if 'sv_fpbody_buddy' not in s:
     a = 'cvar_t sv_fpbody_anims = { "sv_fpbody_anims", "cz", FCVAR_ARCHIVE };'
     i = s.index(a); j = s.index(n, i) + len(n)
-    s = s[:j] + 'cvar_t sv_fpbody_buddy = { "sv_fpbody_buddy", "0", FCVAR_ARCHIVE };\t// fpbody: 1 = the HEV companion' + n + s[j:]
+    s = s[:j] + 'cvar_t sv_fpbody_buddy = { "sv_fpbody_buddy", "1", FCVAR_ARCHIVE };\t// fpbody: 1 = the HEV companion' + n + s[j:]
     a = 'CVAR_REGISTER( &sv_fpbody_anims );'
     i = s.index(a); j = s.index(n, i) + len(n)
     ind = s[s.rindex(n, 0, i) + len(n):i]
