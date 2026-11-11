@@ -37,7 +37,7 @@ def rep(rel, pairs):
     s = open(p, encoding='latin-1', newline='').read()
     nl = '\r\n' if '\r\n' in s else '\n'
     s = s.replace('\r\n', '\n')
-    if 'FPDecay_Id' in s and rel != 'dlls/barney.cpp':
+    if pairs[0][1] in s:                     # run before: leave it
         print('already', rel); return
     for old, new, *cnt in pairs:
         c = cnt[0] if cnt else 1
@@ -168,5 +168,68 @@ rep('dlls/decay/decay_gamerules.cpp', [
 	sprintf( enddecayname, "decay_player%d_dead", pVictim->m_iDecayId ); // decay_player2_dead'''),
     ('		if ( decayMaps[ getMapEntryId(curMapId) ].m_bLocked == true )',
      '		if ( decayMaps[ getMapEntryId(curMapId) ].m_bLocked == true && gpGlobals->maxClients > 1 )	// fpbody: single player plays every mission'),
+])
+
+# Solo (sv_fpbody_decay_solo 1, the default): Gina does every puzzle alone.
+# Decay's "both players inside" triggers fire for her alone, and when she
+# fires her half of a pair (a Gina-only trigger), Colette's half fires with it:
+# the Colette-only trigger with the same target, or with its Colette
+# counterpart (gina_inside -> colette_inside, p1cam -> p2cam). Colette is
+# still there as the companion; she just isn't needed. sv_fpbody_decay_solo 0
+# gives the two-player puzzles back (Colette walks to her half by herself).
+rep('dlls/game.cpp', [
+    ('cvar_t sv_fpbody_buddy = ', 'cvar_t sv_fpbody_decay_solo = { "sv_fpbody_decay_solo", "1", FCVAR_ARCHIVE };	// fpbody: Decay, Gina does every puzzle alone (FPDecay_Solo)\ncvar_t sv_fpbody_buddy = '),
+    ('	CVAR_REGISTER( &sv_fpbody_buddy );', '	CVAR_REGISTER( &sv_fpbody_buddy );\n	CVAR_REGISTER( &sv_fpbody_decay_solo );'),
+])
+rep('dlls/triggers.cpp', [
+    ('int FPDecay_Id( CBaseEntity *pEnt );\n', '''int FPDecay_Id( CBaseEntity *pEnt );
+// fpbody: single player with sv_fpbody_decay_solo 1 - Gina does it all
+bool FPDecay_Solo( void );
+void FPDecay_Partner( const char *in, char *out, int size );
+'''),
+    ('''					//m_iPlayersInside = m_iPlayersInside & g_pPlayer->m_iDecayId;
+					if (!(m_iPlayersInside & PF_PLAYER1) || !(m_iPlayersInside & PF_PLAYER2))
+						return;''', '''					//m_iPlayersInside = m_iPlayersInside & g_pPlayer->m_iDecayId;
+					if ( FPDecay_Solo() )
+					{	// fpbody: Gina alone is enough
+						if ( !( m_iPlayersInside & PF_PLAYER1 ) )
+							return;
+					}
+					else if (!(m_iPlayersInside & PF_PLAYER1) || !(m_iPlayersInside & PF_PLAYER2))
+						return;'''),
+    ('''		ActivateMultiTrigger( pOther );
+		//if ( pev->spawnflags & SF_SPECIFICPLAYER )''', '''		// fpbody solo: Gina's half of a pair fires Colette's half too - the
+		// Colette trigger with the same target, or its Colette counterpart
+		// (gina_inside -> colette_inside, p1cam -> p2cam)
+		if ( ( pev->spawnflags & SF_SPECIFICPLAYER ) && m_iPlayerIndex == 1 && FPDecay_Id( pOther ) == 1 &&
+			FPDecay_Solo() && pev->nextthink <= gpGlobals->time && UTIL_IsMasterTriggered( m_sMaster, pOther ) && pev->target )
+		{
+			char partner[ 128 ];
+			FPDecay_Partner( STRING( pev->target ), partner, sizeof( partner ) );
+			static const char *const kinds[] = { "trigger_multiple", "trigger_once" };
+			for ( int k = 0; k < 2; k++ )
+			{
+				CBaseEntity *pT = NULL;
+				while ( ( pT = UTIL_FindEntityByClassname( pT, kinds[ k ] ) ) != NULL )
+				{
+					CBaseTrigger *t = (CBaseTrigger *)pT;
+					if ( t == this || !( t->pev->spawnflags & SF_SPECIFICPLAYER ) || t->m_iPlayerIndex != 2 || !t->pev->target )
+						continue;
+					const char *tt = STRING( t->pev->target );
+					if ( !strcmp( tt, STRING( pev->target ) ) || ( partner[ 0 ] && !strcmp( tt, partner ) ) )
+						t->ActivateMultiTrigger( pOther );
+				}
+			}
+		}
+		ActivateMultiTrigger( pOther );
+		//if ( pev->spawnflags & SF_SPECIFICPLAYER )'''),
+])
+# the end of a mission: only Gina's grade
+rep('dlls/triggers.cpp', [
+    ('''		sprintf( buf, "Player 1 grade: %c\\nPlayer 2 grade: %c", gradeChar[1], gradeChar[2] );''',
+     '''		if ( FPDecay_Solo() )	// fpbody: Gina alone
+			sprintf( buf, "Grade: %c", gradeChar[1] );
+		else
+			sprintf( buf, "Player 1 grade: %c\\nPlayer 2 grade: %c", gradeChar[1], gradeChar[2] );'''),
 ])
 print('ok', SDK)

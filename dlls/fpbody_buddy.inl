@@ -433,7 +433,15 @@ static bool FPDecay_Inside( CBaseEntity *t, const Vector &p, float pad )
 }
 
 // gina_inside -> colette_inside, cross_p1in -> cross_p2in, player1 -> player2
-static void FPDecay_Partner( const char *in, char *out, int size )
+// fpbody_decay solo (sv_fpbody_decay_solo 1, the default): Gina does it all -
+// Decay's "both players" triggers fire for her alone and her half of a pair
+// fires Colette's half too (triggers.cpp)
+bool FPDecay_Solo( void )
+{
+	return gpGlobals->maxClients == 1 && CVAR_GET_FLOAT( "sv_fpbody_decay_solo" ) != 0.0f;
+}
+
+void FPDecay_Partner( const char *in, char *out, int size )
 {
 	static const char *const from[] = { "gina", "Gina", "p1", "P1", "player1" };
 	static const char *const to[] = { "colette", "Colette", "p2", "P2", "player2" };
