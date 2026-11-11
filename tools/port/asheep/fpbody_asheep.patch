@@ -722,10 +722,10 @@ index 3f124ac..51d8203 100644
  }
 diff --git a/cl_dll/fpbody.cpp b/cl_dll/fpbody.cpp
 new file mode 100644
-index 0000000..355d448
+index 0000000..d241acc
 --- /dev/null
 +++ b/cl_dll/fpbody.cpp
-@@ -0,0 +1,1230 @@
+@@ -0,0 +1,1248 @@
 +// fpbody.cpp - "True first person" / body awareness for Half-Life.
 +//
 +// How it works
@@ -1243,6 +1243,54 @@ index 0000000..355d448
 +	}
 +	target[ 2 ] += upOfs;
 +
++	// Keep the eyes off the floor: lying down (and looking down, which bends the
++	// spine) the head comes within the view's near plane (4 units) of the floor
++	// - or below it - and the view cuts through it. Find the floor under the
++	// head from eye height (open space, so the trace can't start inside the
++	// floor) and stay cl_fpbody_floorclear above it, before the wall check
++	// below; the lift is eased so it doesn't jump between frames.
++	{
++		static cvar_t *clear;
++		static float lift, liftTime;
++		if ( !clear )
++			clear = gEngfuncs.pfnRegisterVariable( "cl_fpbody_floorclear", "10", FCVAR_ARCHIVE );
++		float c = clear ? clear->value : 10.0f;
++		float want = 0.0f;
++		if ( c > 0.0f )
++		{
++			float eyeZ = pparams->simorg[ 2 ] + pparams->viewheight[ 2 ];
++			Vector from( target[ 0 ], target[ 1 ], eyeZ );
++			Vector to( target[ 0 ], target[ 1 ], target[ 2 ] - c );
++			if ( to[ 2 ] < from[ 2 ] )
++			{
++				pmtrace_t ftr;
++				gEngfuncs.pEventAPI->EV_SetUpPlayerPrediction( false, true );
++				gEngfuncs.pEventAPI->EV_PushPMStates();
++				gEngfuncs.pEventAPI->EV_SetSolidPlayers( -1 );
++				gEngfuncs.pEventAPI->EV_SetTraceHull( 2 );	// point hull
++				gEngfuncs.pEventAPI->EV_PlayerTrace( from, to, PM_WORLD_ONLY, -1, &ftr );
++				gEngfuncs.pEventAPI->EV_PopPMStates();
++				if ( !ftr.startsolid && ftr.fraction < 1.0f && ftr.plane.normal[ 2 ] > 0.5f )
++				{
++					float z = ftr.endpos[ 2 ] + c;
++					if ( z > eyeZ )
++						z = eyeZ;					// never above the normal eye height
++					if ( z > target[ 2 ] )
++						want = z - target[ 2 ];
++				}
++			}
++		}
++		float dt = now - liftTime;
++		liftTime = now;
++		if ( dt < 0.0f || dt > 0.3f )
++			lift = want;
++		else if ( want > lift )
++			lift += ( want - lift ) * ( 1.0f - (float)exp( -dt / 0.03f ) );	// up quickly
++		else
++			lift += ( want - lift ) * ( 1.0f - (float)exp( -dt / 0.12f ) );	// down gently
++		target[ 2 ] += lift;
++	}
++
 +	// Don't let the camera poke through walls: trace from the normal eye
 +	// position (which is always inside the player's hull) to the head.
 +	Vector eye;
@@ -1269,36 +1317,6 @@ index 0000000..355d448
 +	else if ( tr.startsolid )
 +	{
 +		VectorCopy( eye, target );
-+	}
-+
-+	// Keep the eyes off the floor: lying down (and looking down, which bends the
-+	// spine) the head comes within the view's near plane (4 units) of the floor
-+	// and the view would cut through it. Stay cl_fpbody_floorclear above it.
-+	{
-+		static cvar_t *clear;
-+		if ( !clear )
-+			clear = gEngfuncs.pfnRegisterVariable( "cl_fpbody_floorclear", "10", FCVAR_ARCHIVE );
-+		float c = clear ? clear->value : 10.0f;
-+		if ( c > 0.0f )
-+		{
-+			Vector below = target;
-+			below[ 2 ] -= c;
-+			pmtrace_t ftr;
-+			gEngfuncs.pEventAPI->EV_SetUpPlayerPrediction( false, true );
-+			gEngfuncs.pEventAPI->EV_PushPMStates();
-+			gEngfuncs.pEventAPI->EV_SetSolidPlayers( -1 );
-+			gEngfuncs.pEventAPI->EV_SetTraceHull( 2 );	// point hull
-+			gEngfuncs.pEventAPI->EV_PlayerTrace( target, below, PM_WORLD_ONLY, -1, &ftr );
-+			gEngfuncs.pEventAPI->EV_PopPMStates();
-+			if ( !ftr.startsolid && ftr.fraction < 1.0f && ftr.plane.normal[ 2 ] > 0.5f )
-+			{
-+				float z = ftr.endpos[ 2 ] + c;
-+				if ( z > eye[ 2 ] )
-+					z = eye[ 2 ];				// never above the normal eye height
-+				if ( target[ 2 ] < z )
-+					target[ 2 ] = z;
-+			}
-+		}
 +	}
 +
 +	VectorCopy( target, outOrigin );
