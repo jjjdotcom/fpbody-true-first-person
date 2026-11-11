@@ -65,6 +65,19 @@ public:
 };
 
 LINK_ENTITY_TO_CLASS( monster_zombie, CZombie );
+// fpbody: Uplink Extended's (and Opposing Force's) zombie guard and zombie
+// soldier - the scientist zombie with their models
+LINK_ENTITY_TO_CLASS( monster_zombie_barney, CZombie );
+LINK_ENTITY_TO_CLASS( monster_zombie_soldier, CZombie );
+
+static const char *ZombieModel( entvars_t *pev )
+{
+	if ( FClassnameIs( pev, "monster_zombie_barney" ) )
+		return "models/zombie_barney.mdl";
+	if ( FClassnameIs( pev, "monster_zombie_soldier" ) )
+		return "models/zombie_soldier.mdl";
+	return "models/zombie.mdl";
+}
 
 const char *CZombie::pAttackHitSounds[] = 
 {
@@ -271,7 +284,7 @@ void CZombie :: Spawn()
 {
 	Precache( );
 
-	SET_MODEL(ENT(pev), "models/zombie.mdl");
+	SET_MODEL(ENT(pev), ZombieModel( pev ));
 	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
 
 	pev->solid			= SOLID_SLIDEBOX;
@@ -293,7 +306,7 @@ void CZombie :: Precache()
 {
 	int i;
 
-	PRECACHE_MODEL("models/zombie.mdl");
+	PRECACHE_MODEL( (char *)ZombieModel( pev ) );
 
 	for ( i = 0; i < ARRAYSIZE( pAttackHitSounds ); i++ )
 		PRECACHE_SOUND((char *)pAttackHitSounds[i]);

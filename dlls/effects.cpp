@@ -2266,3 +2266,63 @@ void CItemSoda::CanTouch ( CBaseEntity *pOther )
 	SetThink ( &CItemSoda::SUB_Remove );
 	pev->nextthink = gpGlobals->time;
 }
+
+//=========================================================
+// fpbody: env_model (Uplink Extended): a model standing in the map, playing
+// one of its sequences ("anim", by number) over and over; "body" picks its
+// body group setting
+//=========================================================
+class CEnvModel : public CBaseAnimating
+{
+public:
+	void Spawn( void );
+	void Precache( void );
+	void KeyValue( KeyValueData *pkvd );
+	void EXPORT ModelThink( void );
+};
+
+LINK_ENTITY_TO_CLASS( env_model, CEnvModel );
+
+void CEnvModel::KeyValue( KeyValueData *pkvd )
+{
+	if ( FStrEq( pkvd->szKeyName, "anim" ) )
+	{
+		pev->sequence = atoi( pkvd->szValue );
+		pkvd->fHandled = TRUE;
+	}
+	else
+		CBaseAnimating::KeyValue( pkvd );
+}
+
+void CEnvModel::Precache( void )
+{
+	if ( pev->model )
+		PRECACHE_MODEL( (char *)STRING( pev->model ) );
+}
+
+void CEnvModel::Spawn( void )
+{
+	Precache();
+	if ( !pev->model )
+	{
+		REMOVE_ENTITY( ENT( pev ) );
+		return;
+	}
+	SET_MODEL( ENT( pev ), STRING( pev->model ) );
+	pev->solid = SOLID_NOT;
+	pev->movetype = MOVETYPE_NONE;
+	pev->framerate = 1.0f;
+	pev->frame = 0;
+	ResetSequenceInfo();
+	m_fSequenceLoops = TRUE;
+	SetThink( &CEnvModel::ModelThink );
+	pev->nextthink = gpGlobals->time + 0.1f;
+}
+
+void CEnvModel::ModelThink( void )
+{
+	StudioFrameAdvance();
+	if ( m_fSequenceFinished )
+		pev->frame = 0;
+	pev->nextthink = gpGlobals->time + 0.1f;
+}
