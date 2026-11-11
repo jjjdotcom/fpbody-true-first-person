@@ -3130,6 +3130,14 @@ int CBaseMonster :: CanPlaySequence( BOOL fDisregardMonsterState, int interruptL
 	if ( m_MonsterState == MONSTERSTATE_ALERT && interruptLevel >= SS_INTERRUPT_BY_NAME )
 		return TRUE;
 
+	// fpbody: a scientist (or any non-fighter) a script calls by name may go
+	// even though he still thinks he's in a fight, once no enemy is in sight -
+	// he can stay "in combat" long after it's over (Uplink Extended's rescued
+	// scientist never went to open the container)
+	if ( m_MonsterState == MONSTERSTATE_COMBAT && interruptLevel >= SS_INTERRUPT_BY_NAME &&
+		Classify() == CLASS_HUMAN_PASSIVE && ( m_hEnemy == 0 || !HasConditions( bits_COND_SEE_ENEMY ) ) )
+		return TRUE;
+
 	// unknown situation
 	return FALSE;
 }
