@@ -543,6 +543,36 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 		VectorCopy( eye, target );
 	}
 
+	// Keep the eyes off the floor: lying down (and looking down, which bends the
+	// spine) the head comes within the view's near plane (4 units) of the floor
+	// and the view would cut through it. Stay cl_fpbody_floorclear above it.
+	{
+		static cvar_t *clear;
+		if ( !clear )
+			clear = gEngfuncs.pfnRegisterVariable( "cl_fpbody_floorclear", "10", FCVAR_ARCHIVE );
+		float c = clear ? clear->value : 10.0f;
+		if ( c > 0.0f )
+		{
+			Vector below = target;
+			below[ 2 ] -= c;
+			pmtrace_t ftr;
+			gEngfuncs.pEventAPI->EV_SetUpPlayerPrediction( false, true );
+			gEngfuncs.pEventAPI->EV_PushPMStates();
+			gEngfuncs.pEventAPI->EV_SetSolidPlayers( -1 );
+			gEngfuncs.pEventAPI->EV_SetTraceHull( 2 );	// point hull
+			gEngfuncs.pEventAPI->EV_PlayerTrace( target, below, PM_WORLD_ONLY, -1, &ftr );
+			gEngfuncs.pEventAPI->EV_PopPMStates();
+			if ( !ftr.startsolid && ftr.fraction < 1.0f && ftr.plane.normal[ 2 ] > 0.5f )
+			{
+				float z = ftr.endpos[ 2 ] + c;
+				if ( z > eye[ 2 ] )
+					z = eye[ 2 ];				// never above the normal eye height
+				if ( target[ 2 ] < z )
+					target[ 2 ] = z;
+			}
+		}
+	}
+
 	VectorCopy( target, outOrigin );
 	return 1;
 }

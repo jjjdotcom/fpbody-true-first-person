@@ -37,9 +37,9 @@
 #define FPM_KNOCK			4194304	// set by the server: knocked down by a big enemy (dlls/fpbody_react.inl; bit 22, the last that fits in fuser4's 24 signed bits)
 #define FPM_SPRINT_SCALE	1.25f	// speed while sprinting (320 -> 400)
 
-// Moves that are switched off (1 = on): prone (pm_prone, double-tap duck) and
+// Moves that can be switched off (1 = on): prone (pm_prone, double-tap duck) and
 // sprinting (+alt1). Shift / LB walks instead (+speed, autoexec.cfg).
-#define FPM_ENABLE_PRONE	0
+#define FPM_ENABLE_PRONE	1
 #define FPM_ENABLE_SPRINT	0
 
 #define FPM_USE_DOOR		1		// Contextual Player Animations
