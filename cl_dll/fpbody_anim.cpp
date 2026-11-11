@@ -2011,6 +2011,14 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 		StartOverlayKind( ( in_duck.state & 1 ) ? "fm_proneup_crouch" : "fm_proneup_stand", OVK_MOVE, 0.9f );
 	oneShot = g_ovSeq >= 0 && g_ovKind == OVK_MOVE;
 
+	// a slide cut short by a jump (the long jump: duck while running, then jump):
+	// off the ground the slide's pose puts the head - the camera - behind the body
+	if ( oneShot && OverlayIs( "fm_slide" ) && !( st & FPM_SLIDE ) && !onground )
+	{
+		StopOverlay();
+		oneShot = false;
+	}
+
 	// a one-off move that no longer fits: getting up, moving off, or a vault cut short
 	if ( oneShot && g_now - g_ovStart > 0.2f )
 	{

@@ -2018,10 +2018,10 @@ index 0000000..73cdbd7
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..c8eff56
+index 0000000..7093eaf
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4705 @@
+@@ -0,0 +1,4713 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -4034,6 +4034,14 @@ index 0000000..c8eff56
 +	else if ( ended & FPM_PRONE )
 +		StartOverlayKind( ( in_duck.state & 1 ) ? "fm_proneup_crouch" : "fm_proneup_stand", OVK_MOVE, 0.9f );
 +	oneShot = g_ovSeq >= 0 && g_ovKind == OVK_MOVE;
++
++	// a slide cut short by a jump (the long jump: duck while running, then jump):
++	// off the ground the slide's pose puts the head - the camera - behind the body
++	if ( oneShot && OverlayIs( "fm_slide" ) && !( st & FPM_SLIDE ) && !onground )
++	{
++		StopOverlay();
++		oneShot = false;
++	}
 +
 +	// a one-off move that no longer fits: getting up, moving off, or a vault cut short
 +	if ( oneShot && g_now - g_ovStart > 0.2f )
