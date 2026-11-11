@@ -17,7 +17,7 @@ set "LOG=%HL%\fpbody_decay_build.log"
 echo Decay: True First Person build, %DATE% %TIME% >> "%LOG%"
 
 if not exist "%GAME%\liblist.gam" (
-  call :say Half-Life: Decay (the PC port) is not installed in %GAME%
+  call :say Half-Life: Decay - the PC port - is not installed in %GAME%
   call :say Install it there first - its folder must be called decay - then run this again.
   goto :end
 )
