@@ -74,6 +74,13 @@ public:
 	void FireMP5( void );
 	void ChooseWeapon( void );
 #ifdef FPB_DECAY
+	// Colette's own voice (Decay's sound/colette, COL_ sentences) instead of Barney's
+	void ColetteTalk( void );
+	void AlertSound( void ) FPB_OVERRIDE;
+	void PainSound( void ) FPB_OVERRIDE;
+	void DeathSound( void ) FPB_OVERRIDE;
+	void DeclineFollowing( void ) FPB_OVERRIDE;
+	Schedule_t *GetSchedule( void ) FPB_OVERRIDE;
 	bool DecayGoal( CBaseEntity *pPlayer );
 	EHANDLE m_hGoal;			// the puzzle trigger she's going to / standing in
 	float m_flGoalTime, m_flGoalSeen;
@@ -122,6 +129,9 @@ void CFPBuddy::Precache( void )
 	CBarney::Precache();
 #endif
 	PRECACHE_MODEL( (char *)FPB_MODEL );
+#ifdef FPB_DECAY
+	ColetteTalk();
+#endif
 	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun1.wav" );
 	PRECACHE_SOUND( (char *)"hgrunt/gr_mgun2.wav" );
 	g_fpBuddyPrecached = 1;
@@ -441,6 +451,60 @@ static void FPDecay_Partner( const char *in, char *out, int size )
 	}
 }
 
+// Colette's voice: her lines from Decay's two-player game (bot Colette) -
+// following / waiting, "freeze" at enemies, after a kill - and nothing of
+// Barney's chatter (she has no idle talk, questions or answers)
+void CFPBuddy::ColetteTalk( void )
+{
+	for ( int i = 0; i < TLK_CGROUPS; i++ )
+		m_szGrp[ i ] = NULL;
+	m_szGrp[ TLK_USE ] = "COL_OK";
+	m_szGrp[ TLK_UNUSE ] = "COL_WAIT";
+	m_szGrp[ TLK_STOP ] = "COL_STOP";
+	m_szGrp[ TLK_NOSHOOT ] = "COL_MAD";
+	static const char *const snd[] = { "colette/colette_pain0.wav", "colette/colette_pain1.wav",
+		"colette/colette_pain2.wav", "colette/colette_pain3.wav", "colette/colette_die0.wav",
+		"colette/colette_die1.wav", "colette/colette_die2.wav" };
+	for ( int i = 0; i < (int)( sizeof( snd ) / sizeof( snd[ 0 ] ) ); i++ )
+		PRECACHE_SOUND( (char *)snd[ i ] );
+}
+
+void CFPBuddy::AlertSound( void )
+{
+	if ( m_hEnemy != 0 && FOkToSpeak() )
+		PlaySentence( "COL_ATTACK", RANDOM_FLOAT( 2.8f, 3.2f ), VOL_NORM, ATTN_IDLE );
+}
+
+void CFPBuddy::PainSound( void )
+{
+	if ( gpGlobals->time < m_painTime )
+		return;
+	m_painTime = gpGlobals->time + RANDOM_FLOAT( 0.5f, 0.75f );
+	char snd[ 64 ];
+	snprintf( snd, sizeof( snd ), "colette/colette_pain%d.wav", (int)RANDOM_LONG( 0, 3 ) );
+	EMIT_SOUND_DYN( ENT( pev ), CHAN_VOICE, snd, 1.0f, ATTN_NORM, 0, GetVoicePitch() );
+}
+
+void CFPBuddy::DeathSound( void )
+{
+	char snd[ 64 ];
+	snprintf( snd, sizeof( snd ), "colette/colette_die%d.wav", (int)RANDOM_LONG( 0, 2 ) );
+	EMIT_SOUND_DYN( ENT( pev ), CHAN_VOICE, snd, 1.0f, ATTN_NORM, 0, GetVoicePitch() );
+}
+
+void CFPBuddy::DeclineFollowing( void )
+{
+	PlaySentence( "COL_STOP", 2, VOL_NORM, ATTN_NORM );
+}
+
+Schedule_t *CFPBuddy::GetSchedule( void )
+{
+	// her line after a kill, said first so Barney's ("BA_KILL") finds her talking
+	if ( HasConditions( bits_COND_ENEMY_DEAD ) && FOkToSpeak() )
+		PlaySentence( "COL_KILL", 4, VOL_NORM, ATTN_NORM );
+	return CBarney::GetSchedule();
+}
+
 // Colette's half of a puzzle: a "both players" trigger Gina stands in, or the
 // Colette trigger that pairs (by name) with the Gina trigger she stands in.
 // Colette runs there - or appears there if she can't get there in a few
@@ -507,7 +571,13 @@ bool CFPBuddy::DecayGoal( CBaseEntity *pPlayer )
 		MoveToLocation( ACT_RUN, 2, spot );
 	}
 	if ( FPDecay_Inside( goal, pev->origin + Vector( 0, 0, 36 ), 0 ) )
-		return true;					// there
+	{
+		// there. A monster standing still doesn't touch triggers (only moving
+		// does), and Decay's "both players inside" triggers need both touches
+		// within a tenth of a second: touch it every frame, like Gina does
+		goal->Touch( this );
+		return true;
+	}
 	if ( gpGlobals->time - m_flGoalTime > 4 && !tr.fStartSolid && !tr.fAllSolid )
 	{
 		SET_ORIGIN( ENT( pev ), spot );	// couldn't get there: appear there

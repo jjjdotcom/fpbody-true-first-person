@@ -16,7 +16,8 @@ A model without the full player skeleton (the companion, fpbody_colette.mdl:
 no fingers or toes, its origin at the feet) gets the bones it has, e.g.
 labels idle1,idle2,idle3,idle4.
 
-<labels> (comma-separated, default ref_aim_unarmed,ref_shoot_unarmed,look_idle,idle)
+<labels> (comma-separated, default ref_aim_unarmed,ref_shoot_unarmed,look_idle,idle,deep_idle:
+deep_idle is the standing gait - the legs and hips under every weapon's hold)
 are the sequences that get the idle: each keeps its name, activity, flags and
 events; only its frames and frame rate change. The animation is retargeted
 (retarget.py) against the Garry's Mod player's rest pose like add_freeman.py's.
@@ -33,7 +34,7 @@ from add_cz import existing_sequences, textures_last         # noqa: E402
 from add_freeman import PackRetargeter, source_anim, STAND  # noqa: E402
 import retarget                                             # noqa: E402
 
-DEFAULT = 'ref_aim_unarmed,ref_shoot_unarmed,look_idle,idle'
+DEFAULT = 'ref_aim_unarmed,ref_shoot_unarmed,look_idle,idle,deep_idle'
 
 
 def partial_retargeter(g, M, ref):
