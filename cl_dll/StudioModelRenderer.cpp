@@ -1868,7 +1868,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
 	if (flags & STUDIO_RENDER)
 	{
 		// see if the bounding box lets us trivially reject, also sets
-		if (!IEngineStudio.StudioCheckBBox ())
+		if ( !IEngineStudio.StudioCheckBBox() && !( FPBody_Active() && gEngfuncs.GetLocalPlayer() && pplayer->number == gEngfuncs.GetLocalPlayer()->index ) )	// fpbody: never cull your own body
 			return 0;
 
 		(*m_pModelsDrawn)++;

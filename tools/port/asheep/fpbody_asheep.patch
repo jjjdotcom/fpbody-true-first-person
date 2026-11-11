@@ -150,7 +150,7 @@ index 98013eb..e7238e8 100644
    ${COMMON_DIR}/parsemsg.cpp
    ${DLLS_DIR}/crossbow.cpp
 diff --git a/cl_dll/StudioModelRenderer.cpp b/cl_dll/StudioModelRenderer.cpp
-index ada72c7..b35ddaa 100644
+index ada72c7..a9f8a67 100644
 --- a/cl_dll/StudioModelRenderer.cpp
 +++ b/cl_dll/StudioModelRenderer.cpp
 @@ -21,6 +21,59 @@
@@ -343,7 +343,7 @@ index ada72c7..b35ddaa 100644
  		StudioSetUpTransform( 0 );
  		VectorCopy( orig_angles, m_pCurrentEntity->angles );
  	}
-@@ -1729,6 +1861,7 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
+@@ -1729,13 +1861,14 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  		m_pPlayerInfo = IEngineStudio.PlayerInfo( m_nPlayerIndex );
  		m_pPlayerInfo->gaitsequence = 0;
  
@@ -351,6 +351,14 @@ index ada72c7..b35ddaa 100644
  		StudioSetUpTransform( 0 );
  	}
  
+ 	if (flags & STUDIO_RENDER)
+ 	{
+ 		// see if the bounding box lets us trivially reject, also sets
+-		if (!IEngineStudio.StudioCheckBBox ())
++		if ( !IEngineStudio.StudioCheckBBox() && !( FPBody_Active() && gEngfuncs.GetLocalPlayer() && pplayer->number == gEngfuncs.GetLocalPlayer()->index ) )	// fpbody: never cull your own body
+ 			return 0;
+ 
+ 		(*m_pModelsDrawn)++;
 @@ -1746,7 +1879,19 @@ int CStudioModelRenderer::StudioDrawPlayer( int flags, entity_state_t *pplayer )
  	}
  
