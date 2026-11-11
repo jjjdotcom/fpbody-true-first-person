@@ -723,14 +723,15 @@ struct model_s *FPBody_GetOutfitModel( int playerNumber )
 	struct model_s *m = NULL;
 	// the Hazard Course (t0a0*): Gordon in his everyday clothes, no lab coat
 	// (models/fpbody_training.mdl; fpbody_classic_training.mdl with
-	// cl_fpbody_classic 1) - in any game that has the model
+	// cl_fpbody_classic 1) until he puts the HEV suit on - in any game that
+	// has the model
 	static int trainingStates[ 2 ];
-	if ( cl_fpbody_outfit && cl_fpbody_outfit->value != 0.0f && FPBody_IsTraining() )
+	if ( cl_fpbody_outfit && cl_fpbody_outfit->value != 0.0f && FPBody_IsTraining() && !FPBody_IsSuited() )
 	{
 		static const char *const trainingNames[ 2 ] = { "models/fpbody_training.mdl", "models/fpbody_classic_training.mdl" };
 		m = FPBody_TryModel( trainingNames[ c ], trainingStates[ c ] );
 		if ( m )
-			g_szOutfitReason = "the Hazard Course: training outfit";
+			g_szOutfitReason = "the Hazard Course, not suited: training outfit";
 	}
 	if ( m )
 		;
