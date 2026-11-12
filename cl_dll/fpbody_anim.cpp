@@ -34,7 +34,7 @@
 //   cl_fpbody_aimfire   1    turn the gun straight down the view while firing
 //   cl_fpbody_gunlower  20   classic mode: degrees the shouldered Condition Zero holds are
 //                            tilted down in our own view (0 = as in Condition Zero)
-//   cl_fpbody_glreload  1    reload the 9mmAR grenade launcher after every shot (body animation)
+//   cl_fpbody_glreload  1    reload the 9mmAR grenade launcher after every shot (Garry's Mod models: its shotgun reload)
 //   cl_fpbody_pickup    1    bend down and grab anything you pick up (ammo, weapons, health, batteries, items)
 //   cl_fpbody_freemanreload 1  GMod mode: the Freeman mod's reloads for every gun
 //   cl_fpbody_reload_speed 1   reload speed for every gun: 0.5 = half speed (the reload takes
@@ -2360,7 +2360,15 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 		g_glReloadAt = 0.0f;
 		if ( g_ovSeq < 0 )
 		{
-			StartClip( CLIP_RELOAD, 1, 1.0f, 1.3f );
+			// a Garry's Mod model: its shotgun reload (the shell pushed in, the pump)
+			if ( g_bGmodModel && g_playerHdr && cl_fpbody_gmod->value != 0.0f && !MoveBusy() &&
+				 FindSeq( g_playerHdr, "gm_reload_shotgun" ) >= 0 && StartOverlay( "gm_reload_shotgun", false, 1.8f ) )
+			{
+				g_ovLoop = false;
+				StartClip( CLIP_NONE, 0, 0.0f, 0.0f );
+			}
+			else
+				StartClip( CLIP_RELOAD, 1, 1.0f, 1.3f );
 			g_mvActivity = g_now;
 		}
 	}
