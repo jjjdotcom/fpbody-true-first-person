@@ -1415,12 +1415,25 @@ static void WantLoop( const char *name, float rate )
 }
 
 // downed / revived (dlls/fpbody_buddy.inl, the FPDown message): 0 up, 1 down,
-// 2 down and the companion's CPR, 3 you give the companion CPR
+// 2 down and the companion's CPR, 3 you give the companion CPR, 4 you help him up
 static int g_fpDown;
 static int MsgFunc_FPDown( const char *pszName, int iSize, void *pbuf )
 {
 	g_fpDown = ( iSize > 0 && pbuf ) ? *(const unsigned char *)pbuf : 0;
 	return 1;
+}
+
+// the camera while you're down: 0..1 (eased), lying on your back or getting up
+float FPAnim_DownedWeight( void )
+{
+	static float w = 0.0f, last = -1.0f;
+	float now = gEngfuncs.GetClientTime();
+	bool on = g_fpDown == 1 || g_fpDown == 2 || ( g_ovSeq >= 0 && OverlayIs( "fm_down_up" ) &&
+			  g_ovDur > 0.0f && ( now - g_ovStart ) / g_ovDur < 0.6f );
+	float dt = ( last < 0.0f || now < last ) ? 0.0f : Clamp( now - last, 0.0f, 0.1f );
+	last = now;
+	w += ( ( on ? 1.0f : 0.0f ) - w ) * Clamp01( dt * 5.0f );
+	return w;
 }
 
 static void PM_KickCmd( void )
@@ -2056,9 +2069,16 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 	{
 		static int prev;
 		if ( ( prev == 1 || prev == 2 ) && !g_fpDown && FindSeq( g_playerHdr, "fm_down_up" ) >= 0 &&
-			 StartOverlayKind( "fm_down_up", OVK_MOVE, 5.0f ) )
+			 StartOverlayKind( "fm_down_up", OVK_MOVE, 5.5f ) )
 		{
-			g_ovStart -= 0.45f * g_ovDur;		// past the lying part
+			g_ovStart -= 0.25f * g_ovDur;		// past the lying still (as the companion's)
+			oneShot = true;
+		}
+		// the CPR worked: help him up (the scientist's), in step with his getting up
+		if ( g_fpDown == 4 && prev != 4 && FindSeq( g_playerHdr, "fm_cpr_up" ) >= 0 &&
+			 StartOverlayKind( "fm_cpr_up", OVK_MOVE, 5.15f ) )
+		{
+			g_ovStart -= 0.25f * g_ovDur;
 			oneShot = true;
 		}
 		prev = g_fpDown;

@@ -7,7 +7,8 @@ models, for the downed / revive mechanic (dlls/fpbody_buddy.inl).
 player: fm_down     the guard on his back, being revived (cprbarney, looping)
         fm_down_up  the guard getting up (cprbarneyrevive)
         fm_cpr      the scientist giving CPR (cprscientist, looping)
-buddy:  cprscientist  (the companion already has the guard's cprbarney /
+        fm_cpr_up   the scientist helping him up after (cprscientistrevive)
+buddy:  cprscientist, cprscientistrevive  (the companion already has the guard's cprbarney /
         cprbarneyrevive: he's a Barney)
 Half-Life's Biped and fpbody's share the bone axes (see vanilla_jump.py): each
 bone takes the stock animation's rotation and keeps the model's length; the
@@ -54,8 +55,9 @@ NEWER = {' L Leg': ' L Thigh', ' R Leg': ' R Thigh', ' L Leg1': ' L Calf', ' R L
          ' L Arm2': ' L Forearm', ' R Arm2': ' R Forearm'}
 
 
-def retarget(V, label, M, base, vbase):
-    """V's sequence `label` on M's skeleton"""
+def retarget(V, label, M, base, vbase, drift=True):
+    """V's sequence `label` on M's skeleton (drift False: the root stays where
+    it starts across the floor, it only goes up and down)"""
     vmap = {}
     for ci, b in enumerate(V.bones):
         n = bname(b['name'])
@@ -76,6 +78,8 @@ def retarget(V, label, M, base, vbase):
     for r in roots:
         ci = vmap.get(r, 0)
         f[:, r, :3] = base[r, :3] + ( src[:, ci, :3] - vbase[ci, :3] ) * k
+        if not drift:
+            f[:, r, :2] = f[0, r, :2]
     return f, float(V.seqs[vi]['fps'])
 
 
@@ -86,16 +90,18 @@ def main(kind, sci, bar, in_path, out_path):
     if kind == 'player':
         base = idle_frame(M, ['look_idle', 'idle'])
         want = [('fm_down', B, 'cprbarney', True), ('fm_down_up', B, 'cprbarneyrevive', False),
-                ('fm_cpr', S, 'cprscientist', True)]
+                ('fm_cpr', S, 'cprscientist', True), ('fm_cpr_up', S, 'cprscientistrevive', False)]
         template = seqs[names.index('look_idle')] if 'look_idle' in names else seqs[0]
     else:
         base = idle_frame(M, ['idle1', 'idle'])
-        want = [('cprscientist', S, 'cprscientist', True)]
+        want = [('cprscientist', S, 'cprscientist', True), ('cprscientistrevive', S, 'cprscientistrevive', False)]
         template = seqs[names.index('cprbarney')] if 'cprbarney' in names else seqs[0]
     seqs[:] = [s for s in seqs if s['label'] not in [w[0] for w in want]]
     for label, V, src, loop in want:
         vbase = idle_frame(V, ['idle1', 'idle'])
-        f, fps = retarget(V, src, M, base, vbase)
+        # helping him up, the scientist walks round to the guard's head: kept
+        # in place here (the game doesn't move the body's origin with it)
+        f, fps = retarget(V, src, M, base, vbase, drift=(src != 'cprscientistrevive'))
         s = make_seq(label, f, fps, loop, template)
         s['activity'] = 0
         s['actweight'] = 0

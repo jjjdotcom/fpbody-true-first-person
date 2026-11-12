@@ -153,6 +153,7 @@ public:
 	float m_flHintTime;		// next "Hold USE to revive" (not saved)
 	float m_flHitTime;		// last hurt (health comes back after a while; not saved)
 	float m_flRegenTime;
+	float m_flHelpUntil;		// helping the player up until (not saved)
 	float m_flUseSeen;		// CPR can start again from (after it was stopped)
 	float m_flUpTime;		// getting up: back to the fight then
 	// not saved
@@ -720,6 +721,7 @@ static float s_pDownTime;			// the player is down since (0 = up)
 static float s_pCprTime;			// the companion's CPR on him started (0 = none)
 static EHANDLE s_hPatient;			// the companion the player gives CPR
 static float s_pPatientTime;
+static float s_pHelpUntil;			// the player helps the companion up until (0 = not)
 static int s_downMsg = -1;
 static float s_downMsgTime;
 
@@ -786,6 +788,7 @@ static void FPDown_PlayerUp( CBasePlayer *pl )
 
 static void FPDown_PlayerDown( CBasePlayer *pl )
 {
+	s_pHelpUntil = 0;
 	s_pDownTime = gpGlobals->time;
 	s_pCprTime = 0;
 	pl->pev->health = 1;
@@ -867,6 +870,18 @@ static void FPDown_PlayerThink( CBasePlayer *pl )
 		FPDown_Send( pl, s_pCprTime ? 2 : 1 );
 		return;
 	}
+	if ( s_pHelpUntil )
+	{
+		if ( t < s_pHelpUntil && s_pHelpUntil - t < 10.0f && pl->IsAlive() )
+		{
+			pl->pev->flags |= FL_FROZEN;	// helping him up
+			pl->pev->velocity.x = pl->pev->velocity.y = 0;
+			FPDown_Send( pl, 4 );
+			return;
+		}
+		s_pHelpUntil = 0;
+		pl->pev->flags &= ~FL_FROZEN;
+	}
 	CBaseEntity *patient = s_hPatient;
 	FPDown_Send( pl, patient ? 3 : 0 );
 }
@@ -939,6 +954,18 @@ void CFPBuddy::ReviveThink( void )
 {
 	pev->nextthink = gpGlobals->time + 0.1f;
 	StudioFrameAdvance();
+	float t = gpGlobals->time;
+	if ( m_flHelpUntil > 0 )
+	{
+		// helping him up (the scientist's cprscientistrevive), then back to it
+		if ( t >= m_flHelpUntil || m_flHelpUntil - t > 10.0f || m_fSequenceFinished )
+		{
+			m_flHelpUntil = 0;
+			ClearSchedule();
+			SetThink( &CBaseMonster::CallMonsterThink );
+		}
+		return;
+	}
 	if ( m_fSequenceFinished )
 	{
 		pev->frame = 0;
@@ -946,9 +973,17 @@ void CFPBuddy::ReviveThink( void )
 	}
 	CBasePlayer *pl = FPDown_Player();
 	bool done = !s_pDownTime || !pl || !pl->IsAlive();
-	if ( !done && gpGlobals->time - s_pCprTime >= FPD_CPR )
+	if ( !done && t - s_pCprTime >= FPD_CPR )
 	{
 		FPDown_PlayerUp( pl );				// back on his feet
+		s_pCprTime = 0;
+		if ( LookupSequence( "cprscientistrevive" ) >= 0 )
+		{
+			PlaySeq( "cprscientistrevive", 2.0f );
+			pev->frame = 64;				// from where the guard starts getting up
+			m_flHelpUntil = t + 3.9f;
+			return;
+		}
 		done = true;
 	}
 	if ( done )
@@ -1038,8 +1073,8 @@ void CFPBuddy::GetUp( void )
 	m_flDownTime = 0;
 	m_flHP = FPB_DOWN_HP;
 	PlaySeq( "cprbarneyrevive", 2.0f );
-	pev->frame = 100;						// past the lying part (of 255)
-	m_flUpTime = gpGlobals->time + 3.2f;
+	pev->frame = 64;						// a quarter in: past the lying still (of 256)
+	m_flUpTime = gpGlobals->time + 4.1f;	// (the rest, at double speed)
 }
 
 // the player kneels beside him and gives him CPR (his +use)
@@ -1161,7 +1196,10 @@ void CFPBuddy::DownThink( void )
 			pl->pev->velocity = g_vecZero;
 			if ( t - s_pPatientTime >= FPD_CPR )
 			{
-				FPDown_EndPatient( pl );
+				// revived: the player helps him up (fm_cpr_up), still in place
+				s_hPatient = NULL;
+				s_pHelpUntil = t + 3.9f;
+				FPDown_Send( pl, 4 );
 				GetUp();					// revived
 				return;
 			}

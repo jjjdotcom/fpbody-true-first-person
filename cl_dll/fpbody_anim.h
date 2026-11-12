@@ -65,6 +65,7 @@ void FPAnim_OnDamage( int amount, int bits );
 // True while a full-body act (taunt, pose, sit...) is shown with the chase camera
 int FPAnim_ActCamActive( void );
 float FPAnim_HunchWeight( void );	// 0..1 while a landing / roll / slide folds the body forward
+float FPAnim_DownedWeight( void );	// 0..1 lying downed: the camera at the face, not out over the chest
 int FPAnim_SwimOneArm( int entindex );	// swimming with a gun: the left arm swims (the gait drives it)
 int FPAnim_LeftArmBone( const char *name );
 

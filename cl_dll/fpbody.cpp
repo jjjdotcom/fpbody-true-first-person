@@ -506,6 +506,18 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 		upOfs *= 1.0f - 0.7f * hunch;
 	}
 
+	// downed, on your back: the head is behind the body, so the usual offset
+	// out in front of the face (along the view) goes into the chest - the
+	// face looks up, the eyes go up off the head instead
+	{
+		float dw = FPAnim_DownedWeight();
+		if ( dw > 0.001f )
+		{
+			fwd *= 1.0f - dw;
+			upOfs += 4.0f * dw;
+		}
+	}
+
 	Vector target;
 	for ( int i = 0; i < 3; i++ )
 	{

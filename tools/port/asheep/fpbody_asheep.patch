@@ -738,10 +738,10 @@ index 3f124ac..51d8203 100644
  }
 diff --git a/cl_dll/fpbody.cpp b/cl_dll/fpbody.cpp
 new file mode 100644
-index 0000000..d241acc
+index 0000000..ea5be74
 --- /dev/null
 +++ b/cl_dll/fpbody.cpp
-@@ -0,0 +1,1248 @@
+@@ -0,0 +1,1260 @@
 +// fpbody.cpp - "True first person" / body awareness for Half-Life.
 +//
 +// How it works
@@ -1248,6 +1248,18 @@ index 0000000..d241acc
 +		if ( extra > 14.0f ) extra = 14.0f;
 +		fwd += extra * hunch;
 +		upOfs *= 1.0f - 0.7f * hunch;
++	}
++
++	// downed, on your back: the head is behind the body, so the usual offset
++	// out in front of the face (along the view) goes into the chest - the
++	// face looks up, the eyes go up off the head instead
++	{
++		float dw = FPAnim_DownedWeight();
++		if ( dw > 0.001f )
++		{
++			fwd *= 1.0f - dw;
++			upOfs += 4.0f * dw;
++		}
 +	}
 +
 +	Vector target;
@@ -2082,10 +2094,10 @@ index 0000000..73cdbd7
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..05f0252
+index 0000000..3d28e9e
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4799 @@
+@@ -0,0 +1,4819 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -3503,12 +3515,25 @@ index 0000000..05f0252
 +}
 +
 +// downed / revived (dlls/fpbody_buddy.inl, the FPDown message): 0 up, 1 down,
-+// 2 down and the companion's CPR, 3 you give the companion CPR
++// 2 down and the companion's CPR, 3 you give the companion CPR, 4 you help him up
 +static int g_fpDown;
 +static int MsgFunc_FPDown( const char *pszName, int iSize, void *pbuf )
 +{
 +	g_fpDown = ( iSize > 0 && pbuf ) ? *(const unsigned char *)pbuf : 0;
 +	return 1;
++}
++
++// the camera while you're down: 0..1 (eased), lying on your back or getting up
++float FPAnim_DownedWeight( void )
++{
++	static float w = 0.0f, last = -1.0f;
++	float now = gEngfuncs.GetClientTime();
++	bool on = g_fpDown == 1 || g_fpDown == 2 || ( g_ovSeq >= 0 && OverlayIs( "fm_down_up" ) &&
++			  g_ovDur > 0.0f && ( now - g_ovStart ) / g_ovDur < 0.6f );
++	float dt = ( last < 0.0f || now < last ) ? 0.0f : Clamp( now - last, 0.0f, 0.1f );
++	last = now;
++	w += ( ( on ? 1.0f : 0.0f ) - w ) * Clamp01( dt * 5.0f );
++	return w;
 +}
 +
 +static void PM_KickCmd( void )
@@ -4144,9 +4169,16 @@ index 0000000..05f0252
 +	{
 +		static int prev;
 +		if ( ( prev == 1 || prev == 2 ) && !g_fpDown && FindSeq( g_playerHdr, "fm_down_up" ) >= 0 &&
-+			 StartOverlayKind( "fm_down_up", OVK_MOVE, 5.0f ) )
++			 StartOverlayKind( "fm_down_up", OVK_MOVE, 5.5f ) )
 +		{
-+			g_ovStart -= 0.45f * g_ovDur;		// past the lying part
++			g_ovStart -= 0.25f * g_ovDur;		// past the lying still (as the companion's)
++			oneShot = true;
++		}
++		// the CPR worked: help him up (the scientist's), in step with his getting up
++		if ( g_fpDown == 4 && prev != 4 && FindSeq( g_playerHdr, "fm_cpr_up" ) >= 0 &&
++			 StartOverlayKind( "fm_cpr_up", OVK_MOVE, 5.15f ) )
++		{
++			g_ovStart -= 0.25f * g_ovDur;
 +			oneShot = true;
 +		}
 +		prev = g_fpDown;
@@ -6887,10 +6919,10 @@ index 0000000..05f0252
 +}
 diff --git a/cl_dll/fpbody_anim.h b/cl_dll/fpbody_anim.h
 new file mode 100644
-index 0000000..c3c15e4
+index 0000000..384c7e9
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.h
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,72 @@
 +// fpbody_anim.h - procedural body animations for the "True First Person" mod.
 +//
 +// Half-Life's player.mdl has no reload / weapon-switch / use animations, so
@@ -6958,6 +6990,7 @@ index 0000000..c3c15e4
 +// True while a full-body act (taunt, pose, sit...) is shown with the chase camera
 +int FPAnim_ActCamActive( void );
 +float FPAnim_HunchWeight( void );	// 0..1 while a landing / roll / slide folds the body forward
++float FPAnim_DownedWeight( void );	// 0..1 lying downed: the camera at the face, not out over the chest
 +int FPAnim_SwimOneArm( int entindex );	// swimming with a gun: the left arm swims (the gait drives it)
 +int FPAnim_LeftArmBone( const char *name );
 +
@@ -7483,10 +7516,10 @@ index 38b0581..da7cf84 100644
  void CCrossbow::Holster( int skiplocal /* = 0 */ )
 diff --git a/dlls/fpbody_buddy.inl b/dlls/fpbody_buddy.inl
 new file mode 100644
-index 0000000..b14aa68
+index 0000000..691b47e
 --- /dev/null
 +++ b/dlls/fpbody_buddy.inl
-@@ -0,0 +1,1172 @@
+@@ -0,0 +1,1210 @@
 +// fpbody: the HEV companion (sv_fpbody_buddy 1).
 +//
 +// Included at the end of barney.cpp: monster_fpbody_buddy is a security guard
@@ -7642,6 +7675,7 @@ index 0000000..b14aa68
 +	float m_flHintTime;		// next "Hold USE to revive" (not saved)
 +	float m_flHitTime;		// last hurt (health comes back after a while; not saved)
 +	float m_flRegenTime;
++	float m_flHelpUntil;		// helping the player up until (not saved)
 +	float m_flUseSeen;		// CPR can start again from (after it was stopped)
 +	float m_flUpTime;		// getting up: back to the fight then
 +	// not saved
@@ -8209,6 +8243,7 @@ index 0000000..b14aa68
 +static float s_pCprTime;			// the companion's CPR on him started (0 = none)
 +static EHANDLE s_hPatient;			// the companion the player gives CPR
 +static float s_pPatientTime;
++static float s_pHelpUntil;			// the player helps the companion up until (0 = not)
 +static int s_downMsg = -1;
 +static float s_downMsgTime;
 +
@@ -8275,6 +8310,7 @@ index 0000000..b14aa68
 +
 +static void FPDown_PlayerDown( CBasePlayer *pl )
 +{
++	s_pHelpUntil = 0;
 +	s_pDownTime = gpGlobals->time;
 +	s_pCprTime = 0;
 +	pl->pev->health = 1;
@@ -8356,6 +8392,18 @@ index 0000000..b14aa68
 +		FPDown_Send( pl, s_pCprTime ? 2 : 1 );
 +		return;
 +	}
++	if ( s_pHelpUntil )
++	{
++		if ( t < s_pHelpUntil && s_pHelpUntil - t < 10.0f && pl->IsAlive() )
++		{
++			pl->pev->flags |= FL_FROZEN;	// helping him up
++			pl->pev->velocity.x = pl->pev->velocity.y = 0;
++			FPDown_Send( pl, 4 );
++			return;
++		}
++		s_pHelpUntil = 0;
++		pl->pev->flags &= ~FL_FROZEN;
++	}
 +	CBaseEntity *patient = s_hPatient;
 +	FPDown_Send( pl, patient ? 3 : 0 );
 +}
@@ -8428,6 +8476,18 @@ index 0000000..b14aa68
 +{
 +	pev->nextthink = gpGlobals->time + 0.1f;
 +	StudioFrameAdvance();
++	float t = gpGlobals->time;
++	if ( m_flHelpUntil > 0 )
++	{
++		// helping him up (the scientist's cprscientistrevive), then back to it
++		if ( t >= m_flHelpUntil || m_flHelpUntil - t > 10.0f || m_fSequenceFinished )
++		{
++			m_flHelpUntil = 0;
++			ClearSchedule();
++			SetThink( &CBaseMonster::CallMonsterThink );
++		}
++		return;
++	}
 +	if ( m_fSequenceFinished )
 +	{
 +		pev->frame = 0;
@@ -8435,9 +8495,17 @@ index 0000000..b14aa68
 +	}
 +	CBasePlayer *pl = FPDown_Player();
 +	bool done = !s_pDownTime || !pl || !pl->IsAlive();
-+	if ( !done && gpGlobals->time - s_pCprTime >= FPD_CPR )
++	if ( !done && t - s_pCprTime >= FPD_CPR )
 +	{
 +		FPDown_PlayerUp( pl );				// back on his feet
++		s_pCprTime = 0;
++		if ( LookupSequence( "cprscientistrevive" ) >= 0 )
++		{
++			PlaySeq( "cprscientistrevive", 2.0f );
++			pev->frame = 64;				// from where the guard starts getting up
++			m_flHelpUntil = t + 3.9f;
++			return;
++		}
 +		done = true;
 +	}
 +	if ( done )
@@ -8527,8 +8595,8 @@ index 0000000..b14aa68
 +	m_flDownTime = 0;
 +	m_flHP = FPB_DOWN_HP;
 +	PlaySeq( "cprbarneyrevive", 2.0f );
-+	pev->frame = 100;						// past the lying part (of 255)
-+	m_flUpTime = gpGlobals->time + 3.2f;
++	pev->frame = 64;						// a quarter in: past the lying still (of 256)
++	m_flUpTime = gpGlobals->time + 4.1f;	// (the rest, at double speed)
 +}
 +
 +// the player kneels beside him and gives him CPR (his +use)
@@ -8650,7 +8718,10 @@ index 0000000..b14aa68
 +			pl->pev->velocity = g_vecZero;
 +			if ( t - s_pPatientTime >= FPD_CPR )
 +			{
-+				FPDown_EndPatient( pl );
++				// revived: the player helps him up (fm_cpr_up), still in place
++				s_hPatient = NULL;
++				s_pHelpUntil = t + 3.9f;
++				FPDown_Send( pl, 4 );
 +				GetUp();					// revived
 +				return;
 +			}
