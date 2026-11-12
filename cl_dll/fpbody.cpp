@@ -515,15 +515,6 @@ int FPBody_GetViewOrigin( struct ref_params_s *pparams, float *outOrigin )
 	}
 	target[ 2 ] += upOfs;
 
-	// a hard landing / landing roll: the camera stays at eye height
-	// (cl_fpbody_fixedcam) instead of following the head down and round
-	{
-		float fw = FPAnim_FixedCamWeight();
-		if ( fw > 0.001f )
-			for ( int i = 0; i < 3; i++ )
-				target[ i ] += ( pparams->simorg[ i ] + pparams->viewheight[ i ] - target[ i ] ) * fw;
-	}
-
 	// Keep the eyes off the floor: lying down (and looking down, which bends the
 	// spine) the head comes within the view's near plane (4 units) of the floor
 	// - or below it - and the view cuts through it. Find the floor under the

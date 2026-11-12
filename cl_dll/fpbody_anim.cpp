@@ -236,6 +236,7 @@ static cvar_t *cl_fpbody_grip_side;
 static cvar_t *cl_fpbody_swimhold;
 static cvar_t *cl_fpbody_swimarm;
 static bool g_swimOneArm;			// swimming with a gun, the left arm swims
+static int MsgFunc_FPDown( const char *pszName, int iSize, void *pbuf );	// downed / revived
 static cvar_t *cl_fpbody_fingers;
 static cvar_t *cl_fpbody_helmet;			// fp_helmet: 1 = the helmet is on (saved)
 static float g_helmetStart = -1.0f;			// fp_helmet: when the hands went up (-1 = not now)
@@ -550,6 +551,7 @@ void FPAnim_Init( void )
 	cl_fpbody_epa_fidget_chance = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_chance", "1", FCVAR_ARCHIVE );
 	cl_fpbody_epa_fidget_speed  = gEngfuncs.pfnRegisterVariable( "cl_fpbody_epa_fidget_speed", "1", FCVAR_ARCHIVE );
 	gEngfuncs.pfnAddCommand( "pm_kick", PM_KickCmd );
+	gEngfuncs.pfnHookUserMsg( "FPDown", MsgFunc_FPDown );	// downed / revived
 	gEngfuncs.pfnAddCommand( "fp_invnext", FP_InvNextCmd );
 	gEngfuncs.pfnAddCommand( "fp_invprev", FP_InvPrevCmd );
 	if ( FPM_ENABLE_PRONE )
@@ -1412,6 +1414,15 @@ static void WantLoop( const char *name, float rate )
 		g_ovRate = rate;
 }
 
+// downed / revived (dlls/fpbody_buddy.inl, the FPDown message): 0 up, 1 down,
+// 2 down and the companion's CPR, 3 you give the companion CPR
+static int g_fpDown;
+static int MsgFunc_FPDown( const char *pszName, int iSize, void *pbuf )
+{
+	g_fpDown = ( iSize > 0 && pbuf ) ? *(const unsigned char *)pbuf : 0;
+	return 1;
+}
+
 static void PM_KickCmd( void )
 {
 	gEngfuncs.pfnClientCmd( "impulse 211\n" );
@@ -2040,10 +2051,27 @@ static void FPMoves_Frame( struct ref_params_s *pparams )
 		}
 	}
 
+	// downed: on your back until revived, then up (the end of the guard's
+	// revive); giving the companion CPR: kneeling at it
+	{
+		static int prev;
+		if ( ( prev == 1 || prev == 2 ) && !g_fpDown && FindSeq( g_playerHdr, "fm_down_up" ) >= 0 &&
+			 StartOverlayKind( "fm_down_up", OVK_MOVE, 5.0f ) )
+		{
+			g_ovStart -= 0.45f * g_ovDur;		// past the lying part
+			oneShot = true;
+		}
+		prev = g_fpDown;
+	}
+
 	// looping states
 	const char *loop = NULL;
 	float rate = 0.0f;
-	if ( st & FPM_BARNACLE )
+	if ( ( g_fpDown == 1 || g_fpDown == 2 ) && FindSeq( g_playerHdr, "fm_down" ) >= 0 )
+		loop = "fm_down";
+	else if ( g_fpDown == 3 && FindSeq( g_playerHdr, "fm_cpr" ) >= 0 )
+		loop = "fm_cpr";
+	else if ( st & FPM_BARNACLE )
 	{
 		// caught by a barnacle (Extended Player Animations' barnacle_unarmed /
 		// _armed): legs kicking, hands at the tongue or the gun held ready; while
@@ -2171,7 +2199,7 @@ void FPAnim_Frame( struct ref_params_s *pparams )
 		g_epaNextFlinch = 0.0f; g_epaNextStrangle = 0.0f; g_epaNextSpasm = 0.0f; g_epaSpasms = 0;
 		g_epaNextFidget = -1.0f; g_epaIdleSince = g_now; g_epaDmgPending = 0; g_epaDmgBits = 0;
 		g_mvActivity = g_now; g_adHoldUntil = 0.0f; g_l4dShellAt = -10.0f; g_pickupPending = false;
-		g_mvLastDuck = g_mvLastReload = -10.0f; g_epaLastHurt = -100.0f;
+		g_mvLastDuck = g_mvLastReload = -10.0f; g_epaLastHurt = -100.0f; g_fpDown = 0;
 		g_cur.type = CLIP_NONE; g_prev.type = CLIP_NONE;
 		// and the ones that let the off hand go / pose the arms for a moment
 		// (use, flashlight, landing, firing): from the last map they lie in the
@@ -4670,23 +4698,6 @@ float FPAnim_HunchWeight( void )
 	float dt = ( last < 0.0f || now < last ) ? 0.0f : Clamp( now - last, 0.0f, 0.1f );
 	last = now;
 	w += ( ( on ? 1.0f : 0.0f ) - w ) * Clamp01( dt * ( on ? 12.0f : 5.0f ) );
-	return w;
-}
-
-// cl_fpbody_fixedcam: a hard landing / landing roll keeps the camera at eye
-// height (it doesn't follow the head down and round); eased in and out
-float FPAnim_FixedCamWeight( void )
-{
-	static cvar_t *fixed;
-	if ( !fixed )
-		fixed = gEngfuncs.pfnRegisterVariable( "cl_fpbody_fixedcam", "1", FCVAR_ARCHIVE );
-	static float w = 0.0f, last = -1.0f;
-	float now = gEngfuncs.GetClientTime();
-	bool on = fixed && fixed->value != 0.0f && g_ovSeq >= 0 && g_ovKind == OVK_MOVE &&
-			  ( OverlayIs( "fm_hardland" ) || OverlayIs( "fm_roll" ) );
-	float dt = ( last < 0.0f || now < last ) ? 0.0f : Clamp( now - last, 0.0f, 0.1f );
-	last = now;
-	w += ( ( on ? 1.0f : 0.0f ) - w ) * Clamp01( dt * ( on ? 14.0f : 4.0f ) );
 	return w;
 }
 

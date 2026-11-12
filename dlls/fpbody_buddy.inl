@@ -3,7 +3,9 @@
 // Included at the end of barney.cpp: monster_fpbody_buddy is a security guard
 // (CBarney: following, talking, the revolver) in an HEV suit
 // (models/fpbody_buddy.mdl) that
-//  - can't be hurt (takedamage off, barnacles can't grab him),
+//  - goes down instead of dying (sv_fpbody_down): on his back at the end of
+//    his health, until you revive him (hold +use: CPR) or for 60 seconds;
+//    your bullets don't hurt him, barnacles can't grab him,
 //  - fights with an MP5 (its own sequences mp5_idle / mp5_walk / mp5_run /
 //    mp5_shoot, three-round bursts) and switches to the revolver for far
 //    targets,
@@ -41,6 +43,7 @@
 #define FPB_FOLLOWING() IsFollowing()
 #endif
 
+#include "weapons.h"
 #include "player.h"
 
 extern cvar_t sv_fpbody_buddy;
@@ -70,6 +73,20 @@ extern cvar_t sv_fpbody_buddy_solid;
 #define FPB_GUN_SOUND	"fpbody/minigun.wav"
 #define FPB_PISTOL_DIST	640	// targets further than this: the revolver
 
+#include "weapons.h"
+#include "player.h"
+#ifdef FPB_SDK_UPDATED
+#define FPB_TDRET bool
+#else
+#define FPB_TDRET int
+#endif
+#define FPB_DOWN_HP		100.0f		// his health before he goes down (sv_fpbody_down)
+class CFPBuddy;
+static void FPDown_BuddyHealth( CFPBuddy *b );
+static bool FPDown_BuddyHelp( CFPBuddy *b, CBaseEntity *pPlayer );
+static bool FPDown_BuddyHit( CFPBuddy *b, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage );
+static void FPDown_PlayerThink( CBasePlayer *pl );
+
 class CFPBuddy : public CBarney
 {
 public:
@@ -87,6 +104,29 @@ public:
 	bool Teleport( CBaseEntity *pPlayer );
 	void FireMP5( void );
 	void ChooseWeapon( void );
+	// downed / reviving (sv_fpbody_down, the end of this file)
+	void GoDown( void );
+	void GetUp( void );
+	void EXPORT DownThink( void );
+	void EXPORT ReviveThink( void );
+	bool StartRevive( CBaseEntity *pPlayer );
+	void PlaySeq( const char *name, float rate );
+	bool HelpPlayer( CBasePlayer *pl );
+#if defined( FPB_SDK_FI )
+	TakeDamageResult TakeDamage( entvars_t *pevInflictor, entvars_t *pevAttacker, const DamageInfo &info ) override
+	{
+		if ( FPDown_BuddyHit( this, pevInflictor, pevAttacker, info.damage ) )
+			return TakeDamageResult();
+		return CBarney::TakeDamage( pevInflictor, pevAttacker, info );
+	}
+#else
+	FPB_TDRET TakeDamage( entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType ) FPB_OVERRIDE
+	{
+		if ( FPDown_BuddyHit( this, pevInflictor, pevAttacker, flDamage ) )
+			return 0;
+		return CBarney::TakeDamage( pevInflictor, pevAttacker, flDamage, bitsDamageType );
+	}
+#endif
 #ifdef FPB_DECAY
 	// Colette's own voice (Decay's sound/colette, COL_ sentences) instead of Barney's
 	void ColetteTalk( void );
@@ -108,6 +148,9 @@ public:
 	int m_iStay;			// told to wait with +use
 	float m_flLostTime;		// player out of sight since
 	float m_flNextTeleport;
+	float m_flHP;			// his own health (pev->health is kept high: see RunAI)
+	float m_flDownTime;		// downed since (0 = up)
+	float m_flUpTime;		// getting up: back to the fight then
 	// not saved
 	int m_iBurst;
 	float m_flNextShot;
@@ -116,12 +159,16 @@ public:
 
 LINK_ENTITY_TO_CLASS( monster_fpbody_buddy, CFPBuddy )
 
+
 TYPEDESCRIPTION CFPBuddy::m_SaveData[] =
 {
 	DEFINE_FIELD( CFPBuddy, m_iWeapon, FIELD_INTEGER ),
 	DEFINE_FIELD( CFPBuddy, m_iStay, FIELD_INTEGER ),
 	DEFINE_FIELD( CFPBuddy, m_flLostTime, FIELD_TIME ),
 	DEFINE_FIELD( CFPBuddy, m_flNextTeleport, FIELD_TIME ),
+	DEFINE_FIELD( CFPBuddy, m_flHP, FIELD_FLOAT ),
+	DEFINE_FIELD( CFPBuddy, m_flDownTime, FIELD_TIME ),
+	DEFINE_FIELD( CFPBuddy, m_flUpTime, FIELD_TIME ),
 };
 
 IMPLEMENT_SAVERESTORE( CFPBuddy, CBarney )
@@ -174,8 +221,10 @@ void CFPBuddy::Spawn( void )
 	SET_MODEL( ENT( pev ), FPB_MODEL );
 	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
 #endif
-	pev->takedamage = DAMAGE_NO;		// invincible
+	pev->takedamage = DAMAGE_NO;		// invincible (sv_fpbody_down 0)
 	FPB_SETSOLID();
+	m_flHP = FPB_DOWN_HP;
+	m_flDownTime = m_flUpTime = 0;
 	m_fGunDrawn = true;					// the gun is always out
 	m_iWeapon = FPB_GUN_MP5;
 	SetBodygroup( FPB_GUN_GROUP, m_iWeapon );
@@ -184,6 +233,12 @@ void CFPBuddy::Spawn( void )
 
 void CFPBuddy::BuddyUse( CBaseEntity *pActivator, CBaseEntity *pCaller, USE_TYPE useType, float value )
 {
+	if ( m_flDownTime )
+	{
+		if ( pActivator && pActivator->IsPlayer() )
+			StartRevive( pActivator );	// down: CPR
+		return;
+	}
 	FollowerUse( pActivator, pCaller, useType, value );
 	m_iStay = !FPB_FOLLOWING();
 }
@@ -205,7 +260,7 @@ void CFPBuddy::ChooseWeapon( void )
 void CFPBuddy::RunAI( void )
 {
 	FPB_SETSOLID();
-	pev->takedamage = DAMAGE_NO;
+	FPDown_BuddyHealth( this );
 	m_fGunDrawn = true;
 	ChooseWeapon();
 	CBarney::RunAI();
@@ -344,6 +399,10 @@ void CFPBuddy::Check( CBaseEntity *pPlayer )
 {
 	if ( m_MonsterState == MONSTERSTATE_SCRIPT || m_MonsterState == MONSTERSTATE_DEAD || pev->deadflag != DEAD_NO )
 		return;
+	if ( m_flDownTime || m_flUpTime )
+		return;							// down, or getting up
+	if ( FPDown_BuddyHelp( this, pPlayer ) )
+		return;							// on his way to revive the player
 #ifdef FPB_DECAY
 	if ( DecayGoal( pPlayer ) )
 		return;		// at (or on her way to) her half of a puzzle
@@ -396,6 +455,7 @@ void FPBuddy_Precache( void )
 // player.cpp, CBasePlayer::PostThink
 void FPBuddy_PlayerThink( CBasePlayer *pPlayer )
 {
+	FPDown_PlayerThink( pPlayer );		// downed / revived (every frame)
 	static float next;
 	if ( gpGlobals->time < next && next - gpGlobals->time < 1 )
 		return;
@@ -623,3 +683,421 @@ bool CFPBuddy::DecayGoal( CBaseEntity *pPlayer )
 	return true;
 }
 #endif
+
+// ---------------------------------------------------------------------------
+// Downed and revived (sv_fpbody_down 1, single player, while the companion is
+// on the map).
+//
+// The player: a hit that would kill him leaves him on his back at 1 health
+// instead (not drowning, crushed, under water or a kill zone's 1000). He can
+// look round and shoot - his pistol if he has one - but not move, and takes no
+// more damage; enemies stop seeing him. The companion comes over and gives him
+// CPR (Half-Life's scientist reviving a security guard: cprscientist on the
+// companion, cprbarney on the player's body) and after 5 seconds he's up with
+// 30 health; nobody comes: he gets up by himself after 60 seconds.
+// The companion: the same for him (his own 100 health; the player's shots
+// don't hurt him). Hold +use on him: you kneel and give him CPR for 5 seconds
+// (let go and you stop); left there he gets up by himself after 60 seconds.
+// The client is told with the FPDown message (0 up, 1 down, 2 down and being
+// revived, 3 giving the companion CPR): it plays fm_down / fm_down_up / fm_cpr
+// on the body (cl_dll/fpbody_anim.cpp, tools/gmod_anims/add_cpr.py).
+// ---------------------------------------------------------------------------
+
+extern cvar_t sv_fpbody_down;
+
+#define FPD_MARK		0x4650444E	// player's iuser4 while down ("FPDN"): a saved game remembers it
+#define FPD_SELF		60.0f		// up by yourself after this
+#define FPD_CPR			5.0f		// CPR this long
+#define FPD_UP_HP		30.0f		// health after a revive
+#define FPD_BIG			10000.0f	// the companion's pev->health (his own is m_flHP)
+
+int gmsgFPDown;
+static float s_pDownTime;			// the player is down since (0 = up)
+static float s_pCprTime;			// the companion's CPR on him started (0 = none)
+static EHANDLE s_hPatient;			// the companion the player gives CPR
+static float s_pPatientTime;
+static int s_downMsg = -1;
+static float s_downMsgTime;
+
+// player.cpp, LinkUserMessages
+void FPDown_LinkMessages( void )
+{
+	if ( !gmsgFPDown )
+		gmsgFPDown = REG_USER_MSG( "FPDown", 1 );
+}
+
+static void FPDown_Send( CBasePlayer *pl, int st )
+{
+	if ( !gmsgFPDown )
+		return;
+	float t = gpGlobals->time;
+	if ( st == s_downMsg && t >= s_downMsgTime && t - s_downMsgTime < 1.0f )
+		return;							// (again every second, for a loaded game)
+	s_downMsg = st;
+	s_downMsgTime = t;
+	MESSAGE_BEGIN( MSG_ONE, gmsgFPDown, NULL, pl->pev );
+		WRITE_BYTE( st );
+	MESSAGE_END();
+}
+
+static CFPBuddy *FPDown_Buddy( void )
+{
+	CBaseEntity *e = UTIL_FindEntityByClassname( NULL, "monster_fpbody_buddy" );
+	if ( !e || e->pev->deadflag != DEAD_NO )
+		return NULL;
+	return (CFPBuddy *)e;
+}
+
+static CBasePlayer *FPDown_Player( void )
+{
+	CBaseEntity *p = UTIL_PlayerByIndex( 1 );
+	return ( p && p->IsPlayer() ) ? (CBasePlayer *)p : NULL;
+}
+
+void CFPBuddy::PlaySeq( const char *name, float rate )
+{
+	int seq = LookupSequence( name );
+	if ( seq < 0 )
+		seq = LookupSequence( "lying_on_back" );
+	if ( seq < 0 )
+		return;
+	pev->sequence = seq;
+	pev->frame = 0;
+	ResetSequenceInfo();
+	pev->framerate = rate;
+}
+
+// ---- the player ----------------------------------------------------------
+
+static void FPDown_PlayerUp( CBasePlayer *pl )
+{
+	s_pDownTime = 0;
+	s_pCprTime = 0;
+	pl->pev->iuser4 = 0;
+	pl->pev->flags &= ~( FL_FROZEN | FL_NOTARGET );
+	if ( pl->IsAlive() && pl->pev->health < FPD_UP_HP )
+		pl->pev->health = FPD_UP_HP;
+	FPDown_Send( pl, 0 );
+}
+
+static void FPDown_PlayerDown( CBasePlayer *pl )
+{
+	s_pDownTime = gpGlobals->time;
+	s_pCprTime = 0;
+	pl->pev->health = 1;
+	pl->pev->iuser4 = FPD_MARK;
+	pl->pev->flags |= FL_FROZEN | FL_NOTARGET;
+	pl->pev->velocity.x = pl->pev->velocity.y = 0;
+	// the pistol out, if he has one
+	static const char *const pistols[] = { "weapon_9mmhandgun", "weapon_glock", "weapon_eagle", "weapon_357", "weapon_python", NULL };
+	for ( int i = 0; pistols[ i ]; i++ )
+	{
+		if ( pl->m_pActiveItem && FClassnameIs( pl->m_pActiveItem->pev, pistols[ i ] ) )
+			break;
+		if ( pl->HasNamedPlayerItem( pistols[ i ] ) )
+		{
+			pl->SelectItem( pistols[ i ] );
+			break;
+		}
+	}
+	FPDown_Send( pl, 1 );
+}
+
+// player.cpp, CBasePlayer::TakeDamage, first thing: true = no damage
+bool FPDown_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType )
+{
+	if ( sv_fpbody_down.value == 0.0f || gpGlobals->maxClients > 1 || !pl->IsAlive() || flDamage <= 0.0f )
+		return false;
+	if ( s_pDownTime )
+		return true;						// down: no more damage
+	if ( pl->pev->takedamage == DAMAGE_NO || ( pl->pev->flags & FL_GODMODE ) )
+		return false;
+	// what reaches his health (the suit takes 80% of the rest, two armour per point)
+	float h = flDamage;
+	if ( pl->pev->armorvalue > 0 && !( bitsDamageType & ( DMG_FALL | DMG_DROWN ) ) )
+	{
+		float hp = flDamage * 0.2f, armor = ( flDamage - hp ) * 0.5f;
+		if ( armor > pl->pev->armorvalue )
+			hp = flDamage - pl->pev->armorvalue * 2.0f;
+		h = hp;
+	}
+	if ( pl->pev->health - h >= 1.0f )
+		return false;						// not a killing blow
+	if ( flDamage >= 1000.0f || ( bitsDamageType & ( DMG_CRUSH | DMG_DROWN ) ) || pl->pev->waterlevel >= 2 )
+		return false;						// kill zones, crushers, water: dead
+	if ( !FPDown_Buddy() )
+		return false;						// nobody to help: dead as ever
+	FPDown_PlayerDown( pl );
+	return true;
+}
+
+// every frame (FPBuddy_PlayerThink)
+static void FPDown_PlayerThink( CBasePlayer *pl )
+{
+	float t = gpGlobals->time;
+	if ( !s_pDownTime && pl->pev->iuser4 == FPD_MARK )
+	{
+		if ( pl->IsAlive() && sv_fpbody_down.value != 0.0f )
+			s_pDownTime = t;				// a game saved lying down
+		else
+			pl->pev->iuser4 = 0;
+	}
+	if ( s_pDownTime )
+	{
+		if ( !pl->IsAlive() || sv_fpbody_down.value == 0.0f )
+		{
+			FPDown_PlayerUp( pl );
+			return;
+		}
+		if ( s_pDownTime > t || t - s_pDownTime > FPD_SELF + 5.0f )
+			s_pDownTime = t;				// the clock started again (a new map, a loaded game)
+		pl->pev->flags |= FL_FROZEN | FL_NOTARGET;
+		pl->pev->velocity.x = pl->pev->velocity.y = 0;
+		if ( pl->pev->health > 1 )
+			pl->pev->health = 1;
+		if ( t - s_pDownTime >= FPD_SELF )
+		{
+			FPDown_PlayerUp( pl );			// got up by himself
+			return;
+		}
+		FPDown_Send( pl, s_pCprTime ? 2 : 1 );
+		return;
+	}
+	CBaseEntity *patient = s_hPatient;
+	FPDown_Send( pl, patient ? 3 : 0 );
+}
+
+// ---- the companion helps the player -------------------------------------
+
+// the spot beside a patient's chest for the reviver: the reviver's feet and
+// yaw. The CPR (Half-Life's cprscientist) kneels with the hands 18 units to
+// the reviver's right; the patient lies on his back, the head 21 units behind
+// his origin, the chest 8 (cprbarney)
+static bool FPDown_CprSpot( const Vector &patientFeet, float patientYaw, edict_t *ignore, Vector &feet, float &yaw )
+{
+	Vector f, r, u;
+	UTIL_MakeVectorsPrivate( Vector( 0, patientYaw, 0 ), f, r, u );
+	Vector chest = patientFeet - f * 8.4f;
+	for ( int side = 0; side < 2; side++ )
+	{
+		Vector left = side ? r : -r;		// the patient's left, then his right
+		Vector spot = chest + left * 18.0f;
+		TraceResult tr;
+		UTIL_TraceHull( spot + Vector( 0, 0, 37 ), spot + Vector( 0, 0, 37 ), ignore_monsters, human_hull, ignore, &tr );
+		if ( tr.fStartSolid || tr.fAllSolid )
+			continue;
+		feet = spot;
+		yaw = side ? patientYaw + 180.0f : patientYaw;
+		return true;
+	}
+	return false;
+}
+
+bool CFPBuddy::HelpPlayer( CBasePlayer *pl )
+{
+	Vector feet;
+	float yaw;
+	Vector pfeet = pl->pev->origin + Vector( 0, 0, pl->pev->mins.z );
+	if ( !FPDown_CprSpot( pfeet, pl->pev->v_angle.y, ENT( pev ), feet, yaw ) )
+		return false;
+	SET_ORIGIN( ENT( pev ), feet );
+	pev->velocity = g_vecZero;
+	pev->angles = Vector( 0, yaw, 0 );
+	pev->ideal_yaw = yaw;
+	RouteClear();
+	ClearSchedule();
+	m_hEnemy = NULL;
+	PlaySeq( "cprscientist", 1.0f );
+	s_pCprTime = gpGlobals->time;
+	SetThink( &CFPBuddy::ReviveThink );
+	pev->nextthink = gpGlobals->time + 0.1f;
+	return true;
+}
+
+// Check (every half second): the player is down - go and help
+static bool FPDown_BuddyHelp( CFPBuddy *b, CBaseEntity *pPlayer )
+{
+	if ( !s_pDownTime || !pPlayer || !pPlayer->IsPlayer() )
+		return false;
+	if ( s_pCprTime )
+		return true;						// at it
+	CBasePlayer *pl = (CBasePlayer *)pPlayer;
+	float dist = ( pl->pev->origin - b->pev->origin ).Length2D();
+	if ( ( dist < 160 && b->FVisible( pl ) ) || gpGlobals->time - s_pDownTime > 4.0f )
+	{
+		if ( b->HelpPlayer( pl ) )
+			return true;
+	}
+	return false;							// still on the way (following)
+}
+
+void CFPBuddy::ReviveThink( void )
+{
+	pev->nextthink = gpGlobals->time + 0.1f;
+	StudioFrameAdvance();
+	if ( m_fSequenceFinished )
+	{
+		pev->frame = 0;
+		m_fSequenceFinished = false;
+	}
+	CBasePlayer *pl = FPDown_Player();
+	bool done = !s_pDownTime || !pl || !pl->IsAlive();
+	if ( !done && gpGlobals->time - s_pCprTime >= FPD_CPR )
+	{
+		FPDown_PlayerUp( pl );				// back on his feet
+		done = true;
+	}
+	if ( done )
+	{
+		s_pCprTime = 0;
+		ClearSchedule();
+		SetThink( &CBaseMonster::CallMonsterThink );
+	}
+}
+
+// ---- the companion goes down -------------------------------------------------
+
+// RunAI: hurt by others, not killed (his own health is m_flHP)
+static void FPDown_BuddyHealth( CFPBuddy *b )
+{
+	if ( sv_fpbody_down.value == 0.0f || gpGlobals->maxClients > 1 )
+	{
+		b->pev->takedamage = DAMAGE_NO;		// invincible, as before
+		return;
+	}
+	b->pev->takedamage = DAMAGE_AIM;
+	b->pev->health = FPD_BIG;
+	if ( b->m_flHP <= 0 || b->m_flHP > FPB_DOWN_HP )
+		b->m_flHP = FPB_DOWN_HP;
+}
+
+// TakeDamage: true = none (down, the player's own shots, switched off)
+static bool FPDown_BuddyHit( CFPBuddy *b, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage )
+{
+	if ( sv_fpbody_down.value == 0.0f || gpGlobals->maxClients > 1 || b->m_flDownTime || b->m_flUpTime )
+		return true;
+	if ( pevAttacker && ( pevAttacker->flags & FL_CLIENT ) )
+		return true;						// no friendly fire
+	if ( pevInflictor && !FNullEnt( pevInflictor->owner ) && ( pevInflictor->owner->v.flags & FL_CLIENT ) )
+		return true;						// his grenades, his rockets
+	b->pev->health = FPD_BIG;				// never killed by the hit itself
+	b->m_flHP -= flDamage;
+	if ( b->m_flHP <= 0 )
+	{
+		b->GoDown();
+		return true;
+	}
+	return false;
+}
+
+void CFPBuddy::GoDown( void )
+{
+	m_flHP = 0;
+	m_flDownTime = gpGlobals->time;
+	m_flUpTime = 0;
+	pev->takedamage = DAMAGE_NO;
+	pev->flags |= FL_NOTARGET;
+	pev->velocity = g_vecZero;
+	m_hEnemy = NULL;
+	RouteClear();
+	ClearSchedule();
+	DeathSound();
+	PlaySeq( "cprbarney", 1.0f );
+	SetThink( &CFPBuddy::DownThink );
+	pev->nextthink = gpGlobals->time + 0.1f;
+}
+
+void CFPBuddy::GetUp( void )
+{
+	m_flDownTime = 0;
+	m_flHP = FPB_DOWN_HP;
+	PlaySeq( "cprbarneyrevive", 2.0f );
+	pev->frame = 100;						// past the lying part (of 255)
+	m_flUpTime = gpGlobals->time + 3.2f;
+}
+
+// the player kneels beside him and gives him CPR (his +use)
+bool CFPBuddy::StartRevive( CBaseEntity *pPlayer )
+{
+	CBasePlayer *pl = (CBasePlayer *)pPlayer;
+	if ( !m_flDownTime || m_flUpTime || s_pDownTime || (CBaseEntity *)s_hPatient )
+		return false;
+	Vector feet;
+	float yaw;
+	if ( !FPDown_CprSpot( pev->origin, pev->angles.y, pl->edict(), feet, yaw ) )
+		return false;
+	TraceResult tr;
+	UTIL_TraceHull( feet + Vector( 0, 0, 36 ), feet + Vector( 0, 0, 36 ), ignore_monsters, human_hull, pl->edict(), &tr );
+	if ( tr.fStartSolid || tr.fAllSolid )
+		return false;
+	SET_ORIGIN( pl->edict(), feet + Vector( 0, 0, 36 ) );
+	pl->pev->velocity = g_vecZero;
+	pl->pev->angles = Vector( 0, yaw, 0 );
+	pl->pev->v_angle = Vector( 25, yaw, 0 );	// looking down at him
+	pl->pev->fixangle = 1;
+	pl->pev->flags |= FL_FROZEN;
+	s_hPatient = this;
+	s_pPatientTime = gpGlobals->time;
+	FPDown_Send( pl, 3 );
+	return true;
+}
+
+static void FPDown_EndPatient( CBasePlayer *pl )
+{
+	s_hPatient = NULL;
+	if ( pl && !s_pDownTime )
+	{
+		pl->pev->flags &= ~FL_FROZEN;
+		FPDown_Send( pl, 0 );
+	}
+}
+
+void CFPBuddy::DownThink( void )
+{
+	pev->nextthink = gpGlobals->time + 0.1f;
+	StudioFrameAdvance();
+	float t = gpGlobals->time;
+	CBasePlayer *pl = FPDown_Player();
+	if ( m_flUpTime )
+	{
+		// getting up: back to the fight when he's on his feet
+		if ( t >= m_flUpTime || m_flUpTime - t > 10.0f )
+		{
+			m_flUpTime = 0;
+			pev->takedamage = DAMAGE_AIM;
+			pev->flags &= ~FL_NOTARGET;
+			pev->health = FPD_BIG;
+			ClearSchedule();
+			m_IdealMonsterState = MONSTERSTATE_ALERT;
+			SetThink( &CBaseMonster::CallMonsterThink );
+		}
+		return;
+	}
+	if ( m_fSequenceFinished )
+	{
+		pev->frame = 0;						// lying there, breathing
+		m_fSequenceFinished = false;
+	}
+	if ( m_flDownTime > t || t - m_flDownTime > FPD_SELF + 5.0f )
+		m_flDownTime = t;					// the clock started again
+	if ( (CBaseEntity *)s_hPatient == this )
+	{
+		bool keep = pl && pl->IsAlive() && !s_pDownTime && ( pl->pev->button & IN_USE ) &&
+					( pl->pev->origin - pev->origin ).Length() < 120;
+		if ( !keep )
+			FPDown_EndPatient( pl );		// let go of +use: stopped
+		else
+		{
+			pl->pev->flags |= FL_FROZEN;
+			pl->pev->velocity = g_vecZero;
+			if ( t - s_pPatientTime >= FPD_CPR )
+			{
+				FPDown_EndPatient( pl );
+				GetUp();					// revived
+				return;
+			}
+		}
+	}
+	if ( t - m_flDownTime >= FPD_SELF )
+		GetUp();							// up by himself
+}

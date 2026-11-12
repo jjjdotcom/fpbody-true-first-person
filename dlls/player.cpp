@@ -233,6 +233,7 @@ void LinkUserMessages( void )
 	gmsgShowMenu = REG_USER_MSG( "ShowMenu", -1 );
 	gmsgShake = REG_USER_MSG("ScreenShake", sizeof(ScreenShake));
 	gmsgFade = REG_USER_MSG("ScreenFade", sizeof(ScreenFade));
+	extern void FPDown_LinkMessages( void ); FPDown_LinkMessages();	// fpbody: downed / revived (fpbody_buddy.inl)
 	gmsgAmmoX = REG_USER_MSG("AmmoX", 3);	// fpbody: count is a short (uranium carries 500)
 	gmsgTeamNames = REG_USER_MSG( "TeamNames", -1 );
 
@@ -445,12 +446,15 @@ void CBasePlayer :: TraceAttack( entvars_t *pevAttacker, float flDamage, Vector 
 
 void FPReact_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType );	// fpbody_react.inl
 void FPReact_Think( CBasePlayer *pl );
+bool FPDown_OnDamage( CBasePlayer *pl, entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType );	// fpbody_buddy.inl
 
 int CBasePlayer :: TakeDamage( entvars_t *pevInflictor, entvars_t *pevAttacker, float flDamage, int bitsDamageType )
 {
 	// have suit diagnose the problem - ie: report damage type
 	int bitsDamage = bitsDamageType;
-	FPReact_OnDamage( this, pevInflictor, pevAttacker, flDamage, bitsDamageType );	// fpbody: knocked down / thrown back by who hit us
+	FPReact_OnDamage( this, pevInflictor, pevAttacker, flDamage, bitsDamageType );
+	if ( FPDown_OnDamage( this, pevInflictor, pevAttacker, flDamage, bitsDamageType ) )
+		return 0;	// fpbody: down, not dead
 	int ffound = TRUE;
 	int fmajor;
 	int fcritical;
