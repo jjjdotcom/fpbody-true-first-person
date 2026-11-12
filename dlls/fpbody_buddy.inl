@@ -150,6 +150,9 @@ public:
 	float m_flNextTeleport;
 	float m_flHP;			// his own health (pev->health is kept high: see RunAI)
 	float m_flDownTime;		// downed since (0 = up)
+	float m_flHintTime;		// next "Hold USE to revive" (not saved)
+	float m_flHitTime;		// last hurt (health comes back after a while; not saved)
+	float m_flRegenTime;
 	float m_flUpTime;		// getting up: back to the fight then
 	// not saved
 	int m_iBurst;
@@ -969,6 +972,25 @@ static void FPDown_BuddyHealth( CFPBuddy *b )
 	b->pev->health = FPD_BIG;
 	if ( b->m_flHP <= 0 || b->m_flHP > FPB_DOWN_HP )
 		b->m_flHP = FPB_DOWN_HP;
+	// sv_fpbody_buddy_regen: his health comes back (per second), 5 s after the last hit
+	static cvar_t regen = { "sv_fpbody_buddy_regen", "5", FCVAR_ARCHIVE };
+	static bool registered;
+	if ( !registered )
+	{
+		CVAR_REGISTER( &regen );
+		registered = true;
+	}
+	float t = gpGlobals->time;
+	float dt = ( b->m_flRegenTime > 0 && t > b->m_flRegenTime ) ? t - b->m_flRegenTime : 0.0f;
+	b->m_flRegenTime = t;
+	if ( b->m_flHitTime > t )
+		b->m_flHitTime = 0;					// a new map / a loaded game
+	if ( regen.value > 0 && dt < 1.0f && t - b->m_flHitTime >= 5.0f && b->m_flHP < FPB_DOWN_HP )
+	{
+		b->m_flHP += regen.value * dt;
+		if ( b->m_flHP > FPB_DOWN_HP )
+			b->m_flHP = FPB_DOWN_HP;
+	}
 }
 
 // TakeDamage: true = none (down, the player's own shots, switched off)
@@ -982,6 +1004,7 @@ static bool FPDown_BuddyHit( CFPBuddy *b, entvars_t *pevInflictor, entvars_t *pe
 		return true;						// his grenades, his rockets
 	b->pev->health = FPD_BIG;				// never killed by the hit itself
 	b->m_flHP -= flDamage;
+	b->m_flHitTime = gpGlobals->time;
 	if ( b->m_flHP <= 0 )
 	{
 		b->GoDown();
@@ -994,6 +1017,7 @@ void CFPBuddy::GoDown( void )
 {
 	m_flHP = 0;
 	m_flDownTime = gpGlobals->time;
+	m_flHintTime = 0;
 	m_flUpTime = 0;
 	pev->takedamage = DAMAGE_NO;
 	pev->flags |= FL_NOTARGET;
@@ -1022,19 +1046,24 @@ bool CFPBuddy::StartRevive( CBaseEntity *pPlayer )
 	CBasePlayer *pl = (CBasePlayer *)pPlayer;
 	if ( !m_flDownTime || m_flUpTime || s_pDownTime || (CBaseEntity *)s_hPatient )
 		return false;
+	if ( !pl || !pl->IsPlayer() || !pl->IsAlive() )
+		return false;
 	Vector feet;
 	float yaw;
-	if ( !FPDown_CprSpot( pev->origin, pev->angles.y, pl->edict(), feet, yaw ) )
-		return false;
-	TraceResult tr;
-	UTIL_TraceHull( feet + Vector( 0, 0, 36 ), feet + Vector( 0, 0, 36 ), ignore_monsters, human_hull, pl->edict(), &tr );
-	if ( tr.fStartSolid || tr.fAllSolid )
-		return false;
-	SET_ORIGIN( pl->edict(), feet + Vector( 0, 0, 36 ) );
+	if ( FPDown_CprSpot( pev->origin, pev->angles.y, pl->edict(), feet, yaw ) )
+	{
+		TraceResult tr;
+		UTIL_TraceHull( feet + Vector( 0, 0, 36 ), feet + Vector( 0, 0, 36 ), ignore_monsters, human_hull, pl->edict(), &tr );
+		if ( !tr.fStartSolid && !tr.fAllSolid )
+		{
+			SET_ORIGIN( pl->edict(), feet + Vector( 0, 0, 36 ) );	// kneel at his side
+			pl->pev->angles = Vector( 0, yaw, 0 );
+			pl->pev->v_angle = Vector( 25, yaw, 0 );	// looking down at him
+			pl->pev->fixangle = 1;
+		}
+	}
+	// no room at his side: CPR from where you stand
 	pl->pev->velocity = g_vecZero;
-	pl->pev->angles = Vector( 0, yaw, 0 );
-	pl->pev->v_angle = Vector( 25, yaw, 0 );	// looking down at him
-	pl->pev->fixangle = 1;
 	pl->pev->flags |= FL_FROZEN;
 	s_hPatient = this;
 	s_pPatientTime = gpGlobals->time;
@@ -1080,10 +1109,24 @@ void CFPBuddy::DownThink( void )
 	}
 	if ( m_flDownTime > t || t - m_flDownTime > FPD_SELF + 5.0f )
 		m_flDownTime = t;					// the clock started again
+	// +use held next to him starts CPR (no need to aim at him: he's on the floor)
+	if ( pl && (CBaseEntity *)s_hPatient == NULL && !s_pDownTime && pl->IsAlive() )
+	{
+		Vector d = pev->origin - pl->pev->origin;
+		d.z = 0;
+		float dist = d.Length();
+		if ( ( pl->pev->button & IN_USE ) && dist < 100 && fabs( pev->origin.z - pl->pev->origin.z ) < 72 )
+			StartRevive( pl );
+		else if ( dist < 200 && t >= m_flHintTime )
+		{
+			ClientPrint( pl->pev, HUD_PRINTCENTER, "Hold USE to revive" );
+			m_flHintTime = t + 1.5f;
+		}
+	}
 	if ( (CBaseEntity *)s_hPatient == this )
 	{
 		bool keep = pl && pl->IsAlive() && !s_pDownTime && ( pl->pev->button & IN_USE ) &&
-					( pl->pev->origin - pev->origin ).Length() < 120;
+					( pl->pev->origin - pev->origin ).Length() < 140;
 		if ( !keep )
 			FPDown_EndPatient( pl );		// let go of +use: stopped
 		else
