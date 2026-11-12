@@ -153,6 +153,7 @@ public:
 	float m_flHintTime;		// next "Hold USE to revive" (not saved)
 	float m_flHitTime;		// last hurt (health comes back after a while; not saved)
 	float m_flRegenTime;
+	float m_flUseSeen;		// the player last held +use (giving CPR)
 	float m_flUpTime;		// getting up: back to the fight then
 	// not saved
 	int m_iBurst;
@@ -710,7 +711,7 @@ extern cvar_t sv_fpbody_down;
 
 #define FPD_MARK		0x4650444E	// player's iuser4 while down ("FPDN"): a saved game remembers it
 #define FPD_SELF		60.0f		// up by yourself after this
-#define FPD_CPR			5.0f		// CPR this long
+#define FPD_CPR			8.0f		// CPR this long (the whole of the scientist's CPR: 160 frames at 20 fps)
 #define FPD_UP_HP		30.0f		// health after a revive
 #define FPD_BIG			10000.0f	// the companion's pev->health (his own is m_flHP)
 
@@ -1067,6 +1068,8 @@ bool CFPBuddy::StartRevive( CBaseEntity *pPlayer )
 	pl->pev->flags |= FL_FROZEN;
 	s_hPatient = this;
 	s_pPatientTime = gpGlobals->time;
+	m_flUseSeen = gpGlobals->time;
+	m_flHintTime = 0;
 	FPDown_Send( pl, 3 );
 	return true;
 }
@@ -1125,8 +1128,17 @@ void CFPBuddy::DownThink( void )
 	}
 	if ( (CBaseEntity *)s_hPatient == this )
 	{
-		bool keep = pl && pl->IsAlive() && !s_pDownTime && ( pl->pev->button & IN_USE ) &&
+		if ( pl && ( pl->pev->button & IN_USE ) )
+			m_flUseSeen = t;
+		// +use let go for a moment (a dropped frame) doesn't stop it
+		bool keep = pl && pl->IsAlive() && !s_pDownTime && t - m_flUseSeen < 0.5f && t >= m_flUseSeen &&
 					( pl->pev->origin - pev->origin ).Length() < 140;
+		if ( keep && t >= m_flHintTime )
+		{
+			int left = (int)( FPD_CPR - ( t - s_pPatientTime ) + 0.99f );
+			ClientPrint( pl->pev, HUD_PRINTCENTER, UTIL_VarArgs( (char *)"Reviving... %d", left > 0 ? left : 1 ) );
+			m_flHintTime = t + 1.0f;
+		}
 		if ( !keep )
 			FPDown_EndPatient( pl );		// let go of +use: stopped
 		else

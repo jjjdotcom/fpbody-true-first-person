@@ -2082,10 +2082,10 @@ index 0000000..73cdbd7
 +#endif // FPBODY_H
 diff --git a/cl_dll/fpbody_anim.cpp b/cl_dll/fpbody_anim.cpp
 new file mode 100644
-index 0000000..dcb7b55
+index 0000000..05f0252
 --- /dev/null
 +++ b/cl_dll/fpbody_anim.cpp
-@@ -0,0 +1,4797 @@
+@@ -0,0 +1,4799 @@
 +// fpbody_anim.cpp - procedural body animations for the "True First Person" mod.
 +//
 +// Everything here moves the third-person body's bones directly, after the
@@ -4443,6 +4443,8 @@ index 0000000..dcb7b55
 +	// +use: off hand reaches out; holding it keeps the hand out (pushing)
 +	float tap = Bump( ( now - g_useStart ) / 0.6f, 0.0f, 1.0f );
 +	float useW = tap > g_useHoldW ? tap : g_useHoldW;
++	if ( g_fpDown )
++		useW = 0.0f;			// downed / giving CPR: the hands are in the animation
 +	g_usePalmW = useW;
 +	if ( useW > 0.0f )
 +	{
@@ -7481,10 +7483,10 @@ index 38b0581..da7cf84 100644
  void CCrossbow::Holster( int skiplocal /* = 0 */ )
 diff --git a/dlls/fpbody_buddy.inl b/dlls/fpbody_buddy.inl
 new file mode 100644
-index 0000000..a690b9b
+index 0000000..1068cc1
 --- /dev/null
 +++ b/dlls/fpbody_buddy.inl
-@@ -0,0 +1,1146 @@
+@@ -0,0 +1,1158 @@
 +// fpbody: the HEV companion (sv_fpbody_buddy 1).
 +//
 +// Included at the end of barney.cpp: monster_fpbody_buddy is a security guard
@@ -7640,6 +7642,7 @@ index 0000000..a690b9b
 +	float m_flHintTime;		// next "Hold USE to revive" (not saved)
 +	float m_flHitTime;		// last hurt (health comes back after a while; not saved)
 +	float m_flRegenTime;
++	float m_flUseSeen;		// the player last held +use (giving CPR)
 +	float m_flUpTime;		// getting up: back to the fight then
 +	// not saved
 +	int m_iBurst;
@@ -8197,7 +8200,7 @@ index 0000000..a690b9b
 +
 +#define FPD_MARK		0x4650444E	// player's iuser4 while down ("FPDN"): a saved game remembers it
 +#define FPD_SELF		60.0f		// up by yourself after this
-+#define FPD_CPR			5.0f		// CPR this long
++#define FPD_CPR			8.0f		// CPR this long (the whole of the scientist's CPR: 160 frames at 20 fps)
 +#define FPD_UP_HP		30.0f		// health after a revive
 +#define FPD_BIG			10000.0f	// the companion's pev->health (his own is m_flHP)
 +
@@ -8554,6 +8557,8 @@ index 0000000..a690b9b
 +	pl->pev->flags |= FL_FROZEN;
 +	s_hPatient = this;
 +	s_pPatientTime = gpGlobals->time;
++	m_flUseSeen = gpGlobals->time;
++	m_flHintTime = 0;
 +	FPDown_Send( pl, 3 );
 +	return true;
 +}
@@ -8612,8 +8617,17 @@ index 0000000..a690b9b
 +	}
 +	if ( (CBaseEntity *)s_hPatient == this )
 +	{
-+		bool keep = pl && pl->IsAlive() && !s_pDownTime && ( pl->pev->button & IN_USE ) &&
++		if ( pl && ( pl->pev->button & IN_USE ) )
++			m_flUseSeen = t;
++		// +use let go for a moment (a dropped frame) doesn't stop it
++		bool keep = pl && pl->IsAlive() && !s_pDownTime && t - m_flUseSeen < 0.5f && t >= m_flUseSeen &&
 +					( pl->pev->origin - pev->origin ).Length() < 140;
++		if ( keep && t >= m_flHintTime )
++		{
++			int left = (int)( FPD_CPR - ( t - s_pPatientTime ) + 0.99f );
++			ClientPrint( pl->pev, HUD_PRINTCENTER, UTIL_VarArgs( (char *)"Reviving... %d", left > 0 ? left : 1 ) );
++			m_flHintTime = t + 1.0f;
++		}
 +		if ( !keep )
 +			FPDown_EndPatient( pl );		// let go of +use: stopped
 +		else

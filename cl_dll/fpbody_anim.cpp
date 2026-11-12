@@ -2355,6 +2355,8 @@ static void EvalActions( float now, pose_t &p, const float *f, const float *r, c
 	// +use: off hand reaches out; holding it keeps the hand out (pushing)
 	float tap = Bump( ( now - g_useStart ) / 0.6f, 0.0f, 1.0f );
 	float useW = tap > g_useHoldW ? tap : g_useHoldW;
+	if ( g_fpDown )
+		useW = 0.0f;			// downed / giving CPR: the hands are in the animation
 	g_usePalmW = useW;
 	if ( useW > 0.0f )
 	{
